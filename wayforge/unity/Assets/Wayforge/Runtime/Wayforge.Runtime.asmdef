@@ -1,0 +1,1 @@
+{ "name": "Wayforge.Runtime", "rootNamespace": "Wayforge", "references": [], "includePlatforms": [], "excludePlatforms": [], "allowUnsafeCode": false, "autoReferenced": true }

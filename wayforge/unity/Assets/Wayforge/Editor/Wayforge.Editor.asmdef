@@ -1,0 +1,1 @@
+{ "name": "Wayforge.Editor", "rootNamespace": "Wayforge.Editor", "references": ["Wayforge.Runtime"], "includePlatforms": ["Editor"], "excludePlatforms": [], "autoReferenced": true }

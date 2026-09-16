@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Wayforge test plan "simple": one floor, 20 m x 12 m at 1 px = 0.05 m.
+     Single-line walls. Corridor runs left-right through the middle.
+     Four rooms above (A1..A4), a stair well + two rooms below (B1, B2), an exit at the right end.
+     Door gaps are 18 px = 0.9 m. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240">
+  <g id="walls" stroke="black" stroke-width="2" fill="none">
+    <!-- outer box -->
+    <rect x="0" y="0" width="400" height="240"/>
+    <!-- corridor walls, y=100 (top) and y=140 (bottom), with door gaps -->
+    <!-- top corridor wall: doors at x 40-58 (A1), 140-158 (A2), 240-258 (A3), 340-358 (A4) -->
+    <path d="M 0 100 L 40 100 M 58 100 L 140 100 M 158 100 L 240 100 M 258 100 L 340 100 M 358 100 L 400 100"/>
+    <!-- bottom corridor wall: doors at x 30-48 (stair), 140-158 (B1), 290-308 (B2) -->
+    <path d="M 0 140 L 30 140 M 48 140 L 140 140 M 158 140 L 290 140 M 308 140 L 400 140"/>
+    <!-- partitions above the corridor -->
+    <line x1="100" y1="0" x2="100" y2="100"/>
+    <line x1="200" y1="0" x2="200" y2="100"/>
+    <line x1="300" y1="0" x2="300" y2="100"/>
+    <!-- partitions below the corridor: stair well 0..80, B1 80..220, B2 220..400 -->
+    <line x1="80" y1="140" x2="80" y2="240"/>
+    <line x1="220" y1="140" x2="220" y2="240"/>
+  </g>
+  <g id="labels" font-family="sans-serif" font-size="12" fill="#888">
+    <text x="30" y="50">A1</text><text x="130" y="50">A2</text><text x="230" y="50">A3</text><text x="330" y="50">A4</text>
+    <text x="20" y="200">STAIR</text><text x="130" y="200">B1</text><text x="290" y="200">B2</text>
+    <text x="180" y="125">corridor</text>
+  </g>
+</svg>
