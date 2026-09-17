@@ -2,8 +2,9 @@
 // Private code lives in Implementation/.
 #pragma once
 
-namespace wf::doc {
+#include "wf_doc/Types.hpp"
+#include "wf_doc/Property.hpp"
 
-// TODO(owner): declare the public API of wf_doc here.
-
-} // namespace wf::doc
+namespace wf {
+    // Top-level wf_doc API declarations can go here.
+}
