@@ -54,6 +54,13 @@ namespace Wayforge.Stub
         private readonly List<List<Level>> _undoStack = new List<List<Level>>();
         private readonly List<List<Level>> _redoStack = new List<List<Level>>();
 
+        // Which made-up building Open() loads. Flip this to switch between
+        // the plain 10x8 box (BuildDummyLevel, matches the Work Breakdown's
+        // own wf_read test example) and the house-shaped layout
+        // (BuildHouseLevel, a rough stand-in for a real floor plan). Both
+        // are equally fake -- this just picks which one you're looking at.
+        private const bool UseHouseFixture = true;
+
         private List<Level> _levels = new List<Level>();
         private string _openPath;
         private bool _dirty;
@@ -89,7 +96,7 @@ namespace Wayforge.Stub
                 ? "untitled"
                 : System.IO.Path.GetFileNameWithoutExtension(path);
 
-            _levels = new List<Level> { BuildDummyLevel() };
+            _levels = new List<Level> { UseHouseFixture ? BuildHouseLevel() : BuildDummyLevel() };
             CurrentLevel = 0;
             IsOpen = true;
             _dirty = false;
@@ -434,6 +441,136 @@ namespace Wayforge.Stub
                     boundary = new List<string> { "w5", "w2", "w3", "w6" },
                     polygon = new List<Vector2> { new Vector2(6,0), new Vector2(10,0), new Vector2(10,8), new Vector2(6,8) },
                     centroid = new Vector2(8, 4), area = 32f, confidence = 0.6f
+                },
+            });
+
+            return level;
+        }
+
+        // --- a second, house-shaped fixture ---------------------------
+        // A rough approximation of a real floor plan the user shared (a
+        // two-bedroom-plus-master upper floor with a stair, terrace,
+        // upper living area and balcony). Still 100% hand-typed, made-up
+        // data -- exactly like BuildDummyLevel above, just shaped like a
+        // house instead of a plain box, so a demo shows something more
+        // recognizable than a rectangle.
+        //
+        // IMPORTANT HONESTY NOTE: this is NOT the output of reading the
+        // floor plan image. There is no image-parsing anywhere in this
+        // file or this project yet -- that would be RTIS 1's wall
+        // detection + IMGD 1's .wfb writer, neither of which exists. This
+        // is a person (well, Claude) looking at a picture and typing
+        // approximate room boxes into a Python script to compute clean,
+        // non-overlapping wall coordinates, then hand-transcribing those
+        // numbers into this C# method. Room proportions and the overall
+        // footprint are eyeballed from the image, not measured.
+        //
+        // RoomKind has no Bedroom/LivingRoom values (Work Breakdown 3.1's
+        // enum is school/office vocabulary: Classroom, Lab, Office, ...).
+        // Rather than force a wrong-sounding kind onto every room, every
+        // room here is left as RoomKind.Unknown with the real distinction
+        // living in `name` instead -- and every room starts untagged
+        // (empty code) on purpose, so opening this in Studio gives you
+        // real tagging work to demo through RoomTagger, the same as
+        // BuildDummyLevel's one deliberately-untagged room, just for all
+        // seven rooms instead of one.
+        //
+        // Wall/room coordinates below were generated and cross-checked
+        // for overlaps, orphan segments, and correct perimeter ordering
+        // in a throwaway Python script before being transcribed here --
+        // they are not hand-guessed numbers.
+
+        private Level BuildHouseLevel()
+        {
+            var level = new Level { id = "L1", name = "Upper Floor" };
+
+            level.walls.AddRange(new[]
+            {
+                new WfWall { id = "w1",  a = new Vector2(0, 0),   b = new Vector2(0, 4),   thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w2",  a = new Vector2(0, 4),   b = new Vector2(0, 8),   thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w3",  a = new Vector2(0, 8),   b = new Vector2(0, 11),  thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w4",  a = new Vector2(2, 4),   b = new Vector2(2, 8),   thickness = 0.1f,  confidence = 0.7f },
+                new WfWall { id = "w5",  a = new Vector2(4, 8),   b = new Vector2(4, 11),  thickness = 0.1f,  confidence = 0.8f }, // Terrace / Bedroom2 shared wall
+                new WfWall { id = "w6",  a = new Vector2(5, 0),   b = new Vector2(5, 2),   thickness = 0.1f,  confidence = 0.75f }, // MasterBedroom / Balcony shared wall
+                new WfWall { id = "w7",  a = new Vector2(5, 2),   b = new Vector2(5, 4),   thickness = 0.1f,  confidence = 0.75f },
+                new WfWall { id = "w8",  a = new Vector2(8, 0),   b = new Vector2(8, 2),   thickness = 0.1f,  confidence = 0.7f },
+                new WfWall { id = "w9",  a = new Vector2(8, 3),   b = new Vector2(8, 8),   thickness = 0.15f, confidence = 0.6f }, // longer run, lower confidence -> should draw orange
+                new WfWall { id = "w10", a = new Vector2(8, 8),   b = new Vector2(8, 11),  thickness = 0.1f,  confidence = 0.8f },
+                new WfWall { id = "w11", a = new Vector2(9, 8),   b = new Vector2(9, 11),  thickness = 0.1f,  confidence = 0.8f },
+                new WfWall { id = "w12", a = new Vector2(13, 3),  b = new Vector2(13, 8),  thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w13", a = new Vector2(13, 8),  b = new Vector2(13, 11), thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w14", a = new Vector2(0, 0),   b = new Vector2(5, 0),   thickness = 0.15f, confidence = 0.9f },
+                new WfWall { id = "w15", a = new Vector2(5, 0),   b = new Vector2(8, 0),   thickness = 0.15f, confidence = 0.9f },
+                new WfWall { id = "w16", a = new Vector2(5, 2),   b = new Vector2(8, 2),   thickness = 0.1f,  confidence = 0.65f },
+                new WfWall { id = "w17", a = new Vector2(8, 3),   b = new Vector2(13, 3),  thickness = 0.15f, confidence = 0.85f },
+                new WfWall { id = "w18", a = new Vector2(0, 4),   b = new Vector2(2, 4),   thickness = 0.1f,  confidence = 0.7f }, // Stair / MasterBedroom shared wall
+                new WfWall { id = "w19", a = new Vector2(2, 4),   b = new Vector2(5, 4),   thickness = 0.15f, confidence = 0.8f },
+                new WfWall { id = "w20", a = new Vector2(0, 8),   b = new Vector2(2, 8),   thickness = 0.1f,  confidence = 0.65f }, // Terrace / Stair shared wall
+                new WfWall { id = "w21", a = new Vector2(2, 8),   b = new Vector2(4, 8),   thickness = 0.15f, confidence = 0.8f },
+                new WfWall { id = "w22", a = new Vector2(4, 8),   b = new Vector2(8, 8),   thickness = 0.15f, confidence = 0.8f },
+                new WfWall { id = "w23", a = new Vector2(8, 8),   b = new Vector2(9, 8),   thickness = 0.1f,  confidence = 0.7f },
+                new WfWall { id = "w24", a = new Vector2(9, 8),   b = new Vector2(13, 8),  thickness = 0.15f, confidence = 0.75f }, // Bedroom3 / UpperLiving shared wall
+                new WfWall { id = "w25", a = new Vector2(0, 11),  b = new Vector2(4, 11),  thickness = 0.15f, confidence = 0.9f },
+                new WfWall { id = "w26", a = new Vector2(4, 11),  b = new Vector2(8, 11),  thickness = 0.15f, confidence = 0.9f },
+                new WfWall { id = "w27", a = new Vector2(9, 11),  b = new Vector2(13, 11), thickness = 0.15f, confidence = 0.9f },
+            });
+
+            // A couple of door openings, roughly where the image shows
+            // door swings -- placed for visual interest, not measured.
+            level.openings.Add(new WfOpening { id = "o1", wall = "w19", offset = 1.5f, width = 0.9f, type = OpeningType.Door, confidence = 0.75f }); // Master Bedroom entry
+            level.openings.Add(new WfOpening { id = "o2", wall = "w22", offset = 2f, width = 0.9f, type = OpeningType.Door, confidence = 0.7f });  // Bedroom 2 entry
+            level.openings.Add(new WfOpening { id = "o3", wall = "w16", offset = 1.5f, width = 1.5f, type = OpeningType.Opening, confidence = 0.6f }); // Balcony opening (no door, just an opening)
+
+            level.rooms.AddRange(new[]
+            {
+                new WfRoom
+                {
+                    id = "r1", code = "", name = "", kind = RoomKind.Unknown, // will read as "Master Bedroom" once tagged
+                    boundary = new List<string> { "w14", "w6", "w7", "w19", "w18", "w1" },
+                    polygon = new List<Vector2> { new Vector2(0,0), new Vector2(5,0), new Vector2(5,4), new Vector2(0,4) },
+                    centroid = new Vector2(2.5f, 2f), area = 20f, confidence = 0.8f
+                },
+                new WfRoom
+                {
+                    id = "r2", code = "", name = "", kind = RoomKind.Unknown, // will read as "Balcony" once tagged
+                    boundary = new List<string> { "w15", "w8", "w16", "w6" },
+                    polygon = new List<Vector2> { new Vector2(5,0), new Vector2(8,0), new Vector2(8,2), new Vector2(5,2) },
+                    centroid = new Vector2(6.5f, 1f), area = 6f, confidence = 0.65f
+                },
+                new WfRoom
+                {
+                    id = "r3", code = "", name = "", kind = RoomKind.Unknown, // will read as "Stair"
+                    boundary = new List<string> { "w18", "w4", "w20", "w2" },
+                    polygon = new List<Vector2> { new Vector2(0,4), new Vector2(2,4), new Vector2(2,8), new Vector2(0,8) },
+                    centroid = new Vector2(1f, 6f), area = 8f, confidence = 0.7f
+                },
+                new WfRoom
+                {
+                    id = "r4", code = "", name = "", kind = RoomKind.Unknown, // will read as "Upper Living"
+                    boundary = new List<string> { "w17", "w12", "w24", "w23", "w9" },
+                    polygon = new List<Vector2> { new Vector2(8,3), new Vector2(13,3), new Vector2(13,8), new Vector2(8,8) },
+                    centroid = new Vector2(10.5f, 5.5f), area = 25f, confidence = 0.75f
+                },
+                new WfRoom
+                {
+                    id = "r5", code = "", name = "", kind = RoomKind.Unknown, // will read as "Terrace"
+                    boundary = new List<string> { "w20", "w21", "w5", "w25", "w3" },
+                    polygon = new List<Vector2> { new Vector2(0,8), new Vector2(4,8), new Vector2(4,11), new Vector2(0,11) },
+                    centroid = new Vector2(2f, 9.5f), area = 12f, confidence = 0.8f
+                },
+                new WfRoom
+                {
+                    id = "r6", code = "", name = "", kind = RoomKind.Unknown, // will read as "Bedroom 2"
+                    boundary = new List<string> { "w22", "w10", "w26", "w5" },
+                    polygon = new List<Vector2> { new Vector2(4,8), new Vector2(8,8), new Vector2(8,11), new Vector2(4,11) },
+                    centroid = new Vector2(6f, 9.5f), area = 12f, confidence = 0.8f
+                },
+                new WfRoom
+                {
+                    id = "r7", code = "", name = "", kind = RoomKind.Unknown, // will read as "Bedroom 3"
+                    boundary = new List<string> { "w24", "w13", "w27", "w11" },
+                    polygon = new List<Vector2> { new Vector2(9,8), new Vector2(13,8), new Vector2(13,11), new Vector2(9,11) },
+                    centroid = new Vector2(11f, 9.5f), area = 12f, confidence = 0.8f
                 },
             });
 

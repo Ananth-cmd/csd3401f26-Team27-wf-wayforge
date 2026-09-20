@@ -94,6 +94,54 @@ namespace Wayforge.Editor
             DocumentProvider.Reset();
         }
 
+        // Week 4: warn before the actual window close, not domain reloads.
+        // OnDisable (above) fires on EVERY script recompile as well as a
+        // real close -- popping a blocking dialog there would interrupt
+        // you mid-edit any time Unity recompiles. OnDestroy is Unity's
+        // dedicated "the window is actually being closed" hook, so the
+        // unsaved-changes prompt belongs here instead. Note this can't
+        // stop the close (EditorWindow has no cancellable close event at
+        // this level) -- it can only warn and let the user cancel
+        // resolving the dialog by choosing "Cancel", after which they'd
+        // need to manually keep working and re-close later.
+        private void OnDestroy()
+        {
+            if (_doc == null || !_doc.IsOpen || !_doc.IsDirty) return;
+
+            bool discard = EditorUtility.DisplayDialog(
+                "Unsaved changes",
+                $"{_doc.BuildingName} has unsaved changes that will be lost if you close Studio now.",
+                "Close without saving",
+                "Cancel");
+
+            if (!discard)
+            {
+                // Can't actually block the close from here -- re-open the
+                // window so the user doesn't lose the reference to it, and
+                // let them hit Save explicitly.
+                Debug.LogWarning("[StudioWindow] Closed with unsaved changes. Reopening so you can save.");
+                EditorApplication.delayCall += Open;
+            }
+        }
+
+        /// <summary>
+        /// Week 4: shared guard for any action that's about to throw away
+        /// the current document's in-memory state (Open being the only
+        /// one right now). Returns true if it's safe to proceed --
+        /// nothing open, nothing dirty, or the user explicitly confirmed
+        /// discarding.
+        /// </summary>
+        private bool ConfirmDiscardUnsavedChanges(string aboutToDoWhat)
+        {
+            if (!_doc.IsOpen || !_doc.IsDirty) return true;
+
+            return EditorUtility.DisplayDialog(
+                "Unsaved changes",
+                $"{_doc.BuildingName} has unsaved changes. They'll be lost if you continue {aboutToDoWhat}.",
+                "Discard changes",
+                "Cancel");
+        }
+
         private void OnGUI()
         {
             HandleShortcuts();
@@ -246,6 +294,12 @@ namespace Wayforge.Editor
                     "OK");
                 return;
             }
+
+            // Week 4: don't silently throw away unsaved edits. Open()
+            // replaces _doc's entire internal state (see StubWayforgeDocument
+            // .Open / the real Document::Open wf_open_plan equivalent) --
+            // there is no "merge" here, the old document is just gone.
+            if (!ConfirmDiscardUnsavedChanges("opening another file")) return;
 
             string path = EditorUtility.OpenFilePanel("Open plan", "", "wfb,svg");
             if (string.IsNullOrEmpty(path)) return; // user cancelled

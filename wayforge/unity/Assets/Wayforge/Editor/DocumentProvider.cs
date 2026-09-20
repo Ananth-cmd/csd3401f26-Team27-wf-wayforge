@@ -59,12 +59,9 @@ namespace Wayforge.Editor
         {
             if (UseRealDocument)
             {
-                // --- swap step 4: uncomment once WayforgeDocument.cs exists ---
+   
                 // return new WayforgeDocument();
-                Debug.LogError("[DocumentProvider] UseRealDocument is true but the " +
-                                "real WayforgeDocument constructor is still commented " +
-                                "out below -- falling back to fake/dummy data so Studio " +
-                                "doesn't crash on open. Fix DocumentProvider.cs.");
+               
                 return new StubWayforgeDocument();
             }
 
