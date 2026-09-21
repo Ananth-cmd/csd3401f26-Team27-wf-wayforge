@@ -5,4 +5,4 @@ namespace wf::doc {
 
 // TODO(owner): implement.
 
-} // namespace wf::doc
+} // namespace wf_doc
