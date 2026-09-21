@@ -1,16 +1,6 @@
-// StudioWindow.cs
-//
-// Week 1 deliverable (Work Breakdown, IMGD 2 row), extended through
-// weeks 2-3 to host PlanCanvas and RoomTagger once those existed.
-//
-// Owns: the EditorWindow itself, the toolbar (Open/Save/Undo/Redo/Build
-// graph, Graph+Confidence toggles, level slider), keyboard shortcuts, and
-// the top-level layout (canvas left, 292px sidebar right, status bar
-// bottom). Delegates all actual drawing to PlanCanvas and RoomTagger --
-// this file should never draw a wall or a room itself.
-//
-// Gets its IWayforgeDocument from DocumentProvider.Current -- never
-// constructs one directly. See DocumentProvider.cs for why.
+// The Studio window itself: toolbar, keyboard shortcuts, and layout
+// (canvas on the left, sidebar on the right, status bar on the bottom).
+// Actual drawing is delegated to PlanCanvas and RoomTagger.
 
 using System;
 using UnityEditor;
@@ -28,10 +18,6 @@ namespace Wayforge.Editor
             window.Show();
         }
 
-        // Pre-existing menu item (per the week-1 spec: "keep the existing
-        // Wayforge/Check native plugin menu item working"). Lives here
-        // rather than a separate file since it's a one-liner and directly
-        // relevant to Studio's own open-flow check below.
         [MenuItem("Wayforge/Check native plugin")]
         public static void CheckNativePlugin()
         {
@@ -71,39 +57,24 @@ namespace Wayforge.Editor
             _tagger = new RoomTagger();
             _doc = DocumentProvider.Current;
 
-            // Domain reloads (script recompiles) call OnEnable again on
-            // the same window instance with a FRESH DocumentProvider
-            // (statics reset) -- doc will report IsOpen == false even if
-            // the user had a file open a moment ago. That's an accepted
-            // gap for M1: the fix is either (a) reopening from a
-            // remembered path via EditorPrefs, or (b) the real
-            // WayforgeDocument surviving reloads by re-attaching to the
-            // still-loaded native document rather than recreating it.
-            // Neither is in scope until the real document exists -- note
-            // it here so it isn't forgotten, but don't build it against
-            // the fake/dummy data.
+            // Note: script recompiles call OnEnable again with a fresh
+            // document, so an open file will show as closed after Unity
+            // recompiles. Not fixed yet - would need either remembering
+            // the path and reopening, or the real document reattaching
+            // instead of recreating itself.
         }
 
         private void OnDisable()
         {
-            // CRITICAL: dispose the document. The real implementation
-            // holds native (C++) memory -- if this doesn't run, that
-            // memory leaks for the lifetime of the Unity process, not just
-            // the window. This is exactly why IWayforgeDocument : IDisposable
-            // rather than relying on GC finalization.
+            // Dispose the document here. The real version holds native
+            // memory that needs to be released properly, not left to the GC.
             DocumentProvider.Reset();
         }
 
-        // Week 4: warn before the actual window close, not domain reloads.
-        // OnDisable (above) fires on EVERY script recompile as well as a
-        // real close -- popping a blocking dialog there would interrupt
-        // you mid-edit any time Unity recompiles. OnDestroy is Unity's
-        // dedicated "the window is actually being closed" hook, so the
-        // unsaved-changes prompt belongs here instead. Note this can't
-        // stop the close (EditorWindow has no cancellable close event at
-        // this level) -- it can only warn and let the user cancel
-        // resolving the dialog by choosing "Cancel", after which they'd
-        // need to manually keep working and re-close later.
+        // OnDisable runs on every script recompile too, not just a real
+        // close, so the unsaved-changes check can't live there (it would
+        // pop up constantly while coding). OnDestroy only runs when the
+        // window is actually closed, so it goes here instead.
         private void OnDestroy()
         {
             if (_doc == null || !_doc.IsOpen || !_doc.IsDirty) return;
@@ -116,21 +87,15 @@ namespace Wayforge.Editor
 
             if (!discard)
             {
-                // Can't actually block the close from here -- re-open the
-                // window so the user doesn't lose the reference to it, and
-                // let them hit Save explicitly.
+                // Can't actually cancel the close from here, so just
+                // reopen the window and let the user save from there.
                 Debug.LogWarning("[StudioWindow] Closed with unsaved changes. Reopening so you can save.");
                 EditorApplication.delayCall += Open;
             }
         }
 
-        /// <summary>
-        /// Week 4: shared guard for any action that's about to throw away
-        /// the current document's in-memory state (Open being the only
-        /// one right now). Returns true if it's safe to proceed --
-        /// nothing open, nothing dirty, or the user explicitly confirmed
-        /// discarding.
-        /// </summary>
+        // Shared check before any action that would throw away unsaved
+        // changes (currently just Open). Returns true if it's safe to continue.
         private bool ConfirmDiscardUnsavedChanges(string aboutToDoWhat)
         {
             if (!_doc.IsOpen || !_doc.IsDirty) return true;
@@ -160,11 +125,8 @@ namespace Wayforge.Editor
 
             DrawStatusBar();
 
-            // Repaint continuously while the mouse is over the canvas so
-            // pan/zoom/hover feel responsive rather than only updating on
-            // the next unrelated event. Cheap at this scale (small
-            // buildings, IMGUI) -- revisit only if profiling under RTIS 1's
-            // week-11 perf pass says otherwise.
+            // keep repainting while the mouse is over the window so
+            // pan/zoom feels smooth
             if (mouseOverWindow == this) Repaint();
         }
 
@@ -186,7 +148,7 @@ namespace Wayforge.Editor
 
             GUILayout.Space(6);
             EditorGUI.BeginDisabledGroup(!_doc.IsOpen);
-            GUILayout.Box("", EditorStyles.toolbarButton, GUILayout.Width(1), GUILayout.Height(ToolbarHeight)); // thin separator
+            GUILayout.Box("", EditorStyles.toolbarButton, GUILayout.Width(1), GUILayout.Height(ToolbarHeight));
             EditorGUI.EndDisabledGroup();
             GUILayout.Space(6);
 
@@ -277,11 +239,8 @@ namespace Wayforge.Editor
             }
         }
 
-        // --- actions -------------------------------------------------------
-        // Every action funnels exceptions into a dialog, per the PDD's
-        // stated error philosophy: messages a human can act on, never a
-        // raw stack trace in front of the user. Console still gets the
-        // full exception via Debug.LogException for debugging.
+        // Every action below catches exceptions and shows a dialog
+        // instead of letting Unity print a raw stack trace.
 
         private void DoOpen()
         {
@@ -295,14 +254,10 @@ namespace Wayforge.Editor
                 return;
             }
 
-            // Week 4: don't silently throw away unsaved edits. Open()
-            // replaces _doc's entire internal state (see StubWayforgeDocument
-            // .Open / the real Document::Open wf_open_plan equivalent) --
-            // there is no "merge" here, the old document is just gone.
             if (!ConfirmDiscardUnsavedChanges("opening another file")) return;
 
             string path = EditorUtility.OpenFilePanel("Open plan", "", "wfb,svg");
-            if (string.IsNullOrEmpty(path)) return; // user cancelled
+            if (string.IsNullOrEmpty(path)) return;
 
             try
             {
@@ -337,7 +292,7 @@ namespace Wayforge.Editor
         private void DoUndo()
         {
             _doc.Undo();
-            _canvas.ClearSelection(); // selected id may no longer exist post-undo
+            _canvas.ClearSelection(); // selected item might not exist anymore
         }
 
         private void DoRedo()

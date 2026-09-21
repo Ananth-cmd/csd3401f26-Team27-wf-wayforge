@@ -1,22 +1,9 @@
-// RoomTagger.cs
-//
-// Week 3 deliverable (Work Breakdown, IMGD 2 row).
-//
-// Draws the 292px right sidebar. Three modes depending on
-// PlanCanvas.CurrentSelection:
-//   - Room selected -> code/name fields + kind dropdown
-//   - Wall selected  -> generic property list, built by looping
-//                        doc.GetProperties() -- NO per-field UI code.
-//                        This is the point of the property system
-//                        (Work Breakdown 3.2): IMGD 2 writes ONE field
-//                        renderer that works for every property type,
-//                        so when IMGD 1/RTIS 1 add a new Wall field on
-//                        the C++ side later, it shows up here for free.
-//   - Nothing selected -> route preview (from/to room code, Find Route
-//                        button, step count + cost display)
-//
-// Like PlanCanvas, this file holds no building data -- every field reads
-// live from IWayforgeDocument and every edit calls straight back into it.
+// Draws the right sidebar. Shows different things depending on what's
+// selected in PlanCanvas:
+//   - room selected -> code/name fields + kind dropdown
+//   - wall selected -> property list (built from GetProperties so we
+//     don't need to hardcode a field per property)
+//   - nothing selected -> route preview
 
 using System;
 using UnityEditor;
@@ -28,13 +15,10 @@ namespace Wayforge.Editor
     {
         public const float SidebarWidth = 292f;
 
-        // Local UI-only state (never building data): text currently typed
-        // into fields before commit, and the last route result to display.
-        // This is exactly analogous to PlanCanvas's pan/zoom -- state about
-        // "what's on screen right now," not state about the building.
+        // input field state, not building data
         private string _roomCodeInput = "";
         private string _roomNameInput = "";
-        private string _lastSelectedRoomId; // used to detect selection changes and refresh input fields
+        private string _lastSelectedRoomId;
 
         private string _routeFromInput = "";
         private string _routeToInput = "";
@@ -69,8 +53,6 @@ namespace Wayforge.Editor
             GUILayout.EndArea();
         }
 
-        // --- room inspector -----------------------------------------------
-
         private void DrawRoomInspector(IWayforgeDocument doc, int levelIndex, string roomId, PlanCanvas canvas)
         {
             WfRoom room = FindRoom(doc, levelIndex, roomId);
@@ -81,13 +63,8 @@ namespace Wayforge.Editor
                 return;
             }
 
-            // Refresh the input fields from the document only when the
-            // selection just changed -- NOT every frame, or the user could
-            // never type into these fields (every keystroke would get
-            // overwritten by the doc's current value before the next
-            // repaint). This mirrors why StudioWindow uses
-            // DelayedTextField semantics elsewhere: local edit buffer,
-            // committed explicitly.
+            // Only refresh the fields when the selection changes, not every
+            // frame - otherwise typing would get overwritten mid-keystroke.
             if (_lastSelectedRoomId != roomId)
             {
                 _roomCodeInput = room.code ?? "";
@@ -125,13 +102,6 @@ namespace Wayforge.Editor
             }
         }
 
-        // --- wall inspector: THE property-system loop ----------------------
-        // This method is short on purpose. It does not know about
-        // "thickness" or "confidence" as concepts -- it asks the document
-        // for a list of (name, type, value) rows and renders each row with
-        // one shared field-drawing function. Adding a new Wall property on
-        // the C++ side requires ZERO changes here.
-
         private void DrawWallInspector(IWayforgeDocument doc, int levelIndex, string wallId)
         {
             EditorGUILayout.LabelField("Wall", EditorStyles.boldLabel);
@@ -152,13 +122,8 @@ namespace Wayforge.Editor
             EditorGUILayout.EndScrollView();
         }
 
-        /// <summary>
-        /// Renders ONE property row with the control appropriate to its
-        /// declared type, and writes back via doc.SetProperty on change.
-        /// This is the single generic renderer every element inspector
-        /// (currently just Wall; later Opening/Room/Node as the property
-        /// table grows) funnels through.
-        /// </summary>
+        // Draws one property field, picking the right control based on
+        // the property's type, then writes the new value back if changed.
         private void DrawPropertyField(IWayforgeDocument doc, int levelIndex, ElementKind kind, string elementId, WfPropertyRow row)
         {
             EditorGUI.BeginChangeCheck();
@@ -224,8 +189,6 @@ namespace Wayforge.Editor
             return new Vector2(x, y);
         }
 
-        // --- route preview ---------------------------------------------
-
         private void DrawRoutePreview(IWayforgeDocument doc, int levelIndex)
         {
             EditorGUILayout.LabelField("Route preview", EditorStyles.boldLabel);
@@ -283,13 +246,11 @@ namespace Wayforge.Editor
             _lastRoute = doc.Route(fromRef, toRef, _routeStepFreeOnly);
         }
 
-        // --- helpers -------------------------------------------------------
-
         private static WfRoom FindRoom(IWayforgeDocument doc, int levelIndex, string roomId)
         {
             foreach (var r in doc.Rooms(levelIndex))
                 if (r.id == roomId) return r;
-            return default; // .id will be null -- callers check for that
+            return default;
         }
     }
 }

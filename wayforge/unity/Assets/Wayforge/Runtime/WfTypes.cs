@@ -1,18 +1,6 @@
-// WfTypes.cs
-//
-// Plain C# mirrors of the structs in core/Engine/wf_doc/Types.hpp.
-// These are the shapes that cross the C++ <-> C# boundary conceptually.
-// Field names match the C++ struct field names 1:1 (see Work Breakdown
-// section 3.1) so that when RTIS 2's real WayforgeDocument.cs starts
-// filling these in from wf_get_walls / wf_get_room / etc., nothing in
-// IMGD 2's UI code (PlanCanvas, RoomTagger, StudioWindow) needs to change.
-//
-// IMGD 2 owns this file's *shape* as far as "what does my UI need to draw
-// a wall/room" is concerned. RTIS 2 owns the actual marshalling that fills
-// these in from the DLL. IMGD 1 owns the ground truth (wf_doc/Types.hpp) --
-// if IMGD 1 changes a field there, that change must be mirrored here.
-//
-// DO NOT put engine-agnostic C++ logic here. This is Unity-side only.
+// Data types shared between the UI and the document interface.
+// These mirror the fields the real C++ side uses (wf_doc/Types.hpp),
+// so the shape stays the same once the real document is wired in.
 
 using System;
 using System.Collections.Generic;
@@ -20,8 +8,6 @@ using UnityEngine;
 
 namespace Wayforge
 {
-    // --- enums (Work Breakdown 3.1, wf_doc/Types.hpp) --------------------
-
     public enum RoomKind
     {
         Unknown,
@@ -56,11 +42,8 @@ namespace Wayforge
         Poi
     }
 
-    // Property system (Work Breakdown 3.2). RTIS 2 exposes the C++
-    // property table through wf_property_count / wf_property_name /
-    // wf_get_property / wf_set_property. IMGD 2's RoomTagger iterates
-    // this list to draw the wall inspector WITHOUT per-field UI code --
-    // that's the whole point of the property system.
+    // Used by the property panel to know what kind of field to draw
+    // for a given property (checkbox, number field, dropdown, etc).
     public enum PropertyType
     {
         Bool,
@@ -82,12 +65,6 @@ namespace Wayforge
         Level = 6
     }
 
-    // --- data shapes -------------------------------------------------------
-    // Vec2 note: we use UnityEngine.Vector2 directly rather than inventing
-    // our own Vec2, since everything here is already Unity-side. The C++
-    // core has its own wf::Vec2 (Math.hpp) -- RTIS 2's marshalling layer is
-    // responsible for converting between them, not this file.
-
     [Serializable]
     public struct WfWall
     {
@@ -95,7 +72,7 @@ namespace Wayforge
         public Vector2 a;
         public Vector2 b;
         public float thickness;
-        public float confidence; // 0..1. >=0.7 green, >=0.4 orange, else red (PDD 4.2 / PlanCanvas spec)
+        public float confidence; // >=0.7 green, >=0.4 orange, else red
 
         public Vector2 Direction => (b - a).normalized;
         public float Length => Vector2.Distance(a, b);
@@ -105,8 +82,8 @@ namespace Wayforge
     public struct WfOpening
     {
         public string id;
-        public string wall;      // id of the Wall this opening sits on
-        public float offset;     // distance from wall.a along the wall
+        public string wall;   // which wall this door/window is on
+        public float offset;  // distance along the wall from point a
         public float width;
         public OpeningType type;
         public float confidence;
@@ -116,11 +93,11 @@ namespace Wayforge
     public struct WfRoom
     {
         public string id;
-        public string code;      // e.g. "E2-01-01" -- empty/null until tagged
+        public string code;   // e.g. "E2-01-01", empty until tagged
         public string name;
         public RoomKind kind;
-        public List<string> boundary; // wall ids on this room's outline
-        public List<Vector2> polygon; // world-space, counter-clockwise
+        public List<string> boundary; // wall ids around this room
+        public List<Vector2> polygon; // room outline, world space
         public Vector2 centroid;
         public float area;
         public float confidence;
@@ -134,7 +111,7 @@ namespace Wayforge
         public string id;
         public Vector2 pos;
         public NodeKind kind;
-        public string room; // id of the Room this node belongs to, if any
+        public string room; // room this node belongs to, if any
     }
 
     [Serializable]
@@ -146,38 +123,34 @@ namespace Wayforge
         public bool stepFree;
     }
 
-    // A single row in the property table for a selected element, as
-    // returned by wf_property_name/wf_get_property. RoomTagger loops a
-    // list of these to build the wall inspector generically.
+    // One row of the property panel for a selected wall/room/etc.
     [Serializable]
     public struct WfPropertyRow
     {
-        public string name;          // e.g. "thickness"
+        public string name;
         public PropertyType type;
-        public string valueText;     // current value, as text ("0.15", "true", "door")
-        public string[] enumOptions; // populated only when type == Enum
+        public string valueText;
+        public string[] enumOptions; // only used when type is Enum
     }
 
-    // A single hit from doc.SearchRooms(query) -- used by RoomTagger's
-    // route-preview "From / To" fields once code lookup is needed, and
-    // later by the app's NavigationUI search box.
+    // One search result when looking up a room by code or name.
     [Serializable]
     public struct WfRoomHit
     {
-        public string levelNodeRef; // "L1:r3"
+        public string levelNodeRef;
         public string code;
         public string name;
         public string kind;
     }
 
-    // Result of doc.Route(...) -- enough for RoomTagger to show step count
-    // and cost, and later for RouteRenderer to draw the polyline.
+    // What Route() returns - either a path with steps and cost,
+    // or a failure with a message to show the user.
     [Serializable]
     public struct WfRouteResult
     {
         public bool success;
-        public string errorMessage;   // populated when !success
-        public Vector3[] points;      // (x, elevation, y) triples, Unity space
+        public string errorMessage;
+        public Vector3[] points;
         public float totalCost;
         public bool stepFree;
         public int stepCount;

@@ -1,20 +1,10 @@
-// PlanCanvas.cs
+// The drawing surface - handles world/screen conversion, drawing the
+// plan, and click-to-select. Doesn't store any building data itself,
+// just reads from the document every time it draws.
 //
-// Week 2 deliverable (Work Breakdown, IMGD 2 row).
-//
-// Owns: world<->screen conversion, drawing the plan on Repaint, and
-// click-to-select. Deliberately holds NO building data of its own --
-// every Draw() call re-fetches walls/rooms from IWayforgeDocument. This
-// is the concrete instance of the architecture rule from the PDD: "Studio
-// holds zero building data itself."
-//
-// Coordinate convention: the plan is Y-up (world space: x = east, y =
-// north, matching wf::Vec2 in the C++ core). Unity's GUI space is Y-down
-// (origin top-left, y increases downward). WorldToScreen/ScreenToWorld
-// are the only two places that flip the Y axis -- every other method in
-// this file and in StudioWindow/RoomTagger works in ONE of those two
-// spaces consistently. If you ever see a Y-flip appear anywhere else,
-// that's a bug waiting to happen, not a feature.
+// Note: world space is Y-up, but Unity GUI space is Y-down. WorldToScreen
+// and ScreenToWorld are the only two places that flip the Y axis. Don't
+// add another Y-flip anywhere else, it'll cancel out and break things.
 
 using System;
 using System.Collections.Generic;
@@ -40,59 +30,43 @@ namespace Wayforge.Editor
 
     public class PlanCanvas
     {
-        // --- view state ------------------------------------------------
-        // Pan/zoom are canvas-local UI state, NOT building data -- they
-        // don't go through IWayforgeDocument and aren't part of the .wfb
-        // file. This is the one kind of state PlanCanvas is allowed to
-        // own, because it has no meaning outside "what is currently on
-        // screen in this Editor window right now."
-
-        private Vector2 _panWorld;   // world-space point currently at the center of the canvas
+        // pan/zoom state - this is view-only, not part of the building
+        private Vector2 _panWorld;
         private float _pixelsPerMeter = 40f;
         private const float MinPpm = 4f;
         private const float MaxPpm = 400f;
 
-        private Rect _canvasRect;    // set each OnGUI by the caller (StudioWindow)
+        private Rect _canvasRect;
 
-        // Selection is exposed so StudioWindow/RoomTagger can read it;
-        // PlanCanvas owns the mutation (it's the thing that knows about
-        // clicks), everyone else treats this as read state + subscribes
-        // to OnSelectionChanged.
         public Selection CurrentSelection { get; private set; } = Selection.None;
         public event Action<Selection> OnSelectionChanged;
 
-        // Toggles driven by StudioWindow's toolbar (Work Breakdown 4:
-        // "Graph and Confidence view toggles").
         public bool ShowGraph { get; set; } = false;
         public bool ShowConfidence { get; set; } = true;
 
         private const float WallClickToleranceMeters = 0.25f;
 
-        // --- colors ------------------------------------------------------
-        // Confidence thresholds match PDD 4.2 / the Work Breakdown's
-        // PlanCanvas spec: >=0.7 green, >=0.4 orange, else red.
+        // wall colors by confidence: >=0.7 green, >=0.4 orange, else red
         private static readonly Color RoomFillColor = new Color(0.55f, 0.75f, 0.95f, 0.25f);
         private static readonly Color RoomFillSelected = new Color(0.95f, 0.80f, 0.30f, 0.35f);
-        private static readonly Color RoomFillUntagged = new Color(0.85f, 0.35f, 0.35f, 0.18f); // subtle red wash so untagged rooms are visually obvious per Work Breakdown week-3 goal
+        private static readonly Color RoomFillUntagged = new Color(0.85f, 0.35f, 0.35f, 0.18f);
         private static readonly Color WallSelectedColor = new Color(0.30f, 0.65f, 1.0f, 1f);
         private static readonly Color WallGreen = new Color(0.30f, 0.75f, 0.35f, 1f);
         private static readonly Color WallOrange = new Color(0.95f, 0.65f, 0.15f, 1f);
         private static readonly Color WallRed = new Color(0.85f, 0.25f, 0.25f, 1f);
-        private static readonly Color WallFlatColor = new Color(0.15f, 0.15f, 0.18f, 1f); // used when ShowConfidence is off
+        private static readonly Color WallFlatColor = new Color(0.15f, 0.15f, 0.18f, 1f);
         private static readonly Color DoorColor = new Color(0.9f, 0.9f, 0.2f, 1f);
         private static readonly Color GraphNodeColor = new Color(0.2f, 0.8f, 0.9f, 1f);
         private static readonly Color GraphEdgeColor = new Color(0.2f, 0.8f, 0.9f, 0.5f);
         private static readonly Color BackgroundColor = new Color(0.20f, 0.20f, 0.22f, 1f);
         private static readonly Color GridColor = new Color(1f, 1f, 1f, 0.04f);
 
-        // --- coordinate conversion ---------------------------------------
-
         public Vector2 WorldToScreen(Vector2 world)
         {
             Vector2 center = _canvasRect.center;
             float dx = (world.x - _panWorld.x) * _pixelsPerMeter;
             float dy = (world.y - _panWorld.y) * _pixelsPerMeter;
-            return new Vector2(center.x + dx, center.y - dy); // Y flip: world-up -> screen-down
+            return new Vector2(center.x + dx, center.y - dy);
         }
 
         public Vector2 ScreenToWorld(Vector2 screen)
@@ -100,14 +74,11 @@ namespace Wayforge.Editor
             Vector2 center = _canvasRect.center;
             float dx = (screen.x - center.x) / _pixelsPerMeter;
             float dy = (screen.y - center.y) / _pixelsPerMeter;
-            return new Vector2(_panWorld.x + dx, _panWorld.y - dy); // inverse of the flip above
+            return new Vector2(_panWorld.x + dx, _panWorld.y - dy);
         }
 
-        /// <summary>
-        /// Frames the given level's content in the canvas. Called on
-        /// document open and via the toolbar's implicit "fit" (Work
-        /// Breakdown: PlanCanvas must support FitToContent).
-        /// </summary>
+        // Centers the view on the level's content and picks a zoom level
+        // that fits it. Called after opening a file.
         public void FitToContent(IWayforgeDocument doc, int levelIndex, Rect canvasRect)
         {
             var walls = doc.Walls(levelIndex);
@@ -131,21 +102,16 @@ namespace Wayforge.Editor
 
             float contentW = Mathf.Max(0.01f, maxX - minX);
             float contentH = Mathf.Max(0.01f, maxY - minY);
-            float pad = 0.9f; // leave 10% margin
+            float pad = 0.9f; // leave a small margin
             float ppmX = canvasRect.width / contentW * pad;
             float ppmY = canvasRect.height / contentH * pad;
             _pixelsPerMeter = Mathf.Clamp(Mathf.Min(ppmX, ppmY), MinPpm, MaxPpm);
         }
 
-        // --- drawing -------------------------------------------------------
-        // IMPORTANT: Draw() must ONLY do work on EventType.Repaint. Unity
-        // calls OnGUI (and therefore this) multiple times per frame for
-        // different event types (Layout, MouseDown, Repaint, ...) -- doing
-        // GL/Handles drawing calls outside Repaint either does nothing
-        // useful or throws. HandleInput (below) is the counterpart that
-        // handles MouseDown/MouseDrag/ScrollWheel; keep that split, don't
-        // merge input handling into Draw "for convenience."
-
+        // Draw() only does anything on Repaint events - Unity calls OnGUI
+        // (and this) for other event types too, and drawing calls outside
+        // Repaint don't work right. Mouse/keyboard input is handled
+        // separately in HandleInput below.
         public void Draw(IWayforgeDocument doc, int levelIndex, Rect canvasRect)
         {
             _canvasRect = canvasRect;
@@ -171,15 +137,14 @@ namespace Wayforge.Editor
 
         private void DrawGrid(Rect canvasRect)
         {
-            // 1m grid lines. Cheap and only drawn within MinPpm..MaxPpm
-            // range so it never turns into thousands of Handles calls when
-            // zoomed far out.
+            // skip drawing the grid when zoomed out too far, would just
+            // be a mess of lines
             if (_pixelsPerMeter < 8f) return;
 
             Handles.BeginGUI();
             Handles.color = GridColor;
-            Vector2 worldTopLeft = ScreenToWorldClamped(new Vector2(canvasRect.xMin, canvasRect.yMin));
-            Vector2 worldBottomRight = ScreenToWorldClamped(new Vector2(canvasRect.xMax, canvasRect.yMax));
+            Vector2 worldTopLeft = ScreenToWorld(new Vector2(canvasRect.xMin, canvasRect.yMin));
+            Vector2 worldBottomRight = ScreenToWorld(new Vector2(canvasRect.xMax, canvasRect.yMax));
 
             int xStart = Mathf.FloorToInt(worldTopLeft.x);
             int xEnd = Mathf.CeilToInt(worldBottomRight.x);
@@ -201,12 +166,6 @@ namespace Wayforge.Editor
             Handles.color = Color.white;
             Handles.EndGUI();
         }
-
-        // ScreenToWorld but ignoring the current _canvasRect origin (used
-        // only for the grid's viewport-bounds estimate, where we're
-        // working in the un-clipped canvasRect passed into Draw, not the
-        // GUI.BeginClip-local space).
-        private Vector2 ScreenToWorldClamped(Vector2 screen) => ScreenToWorld(screen);
 
         private void DrawRooms(IWayforgeDocument doc, int levelIndex)
         {
@@ -314,11 +273,8 @@ namespace Wayforge.Editor
             return WallRed;
         }
 
-        // --- input ---------------------------------------------------------
-        // Called from StudioWindow.OnGUI for every event type (not just
-        // Repaint) -- this is where MouseDown / MouseDrag / ScrollWheel
-        // live, deliberately separate from Draw().
-
+        // Mouse/keyboard input, handled separately from Draw so it can
+        // run on every event type, not just Repaint.
         public void HandleInput(IWayforgeDocument doc, int levelIndex, Rect canvasRect)
         {
             _canvasRect = canvasRect;
@@ -332,7 +288,7 @@ namespace Wayforge.Editor
                     e.Use();
                     break;
 
-                case EventType.MouseDrag when e.button == 2: // middle-mouse pan
+                case EventType.MouseDrag when e.button == 2: // middle mouse = pan
                     _panWorld -= new Vector2(e.delta.x, -e.delta.y) / _pixelsPerMeter;
                     e.Use();
                     GUI.changed = true;
@@ -342,9 +298,7 @@ namespace Wayforge.Editor
                     float zoomFactor = e.delta.y < 0 ? 1.1f : (1f / 1.1f);
                     Vector2 worldUnderMouseBefore = ScreenToWorld(e.mousePosition);
                     _pixelsPerMeter = Mathf.Clamp(_pixelsPerMeter * zoomFactor, MinPpm, MaxPpm);
-                    // Keep the point under the cursor stationary while
-                    // zooming, rather than always zooming toward canvas
-                    // center -- standard editor-canvas feel.
+                    // keep the point under the cursor fixed while zooming
                     Vector2 worldUnderMouseAfter = ScreenToWorld(e.mousePosition);
                     _panWorld += worldUnderMouseBefore - worldUnderMouseAfter;
                     e.Use();
@@ -357,9 +311,8 @@ namespace Wayforge.Editor
         {
             Vector2 worldPos = ScreenToWorld(screenPos);
 
-            // Walls first: nearest wall within tolerance wins over room
-            // click, since walls are thin targets that would otherwise
-            // always lose to whichever room polygon contains the point.
+            // check walls first - they're thin, so if we checked rooms
+            // first a wall click would usually just select the room behind it
             string nearestWall = null;
             float nearestDist = WallClickToleranceMeters;
             foreach (var wall in doc.Walls(levelIndex))
@@ -397,7 +350,6 @@ namespace Wayforge.Editor
             GUI.changed = true;
         }
 
-        /// <summary>Called by RoomTagger/StudioWindow to clear selection programmatically (e.g. after delete).</summary>
         public void ClearSelection() => SetSelection(Selection.None);
 
         private static float DistancePointToSegment(Vector2 p, Vector2 a, Vector2 b)
@@ -412,7 +364,7 @@ namespace Wayforge.Editor
 
         private static bool PointInPolygon(Vector2 p, List<Vector2> poly)
         {
-            // Standard even-odd ray casting.
+            // even-odd ray casting
             bool inside = false;
             int j = poly.Count - 1;
             for (int i = 0; i < poly.Count; i++)
