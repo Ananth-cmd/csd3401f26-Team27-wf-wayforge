@@ -1,0 +1,1 @@
+{"status":"Valid","reason":"Signature is ok","isLegacy":false,"attestation":{"version":1,"format":"archive","integrity":"sha256-pAtUhgwa/IeK+Zx5IsjXUR3gsHzbPTYSOYW3dpp9Z9Y=","packageName":"com.unity.mobile.android-logcat","packageVersion":"1.4.7","publishingChannel":"unity","entitlementKeys":[]}}
