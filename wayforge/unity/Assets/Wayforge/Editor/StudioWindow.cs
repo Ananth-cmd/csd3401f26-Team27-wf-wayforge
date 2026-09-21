@@ -173,8 +173,8 @@ namespace Wayforge.Editor
 
             GUILayout.FlexibleSpace();
 
-            _canvas.ShowGraph = GUILayout.Toggle(_canvas.ShowGraph, "Graph", EditorStyles.toolbarButton, GUILayout.Width(50));
-            _canvas.ShowConfidence = GUILayout.Toggle(_canvas.ShowConfidence, "Confidence", EditorStyles.toolbarButton, GUILayout.Width(80));
+            _canvas.ShowGraph = GUILayout.Toggle(_canvas.ShowGraph, "Show routes", EditorStyles.toolbarButton, GUILayout.Width(90));
+            _canvas.ShowConfidence = GUILayout.Toggle(_canvas.ShowConfidence, "Wall accuracy", EditorStyles.toolbarButton, GUILayout.Width(100));
 
             GUILayout.Space(10);
 
