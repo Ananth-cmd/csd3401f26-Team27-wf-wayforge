@@ -1,14 +1,13 @@
-// wf_core - foundation library: maths, results, logging, file IO, platform detection.
-// No third-party dependencies. Everything else depends on this; this depends on nothing.
 #pragma once
 
+#include "Platform.hpp"
+#include "Math.hpp"
+#include "Result.hpp"
+#include "Log.hpp"
+
 namespace wf {
-
-inline constexpr const char* kVersionString = "0.0.1";
-
-// "Windows", "Linux", "Android" or "macOS".
-const char* platformName();
-
-// TODO(RTIS1): Vec2, Result<T>, logger, file helpers.
-
-} // namespace wf
+    // Version of the core library, reported by `wf_cli --version` and wf_version().
+    constexpr int         kVersionMajor = 0;
+    constexpr int         kVersionMinor = 1;
+    constexpr const char* kVersionString = "0.1.0";
+}
