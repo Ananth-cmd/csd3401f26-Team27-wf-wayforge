@@ -1,29 +1,13 @@
-// StubWayforgeDocument.cs
+// A fake, in-memory implementation of IWayforgeDocument. No DLL, no real
+// file format - just a hardcoded building so the UI has something to draw
+// and test against while the real document doesn't exist yet.
 //
-// An in-memory, pure-C# fake that implements IWayforgeDocument. No DLL, no
-// P/Invoke, no dependency on RTIS 1 / RTIS 2 / IMGD 1's code existing yet.
-//
-// PURPOSE: lets you build and test StudioWindow / PlanCanvas / RoomTagger
-// TODAY against a small hardcoded building, so you are never blocked
-// waiting for the native core. When the real WayforgeDocument.cs lands
-// (implementing the same IWayforgeDocument interface), you flip one line
-// in DocumentProvider.cs and this file is simply unused -- nothing in your
-// three real files changes.
-//
-// The hardcoded building here is a 10m x 8m box with a divider (mirrors
-// the same example building described in Work Breakdown 3.1's wf_read
-// "Done when" section: "a hand-built segment list for a 10x8 box with a
-// divider and three door gaps yields 3 rooms, 2 doors, 1 corridor" --
-// using the same shape means what you see in Studio during development
-// will resemble what the real pipeline eventually produces for the same
-// input, and it doubles as a sanity check on your own geometry code).
-//
-// This file is NOT meant to survive into the final submission as anything
-// load-bearing -- it is a development harness. Keep it, but once the real
-// WayforgeDocument works, Studio should default to that.
+// Once the real WayforgeDocument is ready and implements the same
+// interface, DocumentProvider switches to it and this file stops being used.
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 
@@ -31,6 +15,7 @@ namespace Wayforge.Stub
 {
     public class StubWayforgeDocument : IWayforgeDocument
     {
+        [Serializable]
         private class Level
         {
             public string id;
@@ -42,23 +27,21 @@ namespace Wayforge.Stub
             public List<WfEdge> edges = new List<WfEdge>();
         }
 
-        // Extremely small undo model: snapshot-based, not command-based.
-        // This is NOT how the real C++ CommandStack works (Work Breakdown
-        // 3.4 -- real undo is Do/Undo pairs with merge coalescing), and
-        // that's fine: this class only needs to make the UI *behave* the
-        // same from the outside (CanUndo flips, Undo reverts a tag, etc.),
-        // not to reimplement the coalescing/merge-window logic RTIS 1/
-        // IMGD 1 own. Don't let this snapshot approach leak into your real
-        // UI code -- StudioWindow only ever calls doc.Undo()/doc.Redo(),
-        // it has no idea how either implementation works underneath.
+        // Wrapper needed because JsonUtility can't serialize a plain
+        // List<T> at the top level - it needs to be inside a class.
+        [Serializable]
+        private class SaveFile
+        {
+            public List<Level> levels = new List<Level>();
+        }
+
+        // Simple undo: just keeps full snapshots of the level list instead
+        // of tracking individual changes. Not how the real undo system
+        // will work, but it makes Undo/Redo behave correctly for testing.
         private readonly List<List<Level>> _undoStack = new List<List<Level>>();
         private readonly List<List<Level>> _redoStack = new List<List<Level>>();
 
-        // Which made-up building Open() loads. Flip this to switch between
-        // the plain 10x8 box (BuildDummyLevel, matches the Work Breakdown's
-        // own wf_read test example) and the house-shaped layout
-        // (BuildHouseLevel, a rough stand-in for a real floor plan). Both
-        // are equally fake -- this just picks which one you're looking at.
+        // switches between the plain box layout and the house layout
         private const bool UseHouseFixture = true;
 
         private List<Level> _levels = new List<Level>();
@@ -71,8 +54,8 @@ namespace Wayforge.Stub
         public int CurrentLevel { get; set; }
         public string BuildingName { get; private set; } = "untitled";
 
-        public bool NativePluginLoaded => true; // always reports success -- this fake data has no real plugin to fail
-        public string NativeVersion => "fake-0.0 (no native core loaded, this is dummy data)";
+        public bool NativePluginLoaded => true; // always true, no real plugin here
+        public string NativeVersion => "fake-0.0 (dummy data, no native core)";
 
         public IReadOnlyList<string> RoomKinds { get; } =
             Enum.GetNames(typeof(RoomKind));
@@ -80,23 +63,19 @@ namespace Wayforge.Stub
         public string LevelName(int levelIndex) =>
             InRange(levelIndex) ? _levels[levelIndex].name : "?";
 
-        // --- lifecycle -------------------------------------------------
-
         public void Open(string path)
         {
-            // Real Open() dispatches on extension (.wfb loads, .svg
-            // converts) per wf_open_plan. This fake version ignores the
-            // path content entirely and always builds the same dummy
-            // building, which is fine for UI development -- but DON'T let
-            // StudioWindow assume the path is meaningless; it must still
-            // pass a real path through so the same code path works once
-            // this class is swapped for the real one.
+            // No real .wfb format exists yet, so this checks if a save
+            // file was actually written to this path before (by SaveAs)
+            // and loads that back. Otherwise falls back to the dummy building.
             _openPath = path;
             BuildingName = string.IsNullOrEmpty(path)
                 ? "untitled"
-                : System.IO.Path.GetFileNameWithoutExtension(path);
+                : Path.GetFileNameWithoutExtension(path);
 
-            _levels = new List<Level> { UseHouseFixture ? BuildHouseLevel() : BuildDummyLevel() };
+            List<Level> loaded = TryLoadFromDisk(path);
+            _levels = loaded ?? new List<Level> { UseHouseFixture ? BuildHouseLevel() : BuildDummyLevel() };
+
             CurrentLevel = 0;
             IsOpen = true;
             _dirty = false;
@@ -113,16 +92,58 @@ namespace Wayforge.Stub
         public void SaveAs(string path)
         {
             _openPath = path;
-            _dirty = false;
-            // Real SaveAs writes building.wfb via wf_save. This fake
-            // version has nothing to persist to -- there is no real file
-            // backing this dummy data. Log so it's obvious in the console
-            // this isn't really hitting disk.
-            Debug.Log($"[StubWayforgeDocument] Save does nothing here -- this is fake/dummy data, not a real file. " +
-                      $"Would have written: {path}");
+            BuildingName = string.IsNullOrEmpty(path)
+                ? "untitled"
+                : Path.GetFileNameWithoutExtension(path);
+
+            // there's no real .wfb format yet, so this saves as JSON instead -
+            // same idea, just not the real file format
+            var saveFile = new SaveFile { levels = _levels };
+            string json = JsonUtility.ToJson(saveFile, prettyPrint: true);
+
+            try
+            {
+                File.WriteAllText(path, json);
+                _dirty = false;
+                Debug.Log($"[StubWayforgeDocument] Saved (as JSON, not real .wfb) to: {path}");
+            }
+            catch (Exception ex)
+            {
+                // rethrow so StudioWindow's catch block can show it to the user
+                throw new IOException($"Could not write save file to '{path}': {ex.Message}", ex);
+            }
         }
 
-        // --- reads -------------------------------------------------------
+        // Tries to load a real save file from path. Returns null if the
+        // file doesn't exist, is empty, or isn't valid JSON - in any of
+        // those cases Open() just falls back to the dummy building instead.
+        private List<Level> TryLoadFromDisk(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
+
+            string json;
+            try
+            {
+                json = File.ReadAllText(path);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(json)) return null;
+
+            try
+            {
+                var saveFile = JsonUtility.FromJson<SaveFile>(json);
+                if (saveFile?.levels == null || saveFile.levels.Count == 0) return null;
+                return saveFile.levels;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         public IReadOnlyList<WfWall> Walls(int levelIndex) =>
             InRange(levelIndex) ? _levels[levelIndex].walls : Array.Empty<WfWall>();
@@ -139,10 +160,10 @@ namespace Wayforge.Stub
         public IReadOnlyList<WfEdge> Edges(int levelIndex) =>
             InRange(levelIndex) ? _levels[levelIndex].edges : Array.Empty<WfEdge>();
 
-        // --- edits ---------------------------------------------------------
-        // Every edit: PushUndo() BEFORE mutating, so Undo() can restore the
-        // pre-edit snapshot. Real implementation: each of these becomes an
-        // ICommand.Do() call instead.
+        // Every edit calls PushUndo() first so Undo() has something to
+        // restore. The real document will do this differently (proper
+        // command objects instead of snapshots) but the outside behaviour
+        // is the same.
 
         public void SetRoomCode(int levelIndex, string roomId, string code, string name)
         {
@@ -191,13 +212,7 @@ namespace Wayforge.Stub
             PushUndo();
             var level = _levels[levelIndex];
             level.walls.RemoveAll(w => w.id == wallId);
-            // Real DeleteWall also removes openings on that wall and
-            // remembers them for Undo (Work Breakdown 3.4: "DeleteWall
-            // (remembers the wall AND its openings)"). This fake version
-            // just mirrors the *visible* behaviour (openings on a deleted
-            // wall vanish too) via the snapshot approach, so this still
-            // looks right without separately tracking it.
-            level.openings.RemoveAll(o => o.wall == wallId);
+            level.openings.RemoveAll(o => o.wall == wallId); // remove any doors/windows on this wall too
             _dirty = true;
         }
 
@@ -212,13 +227,8 @@ namespace Wayforge.Stub
             return id;
         }
 
-        // --- property system ------------------------------------------
-        // A small hand-written table of made-up values, standing in for
-        // the real system (Work Breakdown 3.2), which drives this from
-        // wf_property_count/wf_property_name against the C++ struct
-        // definitions. Here we hand-list Wall's fields -- just enough for
-        // RoomTagger's wall inspector to have something real to iterate
-        // during development.
+        // hand-written property list for a wall, just enough for the
+        // property panel to have something real to show
 
         public IReadOnlyList<WfPropertyRow> GetProperties(int levelIndex, ElementKind kind, string elementId)
         {
@@ -288,8 +298,6 @@ namespace Wayforge.Stub
             _redoStack.Clear();
         }
 
-        // --- graph + routing ---------------------------------------------
-
         public void BuildGraph()
         {
             if (!InRange(CurrentLevel)) return;
@@ -297,12 +305,8 @@ namespace Wayforge.Stub
             level.nodes.Clear();
             level.edges.Clear();
 
-            // One node per room at its centroid (Work Breakdown 5.1
-            // Build.cpp) -- simplified: no door nodes, no corridor
-            // sampling, no line-of-sight test. This is enough for
-            // RoomTagger's route preview to have something to route
-            // through during UI development; it is NOT a stand-in for
-            // IMGD 3's real wf_graph.
+            // one node per room, placed at its centroid - no door nodes
+            // or corridor sampling, just enough to test routing
             foreach (var room in level.rooms)
             {
                 level.nodes.Add(new WfNode
@@ -314,8 +318,8 @@ namespace Wayforge.Stub
                 });
             }
 
-            // Fully connect nodes (straight-line "route" for this fake
-            // version only -- no wall-crossing check).
+            // connect every node to every other node with a straight line -
+            // no wall-crossing check, just enough to test the route preview
             for (int i = 0; i < level.nodes.Count; i++)
                 for (int j = i + 1; j < level.nodes.Count; j++)
                 {
@@ -353,10 +357,8 @@ namespace Wayforge.Stub
             if (toNode.id == null)
                 return new WfRouteResult { success = false, errorMessage = $"unknown node ref '{toNodeRef}' -- build the graph first" };
 
-            // Fake route = straight line between the two room centroids.
-            // Real route = A* over the navigation graph (Work Breakdown
-            // 5.1 Route.cpp). Good enough to prove RoomTagger's
-            // find-route -> show-step-count-and-cost flow end to end.
+            // draw a straight line between the two rooms instead of
+            // actually pathfinding - good enough to test the UI flow
             float cost = Vector2.Distance(fromNode.pos, toNode.pos);
             var points = new[]
             {
@@ -399,17 +401,7 @@ namespace Wayforge.Stub
             IsOpen = false;
         }
 
-        // --- building the dummy/made-up building --------------------------
-        // A 10m x 8m box, one vertical divider at x=6, three door gaps.
-        // Matches the shape described in Work Breakdown 3.1 wf_read's
-        // "Done when" example. Produces 2 rooms in this simplified, made-up
-        // geometry (a real planar-graph implementation over the same
-        // segments would also find the corridor sliver -- this fake
-        // version skips planar-graph face-finding entirely and just
-        // declares rooms directly, since exercising Trace/Planar.cpp is
-        // RTIS 1's job, not something the Studio UI's dummy data needs to
-        // reimplement).
-
+        // a simple 10x8 box with a divider wall down the middle
         private Level BuildDummyLevel()
         {
             var level = new Level { id = "L1", name = "Level 1" };
@@ -447,38 +439,16 @@ namespace Wayforge.Stub
             return level;
         }
 
-        // --- a second, house-shaped fixture ---------------------------
-        // A rough approximation of a real floor plan the user shared (a
-        // two-bedroom-plus-master upper floor with a stair, terrace,
-        // upper living area and balcony). Still 100% hand-typed, made-up
-        // data -- exactly like BuildDummyLevel above, just shaped like a
-        // house instead of a plain box, so a demo shows something more
-        // recognizable than a rectangle.
+        // house-shaped layout based on a floor plan image - rough
+        // approximation, not actual image parsing (that doesn't exist
+        // yet, would need real wall detection). Coordinates were worked
+        // out in a script first to make sure walls don't overlap, then
+        // typed in here.
         //
-        // IMPORTANT HONESTY NOTE: this is NOT the output of reading the
-        // floor plan image. There is no image-parsing anywhere in this
-        // file or this project yet -- that would be RTIS 1's wall
-        // detection + IMGD 1's .wfb writer, neither of which exists. This
-        // is a person (well, Claude) looking at a picture and typing
-        // approximate room boxes into a Python script to compute clean,
-        // non-overlapping wall coordinates, then hand-transcribing those
-        // numbers into this C# method. Room proportions and the overall
-        // footprint are eyeballed from the image, not measured.
-        //
-        // RoomKind has no Bedroom/LivingRoom values (Work Breakdown 3.1's
-        // enum is school/office vocabulary: Classroom, Lab, Office, ...).
-        // Rather than force a wrong-sounding kind onto every room, every
-        // room here is left as RoomKind.Unknown with the real distinction
-        // living in `name` instead -- and every room starts untagged
-        // (empty code) on purpose, so opening this in Studio gives you
-        // real tagging work to demo through RoomTagger, the same as
-        // BuildDummyLevel's one deliberately-untagged room, just for all
-        // seven rooms instead of one.
-        //
-        // Wall/room coordinates below were generated and cross-checked
-        // for overlaps, orphan segments, and correct perimeter ordering
-        // in a throwaway Python script before being transcribed here --
-        // they are not hand-guessed numbers.
+        // RoomKind doesn't have Bedroom/LivingRoom values, so every room
+        // here stays Unknown and the real name goes in `name` instead.
+        // All rooms start untagged on purpose so there's tagging work to
+        // demo in the room panel.
 
         private Level BuildHouseLevel()
         {
@@ -577,8 +547,6 @@ namespace Wayforge.Stub
             return level;
         }
 
-        // --- helpers -------------------------------------------------------
-
         private bool InRange(int levelIndex) => levelIndex >= 0 && levelIndex < _levels.Count;
 
         private static string NextId(Level level, string prefix)
@@ -598,14 +566,9 @@ namespace Wayforge.Stub
             return i < 0 ? nodeRef : nodeRef.Substring(i + 1);
         }
 
+        // full copy of the level list, used for undo/redo snapshots
         private static List<Level> DeepCopy(List<Level> levels)
         {
-            // Cheap deep copy via struct value semantics + new list
-            // allocations. Fine at this small, made-up scale (a handful of
-            // elements); this is fake/dummy-data code, so it is explicitly
-            // not held to the performance bar the real undo system is
-            // (Command.hpp exists specifically to avoid this kind of
-            // full-state copy).
             var copy = new List<Level>();
             foreach (var lv in levels)
             {
