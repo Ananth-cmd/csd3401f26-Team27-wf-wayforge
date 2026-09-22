@@ -139,9 +139,9 @@ namespace wf {
             return Status::success();
         }
 
-        struct NoExtra 
+        struct NoExtra
         {
-            template <class T> Status operator()(const json&, T&, const std::string&) const return Status::success(); 
+            template <class T> Status operator()(const json&, T&, const std::string&) const { return Status::success(); }
         };
 
         // Reads parent[key]  into out. extra(itemJson, item, itemPath) reads the vector fields.
