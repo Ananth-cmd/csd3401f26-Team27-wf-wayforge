@@ -1,4 +1,5 @@
 #include "wf_doc/Serialize.hpp"
+#include "wf_doc/Property.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -6,14 +7,12 @@
 namespace wf {
     namespace {
 
-        //Helper Functs
         std::string fieldError(const std::string& file, const std::string& path,
             const std::string& field, const std::string& what) {
             return file + ": " + path + ": \"" + field + "\" must be " + what + ".";
         }
 
-        json floatToJson(float f) 
-        {
+        json floatToJson(float f) {
             char buf[32];
             for (int prec = 1; prec <= 9; ++prec) {
                 std::snprintf(buf, sizeof buf, "%.*g", prec, static_cast<double>(f));
@@ -30,8 +29,6 @@ namespace wf {
             out.y = static_cast<float>(j[1].get<double>());
             return true;
         }
-
-        //  Write to file
 
         json valueToJson(const PropertyValue& v) {
             if (const bool* b = std::get_if<bool>(&v))               return *b;
@@ -79,8 +76,6 @@ namespace wf {
             return j;
         }
 
-        //read from file
-
         std::string expectedText(const PropertyInfo& p) {
             switch (p.type) {
             case PropertyType::Bool:   return "true or false";
@@ -112,7 +107,7 @@ namespace wf {
                 out = static_cast<float>(j.get<double>());
                 return true;
             case PropertyType::String:
-            case PropertyType::Enum:      
+            case PropertyType::Enum:
                 if (!j.is_string()) return false;
                 out = j.get<std::string>();
                 return true;
@@ -131,7 +126,7 @@ namespace wf {
             if (!j.is_object()) return Status::fail(file + ": " + path + ": must be an object.");
             for (const PropertyInfo& p : propertiesOf<T>()) {
                 auto it = j.find(std::string(p.name));
-                if (it == j.end()) continue;                       
+                if (it == j.end()) continue;
                 PropertyValue v;
                 if (!jsonToValue(*it, p, v) || !setPropertyRaw(&o, p, v))
                     return Status::fail(fieldError(file, path, std::string(p.name), expectedText(p)));
@@ -139,12 +134,10 @@ namespace wf {
             return Status::success();
         }
 
-        struct NoExtra
-        {
+        struct NoExtra {
             template <class T> Status operator()(const json&, T&, const std::string&) const { return Status::success(); }
         };
 
-        // Reads parent[key]  into out. extra(itemJson, item, itemPath) reads the vector fields.
         template <class T, class Extra>
         Status readList(const json& parent, const char* key, const std::string& parentPath, const std::string& file,
             std::vector<T>& out, Extra extra) {
@@ -206,8 +199,6 @@ namespace wf {
             return readList(j, "anchors", path, file, lv.anchors, NoExtra{});
         }
 
-        // ---------------------------------------------------------------- compare
-
         template <class T>
         void diffObject(const T& a, const T& b, const std::string& path, std::vector<std::string>& out) {
             for (const PropertyInfo& p : propertiesOf<T>()) {
@@ -254,8 +245,6 @@ namespace wf {
         }
 
     } // namespace
-
-    // public
 
     json buildingToJson(const Building& b) {
         json j = json::object();

@@ -17,8 +17,7 @@ namespace wf {
         case PropertyType::Float:  return *reinterpret_cast<const float*>(b);
         case PropertyType::String: return *reinterpret_cast<const std::string*>(b);
         case PropertyType::Vec2:   return *reinterpret_cast<const Vec2*>(b);
-        case PropertyType::Enum: 
-        {
+        case PropertyType::Enum: {
             int i = *b;
             return std::string(i < p.enumCount ? p.enumNames[i] : "");
         }
@@ -37,7 +36,7 @@ namespace wf {
             return false;
         case PropertyType::Float:
             if (const float* x = std::get_if<float>(&v)) { *reinterpret_cast<float*>(b) = *x; return true; }
-            if (const int* i = std::get_if<int>(&v)) { *reinterpret_cast<float*>(b) = static_cast<float>(*i); return true; }
+            if (const int* x = std::get_if<int>(&v)) { *reinterpret_cast<float*>(b) = static_cast<float>(*x); return true; }
             return false;
         case PropertyType::String:
             if (const std::string* x = std::get_if<std::string>(&v)) { *reinterpret_cast<std::string*>(b) = *x; return true; }
@@ -46,9 +45,9 @@ namespace wf {
             if (const Vec2* x = std::get_if<Vec2>(&v)) { *reinterpret_cast<Vec2*>(b) = *x; return true; }
             return false;
         case PropertyType::Enum:
-            if (const std::string* s = std::get_if<std::string>(&v)) {
+            if (const std::string* x = std::get_if<std::string>(&v)) {
                 for (int i = 0; i < p.enumCount; ++i)
-                    if (*s == p.enumNames[i]) { *b = static_cast<unsigned char>(i); return true; }
+                    if (*x == p.enumNames[i]) { *b = static_cast<unsigned char>(i); return true; }
             }
             return false;
         }

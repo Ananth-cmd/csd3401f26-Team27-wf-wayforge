@@ -1,17 +1,17 @@
 // wf_doc console test. CTest runs this; return 0 = pass, non-zero = fail.
-#include "wf_doc/wf_doc.hpp"
+#include "wf_doc/Types.hpp"
+#include "wf_doc/Property.hpp"
+#include "wf_doc/Serialize.hpp"
 #include <filesystem>
 #include <iostream>
 
 static int g_fail = 0;
-// Variadic so braced initialisers with commas (Vec2{1.f, 2.f}) work inside CHECK.
 #define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << __FILE__ << ":" << __LINE__ << " CHECK failed: " #__VA_ARGS__ "\n"; ++g_fail; } } while (0)
 
 using namespace wf;
 
 static bool contains(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
 
-// 2 levels, one of every element type.
 static Building makeBuilding() {
     Building b;
     b.building.name = "Test Block";
@@ -104,7 +104,6 @@ static void testSerialize() {
     const auto f1 = dir / "wf_doc_test_1.wfb";
     const auto f2 = dir / "wf_doc_test_2.wfb";
 
-    // save -> load -> compare empty
     CHECK(saveBuilding(a, f1).ok);
     Result<Building> b = loadBuilding(f1);
     CHECK(static_cast<bool>(b));
@@ -113,20 +112,17 @@ static void testSerialize() {
         for (const auto& d : diffs) std::cerr << "diff: " << d << "\n";
         CHECK(diffs.empty());
 
-        // ... and the second save is byte-identical
         CHECK(saveBuilding(*b, f2).ok);
         Result<std::string> t1 = io::readText(f1), t2 = io::readText(f2);
         CHECK(t1 && t2 && *t1 == *t2);
     }
 
-    // compare actually detects a change
     Building c = a;
     c.levels[0].walls[0].thickness = 0.3f;
     CHECK(compareBuildings(a, c).size() == 1);
     c.levels[1].nodes.clear();
     CHECK(compareBuildings(a, c).size() == 2);
 
-    // errors
     json j = buildingToJson(a);
     j["levels"][0]["walls"][0]["a"] = "oops";
     Result<Building> bad = buildingFromJson(j, "plan.wfb");
@@ -148,13 +144,11 @@ static void testSerialize() {
     bad = buildingFromJson(j, "plan.wfb");
     CHECK(!bad && contains(bad.error(), "99") && contains(bad.error(), "1"));
 
-    // unknown keys ignored
     j = buildingToJson(a);
     j["futureThing"] = 1;
     j["levels"][0]["walls"][0]["colour"] = "red";
     CHECK(static_cast<bool>(buildingFromJson(j, "plan.wfb")));
 
-    // missing / broken file
     Result<Building> missing = loadBuilding(dir / "wf_doc_no_such_file.wfb");
     CHECK(!missing && contains(missing.error(), "wf_doc_no_such_file"));
 

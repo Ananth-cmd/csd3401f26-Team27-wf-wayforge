@@ -36,7 +36,7 @@ namespace wf {
             c.x += (u.x + v.x) * w;
             c.y += (u.y + v.y) * w;
         }
-        if (std::fabs(a) < 1e-9f) {              // degenerate: average the points
+        if (std::fabs(a) < 1e-9f) {
             Vec2 m;
             for (Vec2 q : p) m += q;
             return p.empty() ? m : m * (1.f / static_cast<float>(p.size()));
