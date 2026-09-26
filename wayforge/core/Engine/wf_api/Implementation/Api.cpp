@@ -229,3 +229,247 @@ WF_API int wf_get_openings(wf_doc d, int level, float* out, int maxFloats) {
     return n;
     WF_CATCH(-1)
 }
+
+// rooms
+namespace {
+    const wf::Room* roomAt(wf_doc d, int level, int i) {
+        const wf::Level* l = levelOf(d, level); if (!l) return nullptr;
+        if (i < 0 || i >= static_cast<int>(l->rooms.size())) { setError("room index out of range"); return nullptr; }
+        return &l->rooms[static_cast<size_t>(i)];
+    }
+}
+WF_API int wf_room_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->rooms.size()) : -1; WF_CATCH(-1) }
+WF_API int wf_get_room(wf_doc d, int level, int i, char* codeOut, int codeCap, float* centroidOut, float* confOut) {
+    WF_TRY
+        const wf::Room* r = roomAt(d, level, i); if (!r) return -1;
+    if (codeOut) copyOut(r->code, codeOut, codeCap);
+    if (centroidOut) { centroidOut[0] = r->centroid.x; centroidOut[1] = r->centroid.y; }
+    if (confOut) *confOut = r->confidence;
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_get_room_id(wf_doc d, int level, int i, char* out, int cap) { WF_TRY const wf::Room* r = roomAt(d, level, i); return r ? copyOut(r->id, out, cap) : -1; WF_CATCH(-1) }
+WF_API int wf_get_room_kind(wf_doc d, int level, int i) { WF_TRY const wf::Room* r = roomAt(d, level, i); return r ? static_cast<int>(r->kind) : -1; WF_CATCH(-1) }
+WF_API int wf_get_room_polygon(wf_doc d, int level, int i, float* out, int maxFloats) {
+    WF_TRY
+        const wf::Room* r = roomAt(d, level, i); if (!r || !out) return -1;
+    int n = 0; for (const auto& p : r->polygon) { if (n + 2 > maxFloats) break; out[n++] = p.x; out[n++] = p.y; }
+    return n;
+    WF_CATCH(-1)
+}
+WF_API int wf_set_room_code(wf_doc d, int level, int i, const char* code, const char* name) {
+    WF_TRY
+        const wf::Room* r = roomAt(d, level, i); if (!r) return -1;
+    d->doc.setRoomCode(level, r->id, code ? code : "", name ? name : "");
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_set_room_kind(wf_doc d, int level, int i, const char* kindName) {
+    WF_TRY
+        const wf::Room* r = roomAt(d, level, i); if (!r || !kindName) return -1;
+    if (!d->doc.setProperty(level, wf::ElementKind::Room, r->id, "kind", std::string(kindName))) { setError(std::string("unknown room kind '") + kindName + "'"); return -1; }
+    return 0;
+    WF_CATCH(-1)
+}
+
+// properties 
+WF_API int wf_property_count(int kind) { return static_cast<int>(propsFor(kind).size()); }
+WF_API int wf_property_name(int kind, int i, char* nameOut, int cap, char* typeOut, int typeCap) {
+    WF_TRY
+        auto props = propsFor(kind);
+    if (i < 0 || i >= static_cast<int>(props.size())) { setError("property index out of range"); return -1; }
+    copyOut(std::string(props[static_cast<size_t>(i)].name), nameOut, cap);
+    if (typeOut) copyOut(wf::propertyTypeName(props[static_cast<size_t>(i)].type), typeOut, typeCap);
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_get_property(wf_doc d, int level, int kind, const char* id, const char* prop, char* out, int cap) {
+    WF_TRY
+        const wf::Level* l = levelOf(d, level); if (!l || !prop) return -1;
+    auto props = propsFor(kind);
+    const wf::PropertyInfo* p = wf::findProperty(props, prop);
+    if (!p) { setError(std::string("no property '") + prop + "'"); return -1; }
+    const void* obj = nullptr;
+    switch (kind) {
+    case 0: obj = l->findWall(id ? id : ""); break;
+    case 1: for (auto& o : l->openings) if (id && o.id == id) obj = &o; break;
+    case 2: obj = l->findRoom(id ? id : ""); break;
+    case 3: obj = l->findNode(id ? id : ""); break;
+    case 4: for (auto& o : l->pois) if (id && o.id == id) obj = &o; break;
+    case 5: for (auto& o : l->anchors) if (id && o.id == id) obj = &o; break;
+    case 6: obj = l; break;
+    }
+    if (!obj) { setError(std::string("no element '") + (id ? id : "") + "'"); return -1; }
+    return copyOut(wf::propertyValueToString(wf::getPropertyRaw(obj, *p), p), out, cap);
+    WF_CATCH(-1)
+}
+WF_API int wf_set_property(wf_doc d, int level, int kind, const char* id, const char* prop, const char* value) {
+    WF_TRY
+        if (!levelOf(d, level) || !prop) return -1;
+    bool ok; wf::ElementKind ek = toKind(kind, ok);
+    if (!ok) { setError("bad element kind"); return -1; }
+    const wf::PropertyInfo* p = wf::findProperty(propsFor(kind), prop);
+    if (!p) { setError(std::string("no property '") + prop + "'"); return -1; }
+    wf::PropertyValue v;
+    if (!parseValue(*p, value, v)) { setError(std::string("cannot parse '") + (value ? value : "") + "' as " + wf::propertyTypeName(p->type)); return -1; }
+    if (!d->doc.setProperty(level, ek, id ? id : "", prop, v)) { setError(std::string("set failed for '") + (id ? id : "") + "." + prop + "'"); return -1; }
+    return 0;
+    WF_CATCH(-1)
+}
+
+// undo 
+WF_API int wf_undo(wf_doc d) { WF_TRY if (!d) return -1; return d->doc.undo() ? 0 : 1; WF_CATCH(-1) }
+WF_API int wf_redo(wf_doc d) { WF_TRY if (!d) return -1; return d->doc.redo() ? 0 : 1; WF_CATCH(-1) }
+WF_API int wf_can_undo(wf_doc d) { return d ? (d->doc.commands().canUndo() ? 1 : 0) : -1; }
+WF_API int wf_can_redo(wf_doc d) { return d ? (d->doc.commands().canRedo() ? 1 : 0) : -1; }
+
+// graph / routing 
+WF_API int wf_build_graph(wf_doc d) {
+    WF_TRY
+        if (!d) { setError("null document"); return -1; }
+    wf::IdGenerator ids; ids.bump(100000);          // node ids must not collide with existing wall/room ids
+    wf::graph::buildGraph(d->doc.mutableBuilding(), ids, {});
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_node_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->nodes.size()) : -1; WF_CATCH(-1) }
+WF_API int wf_get_nodes(wf_doc d, int level, float* out, int maxFloats) {
+    WF_TRY
+        const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
+    int n = 0; for (const auto& nd : l->nodes) { if (n + 3 > maxFloats) break; out[n++] = nd.pos.x; out[n++] = nd.pos.y; out[n++] = static_cast<float>(nd.kind); }
+    return n;
+    WF_CATCH(-1)
+}
+WF_API int wf_edge_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->edges.size()) : -1; WF_CATCH(-1) }
+WF_API int wf_get_edges(wf_doc d, int level, int* out, int maxInts) {
+    WF_TRY
+        const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
+    auto index = [&](const std::string& id) { for (size_t i = 0; i < l->nodes.size(); ++i) if (l->nodes[i].id == id) return static_cast<int>(i); return -1; };
+    int n = 0; for (const auto& e : l->edges) { if (n + 3 > maxInts) break; out[n++] = index(e.a); out[n++] = index(e.b); out[n++] = e.stepFree ? 1 : 0; }
+    return n;
+    WF_CATCH(-1)
+}
+WF_API int wf_add_link(wf_doc d, const char* a, const char* b, const char* kind, int stepFree, float cost) {
+    WF_TRY
+        if (!d || !a || !b) { setError("null argument"); return -1; }
+    wf::Link l; l.a = a; l.b = b; l.stepFree = stepFree != 0; l.cost = cost;
+    if (kind && !wf::setProperty(l, "kind", std::string(kind))) { setError(std::string("unknown link kind '") + kind + "'"); return -1; }
+    d->doc.mutableBuilding().links.push_back(l);
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_route(wf_doc d, const char* from, const char* to, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
+    WF_TRY
+        if (!d || !from || !to || !out) { setError("null argument"); return -1; }
+    return writeRoute(d, wf::graph::findRoute(d->doc.building(), from, to, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
+    WF_CATCH(-1)
+}
+WF_API int wf_route_to_room(wf_doc d, const char* from, const char* roomCode, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
+    WF_TRY
+        if (!d || !from || !roomCode || !out) { setError("null argument"); return -1; }
+    auto ref = wf::graph::nodeForRoom(d->doc.building(), roomCode);
+    if (!ref) { setError(std::string("no room '") + roomCode + "' (or it has no node: run wf_build_graph)"); return -1; }
+    return writeRoute(d, wf::graph::findRoute(d->doc.building(), from, *ref, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
+    WF_CATCH(-1)
+}
+WF_API int wf_egress(wf_doc d, const char* from, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
+    WF_TRY
+        if (!d || !from || !out) { setError("null argument"); return -1; }
+    return writeRoute(d, wf::graph::findEgress(d->doc.building(), from, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
+    WF_CATCH(-1)
+}
+WF_API int wf_node_for_room(wf_doc d, const char* room, char* out, int cap) {
+    WF_TRY
+        if (!d || !room) { setError("null argument"); return -1; }
+    auto ref = wf::graph::nodeForRoom(d->doc.building(), room);
+    if (!ref) { setError(std::string("no node for room '") + room + "'"); return -1; }
+    return copyOut(*ref, out, cap);
+    WF_CATCH(-1)
+}
+WF_API int wf_nearest_node(wf_doc d, const char* levelId, float x, float y, char* out, int cap) {
+    WF_TRY
+        if (!d || !levelId) { setError("null argument"); return -1; }
+    auto ref = wf::graph::nearestNode(d->doc.building(), levelId, { x, y });
+    if (!ref) { setError(std::string("no nodes on level '") + levelId + "'"); return -1; }
+    return copyOut(*ref, out, cap);
+    WF_CATCH(-1)
+}
+
+// app helpers 
+namespace {
+    // "L1:r3" -> level + room
+    std::pair<const wf::Level*, const wf::Room*> splitRoomRef(const wf::Building& b, const char* ref) {
+        if (!ref) return { nullptr, nullptr };
+        const std::string s(ref); const size_t c = s.find(':');
+        const wf::Level* l = c == std::string::npos ? nullptr : b.findLevel(s.substr(0, c));
+        if (!l) { // maybe a bare room code
+            for (const auto& lv : b.levels) for (const auto& r : lv.rooms) if (r.code == s || r.id == s) return { &lv, &r };
+            return { nullptr, nullptr };
+        }
+        return { l, l->findRoom(s.substr(c + 1)) };
+    }
+}
+WF_API int wf_instructions(wf_doc d, char* out, int cap) {
+    WF_TRY
+        if (!d || !out) { setError("null argument"); return -1; }
+    if (d->lastRoute.empty()) { setError("no route computed yet"); return -1; }
+    auto list = wf::graph::instructions(d->doc.building(), d->lastRoute);
+    std::string s; for (auto& i : list) { s += i.text; s += '\n'; }
+    copyOut(s, out, cap);
+    return static_cast<int>(list.size());
+    WF_CATCH(-1)
+}
+WF_API int wf_search_rooms(wf_doc d, const char* query, char* out, int cap) {
+    WF_TRY
+        if (!d || !out) { setError("null argument"); return -1; }
+    auto refs = wf::graph::searchRooms(d->doc.building(), query ? query : "", 50);
+    std::string s;
+    for (auto& ref : refs) {
+        auto [l, r] = splitRoomRef(d->doc.building(), ref.c_str()); if (!r) continue;
+        s += ref + "|" + r->code + "|" + r->name + "|" + wf::EnumNames<wf::RoomKind>::names[static_cast<int>(r->kind)] + "\n";
+    }
+    copyOut(s, out, cap);
+    return static_cast<int>(refs.size());
+    WF_CATCH(-1)
+}
+WF_API int wf_room_info(wf_doc d, const char* ref, char* codeOut, int codeCap, char* nameOut, int nameCap, int* kindOut, float* centroidOut) {
+    WF_TRY
+        if (!d) { setError("null document"); return -1; }
+    auto [l, r] = splitRoomRef(d->doc.building(), ref);
+    if (!r) { setError(std::string("no room '") + (ref ? ref : "") + "'"); return -1; }
+    if (codeOut) copyOut(r->code, codeOut, codeCap);
+    if (nameOut) copyOut(r->name, nameOut, nameCap);
+    if (kindOut) *kindOut = static_cast<int>(r->kind);
+    if (centroidOut) { centroidOut[0] = r->centroid.x; centroidOut[1] = r->centroid.y; }
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_pois(wf_doc d, int level, char* out, int cap) {
+    WF_TRY
+        const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
+    std::string s;
+    for (auto& p : l->pois) s += p.id + "|" + p.kind + "|" + p.label + "|" + std::to_string(p.pos.x) + "|" + std::to_string(p.pos.y) + "\n";
+    copyOut(s, out, cap);
+    return static_cast<int>(l->pois.size());
+    WF_CATCH(-1)
+}
+WF_API int wf_add_poi(wf_doc d, int level, const char* kind, const char* label, float x, float y) {
+    WF_TRY
+        if (!levelOf(d, level)) return -1;
+    wf::Poi p; p.id = d->doc.nextId("p"); p.kind = kind ? kind : ""; p.label = label ? label : ""; p.pos = { x, y };
+    d->doc.mutableLevel(level)->pois.push_back(p);
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float* elevationOut, float* heightOut) {
+    WF_TRY
+        const wf::Level* l = levelOf(d, level); if (!l) return -1;
+    if (nameOut) copyOut(l->name, nameOut, nameCap);
+    if (elevationOut) *elevationOut = l->elevation;
+    if (heightOut) *heightOut = l->ceilingHeight;
+    return 0;
+    WF_CATCH(-1)
+}
+WF_API int wf_building_name(wf_doc d, char* out, int cap) {
+    WF_TRY if (!d) { setError("null document"); return -1; } return copyOut(d->doc.building().building.name, out, cap); WF_CATCH(-1)
+}
