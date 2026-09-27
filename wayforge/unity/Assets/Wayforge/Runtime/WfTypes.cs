@@ -82,8 +82,9 @@ namespace Wayforge
     public struct WfOpening
     {
         public string id;
-        public string wall;   // which wall this door/window is on
-        public float offset;  // distance along the wall from point a
+        public string wall;   // which wall this door/window is on (stub only)
+        public float offset;  // distance along the wall from point a (stub only)
+        public Vector2 pos;   // world position - the real core gives this directly instead of wall + offset
         public float width;
         public OpeningType type;
         public float confidence;
@@ -155,4 +156,4 @@ namespace Wayforge
         public bool stepFree;
         public int stepCount;
     }
-}
+}
