@@ -21,21 +21,22 @@ namespace Wayforge.Editor
         [MenuItem("Wayforge/Check native plugin")]
         public static void CheckNativePlugin()
         {
-            var doc = DocumentProvider.Current;
-            if (doc.NativePluginLoaded)
+            // Ask the bridge directly: the document may be the fake stub,
+            // which always claims to be loaded.
+            if (NativeBridge.PluginLoads())
             {
                 EditorUtility.DisplayDialog(
                     "Wayforge native plugin",
-                    $"Plugin loaded OK.\nVersion: {doc.NativeVersion}",
+                    $"Plugin loaded OK.\nCore {NativeBridge.Version()} on {NativeBridge.Platform()}.",
                     "OK");
             }
             else
             {
                 EditorUtility.DisplayDialog(
                     "Wayforge native plugin",
-                    "The native plugin (wayforge.dll / .so / .dylib) did not load.\n\n" +
-                    "Check Console for the specific load error, and confirm the plugin " +
-                    "is present under Assets/Plugins for your platform.",
+                    "The native plugin (wayforge.dll / .so / .dylib) did not load, so Studio is showing fake data.\n\n" +
+                    "Run core\\script_build_and_run.bat (it copies wayforge.dll into " +
+                    "Assets/Wayforge/Plugins/x86_64), then restart Unity.",
                     "OK");
             }
         }
@@ -209,8 +210,8 @@ namespace Wayforge.Editor
 
             if (!string.IsNullOrEmpty(_statusMessage) && EditorApplication.timeSinceStartup < _statusMessageExpiry)
                 GUILayout.Label(_statusMessage, EditorStyles.miniLabel);
-            else if (!_doc.NativePluginLoaded)
-                GUILayout.Label("⚠ native plugin not loaded", EditorStyles.miniLabel);
+            else if (DocumentProvider.UsingFakeData)
+                GUILayout.Label("⚠ native plugin not loaded - showing fake data", EditorStyles.miniLabel);
 
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
@@ -256,7 +257,7 @@ namespace Wayforge.Editor
 
             if (!ConfirmDiscardUnsavedChanges("opening another file")) return;
 
-            string path = EditorUtility.OpenFilePanel("Open plan", "", "wfb,svg");
+            string path = EditorUtility.OpenFilePanel("Open plan", DefaultPlanFolder(), "wfb,svg");
             if (string.IsNullOrEmpty(path)) return;
 
             try
@@ -313,6 +314,13 @@ namespace Wayforge.Editor
                 Debug.LogException(ex);
                 EditorUtility.DisplayDialog("Build graph failed", ex.Message, "OK");
             }
+        }
+
+        // wayforge/data/plans next to the Unity project, if it exists.
+        private static string DefaultPlanFolder()
+        {
+            string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../data/plans"));
+            return System.IO.Directory.Exists(dir) ? dir : "";
         }
 
         private void SetStatus(string message)

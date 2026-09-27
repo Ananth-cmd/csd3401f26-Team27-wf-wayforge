@@ -1,11 +1,12 @@
 // Gives out the one shared document instance. Everything else should get
-// its document from here instead of creating a new StubWayforgeDocument
-// (or the real one, once it exists) directly.
+// its document from here instead of creating a WayforgeDocument or a
+// StubWayforgeDocument directly.
 //
-// To switch to the real document once it's ready: set UseRealDocument to
-// true, uncomment the "new WayforgeDocument()" line below, and remove the
-// fallback line under it. Nothing else needs to change as long as the
-// real class implements IWayforgeDocument the same way this interface does.
+// If wayforge.dll loads, Studio gets the real WayforgeDocument (C++ core
+// through NativeBridge). If it doesn't - the core hasn't been built yet, or
+// the dll isn't in Assets/Wayforge/Plugins/x86_64 - it falls back to the
+// fake StubWayforgeDocument so the window still opens, and UsingFakeData
+// tells the UI to say so.
 
 using UnityEngine;
 using Wayforge.Stub;
@@ -14,9 +15,10 @@ namespace Wayforge.Editor
 {
     public static class DocumentProvider
     {
-        private const bool UseRealDocument = false;
-
         private static IWayforgeDocument _instance;
+
+        /// True when the plugin didn't load and Studio is showing the built-in fake house.
+        public static bool UsingFakeData { get; private set; }
 
         // Domain reloads wipe this static field, so don't cache the
         // result elsewhere - always go through Current.
@@ -24,15 +26,15 @@ namespace Wayforge.Editor
 
         private static IWayforgeDocument CreateDocument()
         {
-            if (UseRealDocument)
+            if (NativeBridge.PluginLoads())
             {
-                // return new WayforgeDocument();
-                Debug.LogError("[DocumentProvider] UseRealDocument is true but the real " +
-                                "WayforgeDocument line is still commented out. Falling back " +
-                                "to fake data so Studio doesn't crash.");
-                return new StubWayforgeDocument();
+                UsingFakeData = false;
+                return new WayforgeDocument();
             }
 
+            UsingFakeData = true;
+            Debug.LogWarning("[DocumentProvider] wayforge.dll did not load, so Studio is using fake data. " +
+                             "Build the core (core/script_build_and_run.bat) and restart Unity.");
             return new StubWayforgeDocument();
         }
 

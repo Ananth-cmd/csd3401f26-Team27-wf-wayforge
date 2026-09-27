@@ -1,6 +1,7 @@
-// Draws the right sidebar. Shows different things depending on what's
+// Draws the right sidebar. Read-only for M1 (Studio shows the blueprint,
+// it doesn't edit it). Shows different things depending on what's
 // selected in PlanCanvas:
-//   - room selected -> code/name fields + kind dropdown
+//   - room selected -> code, name, kind, area, confidence
 //   - wall selected -> property list (built from GetProperties so we
 //     don't need to hardcode a field per property)
 //   - nothing selected -> route preview
@@ -15,11 +16,7 @@ namespace Wayforge.Editor
     {
         public const float SidebarWidth = 292f;
 
-        // input field state, not building data
-        private string _roomCodeInput = "";
-        private string _roomNameInput = "";
-        private string _lastSelectedRoomId;
-
+        // route preview input state, not building data
         private string _routeFromInput = "";
         private string _routeToInput = "";
         private bool _routeStepFreeOnly = false;
@@ -63,43 +60,16 @@ namespace Wayforge.Editor
                 return;
             }
 
-            // Only refresh the fields when the selection changes, not every
-            // frame - otherwise typing would get overwritten mid-keystroke.
-            if (_lastSelectedRoomId != roomId)
-            {
-                _roomCodeInput = room.code ?? "";
-                _roomNameInput = room.name ?? "";
-                _lastSelectedRoomId = roomId;
-            }
-
             EditorGUILayout.LabelField("Room", EditorStyles.boldLabel);
             EditorGUILayout.Space(4);
 
-            EditorGUILayout.LabelField($"id: {room.id}", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField($"area: {room.area:F1} m²", EditorStyles.miniLabel);
-            EditorGUILayout.LabelField($"confidence: {room.confidence:P0}", EditorStyles.miniLabel);
-            EditorGUILayout.Space(8);
-
-            EditorGUI.BeginChangeCheck();
-            _roomCodeInput = EditorGUILayout.DelayedTextField("Code", _roomCodeInput);
-            _roomNameInput = EditorGUILayout.DelayedTextField("Name", _roomNameInput);
-            if (EditorGUI.EndChangeCheck())
-            {
-                doc.SetRoomCode(levelIndex, room.id, _roomCodeInput, _roomNameInput);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            RoomKind newKind = (RoomKind)EditorGUILayout.EnumPopup("Kind", room.kind);
-            if (EditorGUI.EndChangeCheck())
-            {
-                doc.SetRoomKind(levelIndex, room.id, newKind);
-            }
-
-            EditorGUILayout.Space(12);
-            if (!room.IsTagged)
-            {
-                EditorGUILayout.HelpBox("Untagged -- give this room a code before building the graph, or it won't be routable.", MessageType.Warning);
-            }
+            InfoRow("Id", room.id);
+            InfoRow("Code", room.IsTagged ? room.code : "(untagged)");
+            InfoRow("Name", string.IsNullOrEmpty(room.name) ? "-" : room.name);
+            InfoRow("Kind", room.kind.ToString());
+            InfoRow("Area", $"{room.area:F1} m\u00b2");
+            InfoRow("Corners", room.polygon?.Count.ToString() ?? "0");
+            InfoRow("Confidence", $"{room.confidence:P0}");
         }
 
         private void DrawWallInspector(IWayforgeDocument doc, int levelIndex, string wallId)
@@ -107,6 +77,8 @@ namespace Wayforge.Editor
             EditorGUILayout.LabelField("Wall", EditorStyles.boldLabel);
             EditorGUILayout.Space(4);
 
+            // The rows come from the core's property table (wf_property_name /
+            // wf_get_property), so new wall fields show up here automatically.
             var rows = doc.GetProperties(levelIndex, ElementKind.Wall, wallId);
             if (rows.Count == 0)
             {
@@ -116,77 +88,18 @@ namespace Wayforge.Editor
 
             _wallPropsScroll = EditorGUILayout.BeginScrollView(_wallPropsScroll);
             foreach (var row in rows)
-            {
-                DrawPropertyField(doc, levelIndex, ElementKind.Wall, wallId, row);
-            }
+                InfoRow(row.name, row.valueText);
             EditorGUILayout.EndScrollView();
         }
 
-        // Draws one property field, picking the right control based on
-        // the property's type, then writes the new value back if changed.
-        private void DrawPropertyField(IWayforgeDocument doc, int levelIndex, ElementKind kind, string elementId, WfPropertyRow row)
+        // Read-only label/value pair. Studio only shows the blueprint for M1;
+        // selectable so values can still be copied.
+        private static void InfoRow(string label, string value)
         {
-            EditorGUI.BeginChangeCheck();
-            string newValue = row.valueText;
-
-            switch (row.type)
-            {
-                case PropertyType.Bool:
-                    bool boolVal = row.valueText == "true" || row.valueText == "1";
-                    bool newBool = EditorGUILayout.Toggle(row.name, boolVal);
-                    newValue = newBool ? "true" : "false";
-                    break;
-
-                case PropertyType.Int:
-                    int.TryParse(row.valueText, out int intVal);
-                    int newInt = EditorGUILayout.DelayedIntField(row.name, intVal);
-                    newValue = newInt.ToString();
-                    break;
-
-                case PropertyType.Float:
-                    float.TryParse(row.valueText, out float floatVal);
-                    float newFloat = EditorGUILayout.DelayedFloatField(row.name, floatVal);
-                    newValue = newFloat.ToString("F4");
-                    break;
-
-                case PropertyType.Vec2:
-                    Vector2 vecVal = ParseVec2(row.valueText);
-                    Vector2 newVec = EditorGUILayout.Vector2Field(row.name, vecVal);
-                    newValue = $"{newVec.x:F4},{newVec.y:F4}";
-                    break;
-
-                case PropertyType.Enum:
-                    int currentIdx = Array.IndexOf(row.enumOptions ?? Array.Empty<string>(), row.valueText);
-                    int newIdx = EditorGUILayout.Popup(row.name, Mathf.Max(0, currentIdx), row.enumOptions ?? Array.Empty<string>());
-                    if (row.enumOptions != null && row.enumOptions.Length > 0)
-                        newValue = row.enumOptions[newIdx];
-                    break;
-
-                case PropertyType.String:
-                default:
-                    newValue = EditorGUILayout.DelayedTextField(row.name, row.valueText);
-                    break;
-            }
-
-            if (EditorGUI.EndChangeCheck() && newValue != row.valueText)
-            {
-                bool ok = doc.SetProperty(levelIndex, kind, elementId, row.name, newValue);
-                if (!ok)
-                {
-                    Debug.LogWarning($"[RoomTagger] Failed to set {row.name} = '{newValue}' on {kind} '{elementId}' " +
-                                      $"(rejected by the document -- likely a read-only field or invalid value for its type).");
-                }
-            }
-        }
-
-        private static Vector2 ParseVec2(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return Vector2.zero;
-            var parts = text.Split(',');
-            if (parts.Length != 2) return Vector2.zero;
-            float.TryParse(parts[0], out float x);
-            float.TryParse(parts[1], out float y);
-            return new Vector2(x, y);
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField(label, GUILayout.Width(90));
+            EditorGUILayout.SelectableLabel(value ?? "", EditorStyles.label, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            EditorGUILayout.EndHorizontal();
         }
 
         private void DrawRoutePreview(IWayforgeDocument doc, int levelIndex)

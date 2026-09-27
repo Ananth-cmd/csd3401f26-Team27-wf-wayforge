@@ -124,14 +124,19 @@ namespace Wayforge.Editor
 
             if (!doc.IsOpen) return;
 
+            // Inside BeginClip, (0,0) is the canvas's top-left corner, not the
+            // window's. Swap in the local rect while drawing so WorldToScreen
+            // gives clip-local positions; otherwise everything draws one
+            // toolbar-height below where clicks are tested.
             GUI.BeginClip(canvasRect);
-            var localRect = new Rect(0, 0, canvasRect.width, canvasRect.height);
+            _canvasRect = new Rect(0, 0, canvasRect.width, canvasRect.height);
 
             DrawRooms(doc, levelIndex);
             DrawWalls(doc, levelIndex);
             DrawOpenings(doc, levelIndex);
             if (ShowGraph) DrawGraph(doc, levelIndex);
 
+            _canvasRect = canvasRect;
             GUI.EndClip();
         }
 
@@ -181,9 +186,13 @@ namespace Wayforge.Editor
                     ? RoomFillSelected
                     : (room.IsTagged ? RoomFillColor : RoomFillUntagged);
 
+                // Fill triangle by triangle: DrawAAConvexPolygon on its own
+                // draws L-shaped (non-convex) rooms wrong.
+                var tris = PolygonUtil.Triangulate(room.polygon);
                 Handles.BeginGUI();
                 Handles.color = fill;
-                Handles.DrawAAConvexPolygon(screenPoly);
+                for (int t = 0; t + 2 < tris.Count; t += 3)
+                    Handles.DrawAAConvexPolygon(screenPoly[tris[t]], screenPoly[tris[t + 1]], screenPoly[tris[t + 2]]);
                 Handles.color = Color.white;
                 Handles.EndGUI();
 
@@ -227,13 +236,17 @@ namespace Wayforge.Editor
         {
             Handles.BeginGUI();
             Handles.color = DoorColor;
+            var walls = doc.Walls(levelIndex);
             foreach (var opening in doc.Openings(levelIndex))
             {
-                var wall = doc.Walls(levelIndex).FirstOrDefault(w => w.id == opening.wall);
-                if (wall.id == null) continue;
-
-                Vector2 dir = wall.Direction;
-                Vector2 worldPos = wall.a + dir * opening.offset;
+                // The real core gives the position directly; the stub gives wall + offset.
+                Vector2 worldPos = opening.pos;
+                if (!string.IsNullOrEmpty(opening.wall))
+                {
+                    var wall = walls.FirstOrDefault(w => w.id == opening.wall);
+                    if (wall.id == null) continue;
+                    worldPos = wall.a + wall.Direction * opening.offset;
+                }
                 Vector2 screenPos = WorldToScreen(worldPos);
                 float radius = Mathf.Max(3f, opening.width * 0.5f * _pixelsPerMeter);
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, radius);
