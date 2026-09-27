@@ -1,168 +1,166 @@
-// The data model of a building.wfb. Plain structs, all fields reflected.
-// A wall is a line plus numbers, not a mesh. An opening is an offset along its
-// wall, never a world position. stepFree lives on every edge and link.
 #pragma once
-#include <string>
-#include <vector>
-#include <cstdint>
+
 #include "wf_core/wf_core.hpp"
-#include "Property.hpp"
+#include "wf_doc/Property.hpp"
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace wf {
 
-enum class OpeningType : uint8_t { Door, Window, Opening };
-enum class RoomKind    : uint8_t { Unknown, Classroom, Lab, Office, Toilet, Corridor, Stair, Lift, Lobby, Food, Storage, Exit };
-enum class NodeKind    : uint8_t { Room, Door, Corridor, Stair, Lift, Exit, Poi };
-enum class LinkKind    : uint8_t { Stair, Lift, Ramp };
+    enum class OpeningType : uint8_t { Door, Window, Opening };
+    enum class RoomKind : uint8_t { Unknown, Classroom, Lab, Office, Toilet, Corridor, Stair, Lift, Lobby, Food, Storage, Exit };
+    enum class NodeKind : uint8_t { Room, Door, Corridor, Stair, Lift, Exit, Poi };
+    enum class LinkKind : uint8_t { Stair, Lift, Ramp };
 
-template <> struct EnumNames<OpeningType> { static constexpr const char* names[] = { "door", "window", "opening", nullptr }; };
-template <> struct EnumNames<RoomKind>    { static constexpr const char* names[] = { "unknown", "classroom", "lab", "office", "toilet", "corridor", "stair", "lift", "lobby", "food", "storage", "exit", nullptr }; };
-template <> struct EnumNames<NodeKind>    { static constexpr const char* names[] = { "room", "door", "corridor", "stair", "lift", "exit", "poi", nullptr }; };
-template <> struct EnumNames<LinkKind>    { static constexpr const char* names[] = { "stair", "lift", "ramp", nullptr }; };
+ 
+    template <> struct EnumNames<OpeningType> {
+        static constexpr const char* const names[] = { "door", "window", "opening" };
+        static constexpr int count = 3;
+    };
+    template <> struct EnumNames<RoomKind> {
+        static constexpr const char* const names[] = { "unknown", "classroom", "lab", "office", "toilet", "corridor", "stair", "lift", "lobby", "food", "storage", "exit" };
+        static constexpr int count = 12;
+    };
+    template <> struct EnumNames<NodeKind> {
+        static constexpr const char* const names[] = { "room", "door", "corridor", "stair", "lift", "exit", "poi" };
+        static constexpr int count = 7;
+    };
+    template <> struct EnumNames<LinkKind> {
+        static constexpr const char* const names[] = { "stair", "lift", "ramp" };
+        static constexpr int count = 3;
+    };
 
-struct Wall {
-    std::string id;
-    Vec2        a, b;
-    float       thickness  = 0.2f;
-    float       confidence = 1.f;
-    WF_PROPERTIES(Wall, WF_PROP(id), WF_PROP(a), WF_PROP(b), WF_PROP(thickness), WF_PROP(confidence))
+    struct Wall {
+        std::string id;
+        Vec2 a, b;
+        float thickness = 0.15f, confidence = 1.f;
+        Vec2 direction() const;
+        float length() const;
+        WF_PROPERTIES(Wall, WF_PROP(Wall, id), WF_PROP(Wall, a), WF_PROP(Wall, b),
+            WF_PROP(Wall, thickness), WF_PROP(Wall, confidence))
+    };
+    WF_REGISTER_TYPE(Wall)
 
-    Vec2  centre()    const noexcept { return (a + b) * 0.5f; }
-    float length()    const noexcept { return wf::distance(a, b); }
-    Vec2  direction() const noexcept { return normalize(b - a); }
-};
+        struct Opening {
+        std::string id, wall;
+        float offset = 0, width = 0.9f;
+        OpeningType type = OpeningType::Door;
+        float sill = 0, height = 2.1f, confidence = 1.f;
+        WF_PROPERTIES(Opening, WF_PROP(Opening, id), WF_PROP(Opening, wall), WF_PROP(Opening, offset),
+            WF_PROP(Opening, width), WF_PROP(Opening, type), WF_PROP(Opening, sill),
+            WF_PROP(Opening, height), WF_PROP(Opening, confidence))
+    };
+    WF_REGISTER_TYPE(Opening)
 
-struct Opening {
-    std::string id;
-    std::string wall;                 // id of the wall it sits in
-    OpeningType type   = OpeningType::Door;
-    float       offset = 0.f;         // metres from wall.a along the wall
-    float       width  = 0.9f;
-    float       sill   = 0.f;
-    float       height = 2.1f;
-    float       confidence = 1.f;
-    WF_PROPERTIES(Opening, WF_PROP(id), WF_PROP(wall), WF_PROP(type), WF_PROP(offset), WF_PROP(width),
-                  WF_PROP(sill), WF_PROP(height), WF_PROP(confidence))
-};
+        struct Room {
+        std::string id, code, name;
+        RoomKind kind = RoomKind::Unknown;
+        std::vector<std::string> boundary;   // not a property: Serialize handles it
+        std::vector<Vec2> polygon;           // not a property: Serialize handles it
+        Vec2 centroid;
+        float area = 0, confidence = 1.f;
+        WF_PROPERTIES(Room, WF_PROP(Room, id), WF_PROP(Room, code), WF_PROP(Room, name),
+            WF_PROP(Room, kind), WF_PROP(Room, centroid), WF_PROP(Room, area),
+            WF_PROP(Room, confidence))
+    };
+    WF_REGISTER_TYPE(Room)
 
-struct Room {
-    std::string id;
-    std::string code;                 // "E2-05-12"
-    std::string name;                 // "Lecture Theatre 3"
-    RoomKind    kind = RoomKind::Unknown;
-    std::vector<std::string> boundary;   // wall ids (may be empty for raw faces)
-    std::vector<Vec2>        polygon;    // room outline, counter-clockwise, metres
-    Vec2        centroid;
-    float       area       = 0.f;
-    float       confidence = 1.f;
-    WF_PROPERTIES(Room, WF_PROP(id), WF_PROP(code), WF_PROP(name), WF_PROP(kind), WF_PROP(centroid),
-                  WF_PROP(area), WF_PROP(confidence))
-};
+        struct Node {
+        std::string id;
+        Vec2 pos;
+        NodeKind kind = NodeKind::Corridor;
+        std::string room;
+        WF_PROPERTIES(Node, WF_PROP(Node, id), WF_PROP(Node, pos), WF_PROP(Node, kind), WF_PROP(Node, room))
+    };
+    WF_REGISTER_TYPE(Node)
 
-struct Node {
-    std::string id;
-    Vec2        pos;
-    std::string room;                 // room id, or "" for corridor/stair nodes
-    NodeKind    kind = NodeKind::Corridor;
-    WF_PROPERTIES(Node, WF_PROP(id), WF_PROP(pos), WF_PROP(room), WF_PROP(kind))
-};
+        struct Edge {
+        std::string a, b;
+        float cost = 0;
+        bool stepFree = true;
+        WF_PROPERTIES(Edge, WF_PROP(Edge, a), WF_PROP(Edge, b), WF_PROP(Edge, cost), WF_PROP(Edge, stepFree))
+    };
+    WF_REGISTER_TYPE(Edge)
 
-struct Edge {
-    std::string a, b;                 // node ids
-    float       cost     = 0.f;
-    bool        stepFree = true;
-    std::string via;                  // opening id if it passes through a door
-    WF_PROPERTIES(Edge, WF_PROP(a), WF_PROP(b), WF_PROP(cost), WF_PROP(stepFree), WF_PROP(via))
-};
+        struct Poi {
+        std::string id, kind;
+        Vec2 pos;
+        std::string label;
+        WF_PROPERTIES(Poi, WF_PROP(Poi, id), WF_PROP(Poi, kind), WF_PROP(Poi, pos), WF_PROP(Poi, label))
+    };
+    WF_REGISTER_TYPE(Poi)
 
-struct Poi {
-    std::string id;
-    std::string kind;                 // "aed", "toilet", "printer"...
-    Vec2        pos;
-    std::string label;
-    WF_PROPERTIES(Poi, WF_PROP(id), WF_PROP(kind), WF_PROP(pos), WF_PROP(label))
-};
+        struct Anchor {
+        std::string id, name;
+        Vec2 pos;
+        float heading = 0;
+        WF_PROPERTIES(Anchor, WF_PROP(Anchor, id), WF_PROP(Anchor, name), WF_PROP(Anchor, pos), WF_PROP(Anchor, heading))
+    };
+    WF_REGISTER_TYPE(Anchor)
 
-struct Anchor {                       // QR code / tap-to-start location
-    std::string id;
-    Vec2        pos;
-    std::string label;
-    WF_PROPERTIES(Anchor, WF_PROP(id), WF_PROP(pos), WF_PROP(label))
-};
+        struct Level {
+        std::string id, name;
+        float elevation = 0, ceilingHeight = 2.8f;
+        std::vector<Wall> walls;
+        std::vector<Opening> openings;
+        std::vector<Room> rooms;
+        std::vector<Node> nodes;
+        std::vector<Edge> edges;
+        std::vector<Poi> pois;
+        std::vector<Anchor> anchors;
 
-struct Level {
-    std::string id;                   // "L5"
-    std::string name;                 // "Level 5"
-    float       elevation     = 0.f;
-    float       ceilingHeight = 2.8f;
-    WF_PROPERTIES(Level, WF_PROP(id), WF_PROP(name), WF_PROP(elevation), WF_PROP(ceilingHeight))
+        const Wall* findWall(std::string_view) const;
+        Wall* findWall(std::string_view);
+        const Room* findRoom(std::string_view) const;
+        const Node* findNode(std::string_view) const;
 
-    std::vector<Wall>    walls;
-    std::vector<Opening> openings;
-    std::vector<Room>    rooms;
-    std::vector<Node>    nodes;
-    std::vector<Edge>    edges;
-    std::vector<Poi>     pois;
-    std::vector<Anchor>  anchors;
+        WF_PROPERTIES(Level, WF_PROP(Level, id), WF_PROP(Level, name),
+            WF_PROP(Level, elevation), WF_PROP(Level, ceilingHeight))
+    };
+    WF_REGISTER_TYPE(Level)
 
-    Wall*    findWall(std::string_view id) noexcept;
-    Room*    findRoom(std::string_view id) noexcept;
-    Node*    findNode(std::string_view id) noexcept;
-    Opening* findOpening(std::string_view id) noexcept;
-    const Wall* findWall(std::string_view id) const noexcept;
-    const Room* findRoom(std::string_view id) const noexcept;
-    const Node* findNode(std::string_view id) const noexcept;
-};
+        struct Link {
+        std::string a, b;
+        LinkKind kind = LinkKind::Stair;
+        bool stepFree = false;
+        float cost = 12.f;
+        WF_PROPERTIES(Link, WF_PROP(Link, a), WF_PROP(Link, b), WF_PROP(Link, kind),
+            WF_PROP(Link, stepFree), WF_PROP(Link, cost))
+    };
+    WF_REGISTER_TYPE(Link)
 
-struct Link {                         // vertical connection between levels: "L5:n3" -> "L6:n7"
-    std::string a, b;
-    LinkKind    kind     = LinkKind::Stair;
-    bool        stepFree = false;
-    float       cost     = 12.f;
-    WF_PROPERTIES(Link, WF_PROP(a), WF_PROP(b), WF_PROP(kind), WF_PROP(stepFree), WF_PROP(cost))
-};
+        struct BuildingInfo {
+        std::string name, id;
+        WF_PROPERTIES(BuildingInfo, WF_PROP(BuildingInfo, name), WF_PROP(BuildingInfo, id))
+    };
+    WF_REGISTER_TYPE(BuildingInfo)
 
-struct BuildingInfo {
-    std::string name = "Untitled";
-    float       unitsPerMetre = 1.f;
-    WF_PROPERTIES(BuildingInfo, WF_PROP(name), WF_PROP(unitsPerMetre))
-};
+        struct SourceInfo {
+        std::string file;
+        float pixelsPerMetre = 0;
+        bool rectified = false;
+        WF_PROPERTIES(SourceInfo, WF_PROP(SourceInfo, file), WF_PROP(SourceInfo, pixelsPerMetre),
+            WF_PROP(SourceInfo, rectified))
+    };
+    WF_REGISTER_TYPE(SourceInfo)
 
-struct SourceInfo {
-    std::string file;
-    float       pixelsPerMetre = 0.f;
-    bool        rectified = false;
-    WF_PROPERTIES(SourceInfo, WF_PROP(file), WF_PROP(pixelsPerMetre), WF_PROP(rectified))
-};
+        struct Building {
+        int version = 1;
+        BuildingInfo building;
+        SourceInfo source;
+        std::vector<Level> levels;
+        std::vector<Link> links;
 
-struct Building {
-    int                version = 1;
-    BuildingInfo       building;
-    std::vector<Level> levels;
-    std::vector<Link>  links;
-    SourceInfo         source;
+        const Level* findLevel(std::string_view) const;
+    };
 
-    Level*       findLevel(std::string_view id) noexcept;
-    const Level* findLevel(std::string_view id) const noexcept;
-};
-
-// Geometry helpers on the model ------------------------------------------------
-float polygonArea(std::span<const Vec2> poly) noexcept;        // signed, CCW positive
-Vec2  polygonCentroid(std::span<const Vec2> poly) noexcept;
-bool  pointInPolygon(const Vec2& p, std::span<const Vec2> poly) noexcept;
-Rect  polygonBounds(std::span<const Vec2> poly) noexcept;
-Vec2  openingPosition(const Wall& wall, const Opening& opening) noexcept;   // world midpoint of the opening
+    //polygonArea is always +ve.
+    float polygonArea(const std::vector<Vec2>&);
+    Vec2 polygonCentroid(const std::vector<Vec2>&);
+    bool pointInPolygon(Vec2, const std::vector<Vec2>&);
+    Rect polygonBounds(const std::vector<Vec2>&);
+    Vec2 openingPosition(const Wall&, const Opening&);
 
 } // namespace wf
-
-WF_REGISTER_TYPE(wf::Wall)
-WF_REGISTER_TYPE(wf::Opening)
-WF_REGISTER_TYPE(wf::Room)
-WF_REGISTER_TYPE(wf::Node)
-WF_REGISTER_TYPE(wf::Edge)
-WF_REGISTER_TYPE(wf::Poi)
-WF_REGISTER_TYPE(wf::Anchor)
-WF_REGISTER_TYPE(wf::Level)
-WF_REGISTER_TYPE(wf::Link)
-WF_REGISTER_TYPE(wf::BuildingInfo)
-WF_REGISTER_TYPE(wf::SourceInfo)

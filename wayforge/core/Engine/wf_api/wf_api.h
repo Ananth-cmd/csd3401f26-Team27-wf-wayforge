@@ -40,9 +40,8 @@ extern "C" {
     WF_API const char* wf_platform(void);                    /* "Windows" / "Linux" / "Android" / "macOS" */
     WF_API const char* wf_last_error(void);                  /* message from the last failed call, thread-local */
 
-    WF_API wf_doc      wf_open_plan(const char* path);       /* .wfb loads; .svg converts (metresPerUnit=1); png/jpg/bmp convert (1px = 2cm) */
+    WF_API wf_doc      wf_open_plan(const char* path);       /* .wfb loads; .svg converts (metresPerUnit=1) */
     WF_API wf_doc      wf_convert_svg(const char* path, float metresPerUnit);
-    WF_API wf_doc      wf_convert_image(const char* path, float widthMetres);  /* png/jpg/bmp; widthMetres = real width of the drawing, <=0 -> 1px = 2cm */
     WF_API wf_doc      wf_new_doc(const char* buildingName);
     WF_API void        wf_close(wf_doc d);
     WF_API int         wf_save(wf_doc d, const char* path);

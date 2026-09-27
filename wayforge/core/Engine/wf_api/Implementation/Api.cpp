@@ -2,7 +2,6 @@
 #include "wf_api/wf_api.h"
 #include "wf_doc/wf_doc.hpp"
 #include "wf_vector/wf_vector.hpp"
-#include "wf_image/wf_image.hpp"
 #include "wf_read/wf_read.hpp"
 #include "wf_graph/wf_graph.hpp"
 #include <cstring>
@@ -122,54 +121,11 @@ WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
     WF_CATCH(nullptr)
 }
 
-// Raster plan (png / jpg / bmp) -> building. Same pipeline as `wf_cli convert plan.png`:
-// adaptive threshold -> Zhang-Suen thinning -> skeleton tracing -> Douglas-Peucker ->
-// clean (merge / snap / straighten / close corners) -> wf_read::interpret -> graph.
-// widthMetres is the real-world width of the drawing; <= 0 assumes 1 px = 2 cm.
-WF_API wf_doc wf_convert_image(const char* path, float widthMetres) {
-    WF_TRY
-        if (!path) { setError("null path"); return nullptr; }
-    auto im = wf::img::load(path);
-    if (!im) { setError(im.error()); return nullptr; }
-
-    wf::img::Image8 bin = wf::img::adaptiveThreshold(*im, {});
-    wf::img::Image8 sk = wf::vec::thin(bin);
-    auto segs = wf::vec::fitPolylines(wf::vec::traceSkeleton(sk), 1.5f, 3.f);
-    if (segs.empty()) { setError("no lines found in the image - is it a floor plan with dark walls on a light background?"); return nullptr; }
-
-    const wf::Rect bb = wf::vec::bounds(segs);
-    const float metresPerPixel = (widthMetres > 0.f && bb.size().x > 0.f) ? widthMetres / bb.size().x : 0.02f;
-    const int lineWidthPx = std::max(1, static_cast<int>(wf::img::countInk(bin) / std::max<size_t>(1, wf::img::countInk(sk))));
-    segs = wf::vec::scale(segs, metresPerPixel, {}, true, static_cast<float>(im->height));   // image y-down -> world y-up
-
-    wf::vec::CleanParams cp;
-    cp.snapDistance = 0.1f;
-    cp.cornerGap = std::max(0.3f, lineWidthPx * 3.f * metresPerPixel);
-    cp.mergeGap = cp.snapDistance * 1.5f;
-    cp.minLength = cp.snapDistance * 0.5f;
-    segs = wf::vec::clean(segs, cp);
-
-    wf::Building b;
-    b.building.name = std::filesystem::path(path).stem().string();
-    b.source.file = std::filesystem::path(path).filename().string();
-    b.source.pixelsPerMetre = 1.f / metresPerPixel;
-    wf::Level level; level.id = "L1"; level.name = "Level 1";
-    wf::IdGenerator ids;
-    wf::read::ReadParams rp; rp.snap = cp.snapDistance;
-    auto st = wf::read::interpret(segs, level, ids, rp);
-    if (!st) { setError(st.error()); return nullptr; }
-    b.levels.push_back(std::move(level));
-    wf::graph::buildGraph(b, ids, {});
-    return new wf_doc_t{ wf::Document(std::move(b)), {} };
-    WF_CATCH(nullptr)
-}
-
 WF_API wf_doc wf_open_plan(const char* path) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
     const std::string ext = wf::io::lowerExtension(path);
     if (ext == ".svg") return wf_convert_svg(path, 1.f);
-    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") return wf_convert_image(path, 0.f);
     auto doc = wf::Document::load(path);
     if (!doc) { setError(doc.error()); return nullptr; }
     return new wf_doc_t{ std::move(doc.value()), {} };
@@ -516,4 +472,4 @@ WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float*
 }
 WF_API int wf_building_name(wf_doc d, char* out, int cap) {
     WF_TRY if (!d) { setError("null document"); return -1; } return copyOut(d->doc.building().building.name, out, cap); WF_CATCH(-1)
-}
+}
