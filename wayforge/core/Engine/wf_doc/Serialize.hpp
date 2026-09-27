@@ -1,18 +1,23 @@
-// JSON serialization of the model via nlohmann::json, driven by the property
-// system: any WF_REGISTER_TYPE struct serialises its reflected fields
-// automatically. Containers (walls, rooms, polygons) are handled once here.
 #pragma once
 #include <string>
 #include <string_view>
+#include <vector>
+#include <filesystem>
+#include <nlohmann/json.hpp>
 #include "Types.hpp"
 
-namespace wf {
+namespace wf 
+{
 
-std::string buildingToJson(const Building& b, int indent = 2);
-Result<Building> buildingFromJson(std::string_view json);
+	using json = nlohmann::json;
 
-// Golden-test helper: semantic comparison with a float tolerance.
-// Returns an empty string when equal, otherwise a description of the first difference.
-std::string compareBuildings(const Building& a, const Building& b, float tolerance = 1e-3f);
+	json              buildingToJson(const Building& b);
+	Result<Building>  buildingFromJson(const json& j, std::string_view fileName = {});
+	Result<Building>  buildingFromJsonText(std::string_view jsonText, std::string_view fileName = {});
+
+	Status            saveBuilding(const Building& b, const std::filesystem::path& path, int indent = 2);
+	Result<Building>  loadBuilding(const std::filesystem::path& path);
+
+	std::vector<std::string> compareBuildings(const Building& a, const Building& b, float tolerance = 1e-3f);
 
 } // namespace wf
