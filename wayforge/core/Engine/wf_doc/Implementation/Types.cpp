@@ -1,69 +1,84 @@
 #include "wf_doc/Types.hpp"
 #include <algorithm>
+#include <cmath>
+#include <span>
 
 namespace wf {
 
-template <class V> static auto* findById(V& v, std::string_view id) noexcept {
-    for (auto& e : v) if (e.id == id) return &e;
-    return static_cast<decltype(&v[0])>(nullptr);
-}
-
-Wall*    Level::findWall(std::string_view id) noexcept    { return findById(walls, id); }
-Room*    Level::findRoom(std::string_view id) noexcept    { return findById(rooms, id); }
-Node*    Level::findNode(std::string_view id) noexcept    { return findById(nodes, id); }
-Opening* Level::findOpening(std::string_view id) noexcept { return findById(openings, id); }
-const Wall* Level::findWall(std::string_view id) const noexcept { return findById(walls, id); }
-const Room* Level::findRoom(std::string_view id) const noexcept { return findById(rooms, id); }
-const Node* Level::findNode(std::string_view id) const noexcept { return findById(nodes, id); }
-
-Level*       Building::findLevel(std::string_view id) noexcept       { return findById(levels, id); }
-const Level* Building::findLevel(std::string_view id) const noexcept { return findById(levels, id); }
-
-float polygonArea(std::span<const Vec2> poly) noexcept {
-    if (poly.size() < 3) return 0.f;
-    double sum = 0.0;
-    for (size_t i = 0, n = poly.size(); i < n; ++i) {
-        const Vec2& p = poly[i];
-        const Vec2& q = poly[(i + 1) % n];
-        sum += static_cast<double>(p.x) * q.y - static_cast<double>(q.x) * p.y;
+    namespace {
+        template <class C> auto* findById(C& c, std::string_view id) 
+        {
+            auto it = std::find_if(c.begin(), c.end(), [&](const auto& e) { return e.id == id; });
+            return it == c.end() ? nullptr : &*it;
+        }
     }
-    return static_cast<float>(sum * 0.5);
-}
 
-Vec2 polygonCentroid(std::span<const Vec2> poly) noexcept {
-    const size_t n = poly.size();
-    if (n == 0) return {};
-    if (n < 3) { Vec2 s; for (auto& p : poly) s += p; return s / static_cast<float>(n); }
-    double cx = 0, cy = 0, a = 0;
-    for (size_t i = 0; i < n; ++i) {
-        const Vec2& p = poly[i];
-        const Vec2& q = poly[(i + 1) % n];
-        const double f = static_cast<double>(p.x) * q.y - static_cast<double>(q.x) * p.y;
-        cx += (p.x + q.x) * f; cy += (p.y + q.y) * f; a += f;
+    const Wall* Level::findWall(std::string_view id) const noexcept { return findById(walls, id); }
+    Wall* Level::findWall(std::string_view id)       noexcept { return findById(walls, id); }
+    const Room* Level::findRoom(std::string_view id) const noexcept { return findById(rooms, id); }
+    Room* Level::findRoom(std::string_view id)       noexcept { return findById(rooms, id); }
+    const Node* Level::findNode(std::string_view id) const noexcept { return findById(nodes, id); }
+    Node* Level::findNode(std::string_view id)       noexcept { return findById(nodes, id); }
+    Opening* Level::findOpening(std::string_view id)    noexcept { return findById(openings, id); }
+    const Level* Building::findLevel(std::string_view id) const noexcept { return findById(levels, id); }
+    Level* Building::findLevel(std::string_view id)       noexcept { return findById(levels, id); }
+
+    float polygonArea(std::span<const Vec2> p) noexcept 
+    {
+        float s = 0;
+        for (size_t i = 0; i < p.size(); ++i) s += cross(p[i], p[(i + 1) % p.size()]);
+        return std::fabs(s) * 0.5f;
     }
-    if (std::abs(a) < 1e-9) { Vec2 s; for (auto& p : poly) s += p; return s / static_cast<float>(n); }
-    a *= 0.5;
-    return { static_cast<float>(cx / (6.0 * a)), static_cast<float>(cy / (6.0 * a)) };
-}
 
-bool pointInPolygon(const Vec2& p, std::span<const Vec2> poly) noexcept {
-    bool inside = false;
-    for (size_t i = 0, j = poly.size() - 1; i < poly.size(); j = i++) {
-        const Vec2& a = poly[i];
-        const Vec2& b = poly[j];
-        if ((a.y > p.y) != (b.y > p.y) &&
-            p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
-            inside = !inside;
+    Vec2 polygonCentroid(std::span<const Vec2> p) noexcept 
+    {
+        float a = 0;
+        Vec2 c;
+        for (size_t i = 0; i < p.size(); ++i) 
+        {
+            Vec2 u = p[i], v = p[(i + 1) % p.size()];
+            float w = cross(u, v);
+            a += w;
+            c.x += (u.x + v.x) * w;
+            c.y += (u.y + v.y) * w;
+        }
+
+        if (std::fabs(a) < 1e-9f) 
+        {
+            Vec2 m;
+            for (Vec2 q : p) m += q;
+            return p.empty() ? m : m * (1.f / static_cast<float>(p.size()));
+        }
+
+        return c * (1.f / (3.f * a));
     }
-    return inside;
-}
 
-Rect polygonBounds(std::span<const Vec2> poly) noexcept {
-    Rect r; for (auto& p : poly) r.expand(p); return r;
-}
+    bool pointInPolygon(const Vec2& pt, std::span<const Vec2> p) noexcept 
+    {
+        if (p.size() < 3) return false;
+        bool in = false;
+        for (size_t i = 0, j = p.size() - 1; i < p.size(); j = i++) 
+        {
+            if ((p[i].y > pt.y) != (p[j].y > pt.y) &&
+                pt.x < (p[j].x - p[i].x) * (pt.y - p[i].y) / (p[j].y - p[i].y) + p[i].x)
+                in = !in;
+        }
 
-Vec2 openingPosition(const Wall& wall, const Opening& opening) noexcept {
-    return wall.a + wall.direction() * (opening.offset + opening.width * 0.5f);
-}
+        return in;
+    }
+
+    Rect polygonBounds(std::span<const Vec2> p) noexcept 
+    {
+        Rect r;
+        if (p.empty()) return r;
+        r.min = r.max = p[0];
+        for (Vec2 q : p) r.expand(q);
+        return r;
+    }
+
+    Vec2 openingPosition(const Wall& w, const Opening& o) noexcept 
+    {
+        return w.a + w.direction() * (o.offset + o.width * 0.5f);
+    }
 
 } // namespace wf

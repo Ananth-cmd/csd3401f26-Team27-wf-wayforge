@@ -1,107 +1,166 @@
-// wf_doc console test: property system, undo/redo with coalescing, JSON round trip.
-#include "wf_doc/wf_doc.hpp"
+// wf_doc console test. CTest runs this; return 0 = pass, non-zero = fail.
+#include "wf_doc/Types.hpp"
+#include "wf_doc/Property.hpp"
+#include "wf_doc/Serialize.hpp"
+#include <filesystem>
 #include <iostream>
-#include <thread>
 
-static int g_failures = 0;
-#define CHECK(cond) do { if (!(cond)) { std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond "\n"; ++g_failures; } } while (0)
+static int g_fail = 0;
+#define CHECK(...) do { if (!(__VA_ARGS__)) { std::cerr << __FILE__ << ":" << __LINE__ << " CHECK failed: " #__VA_ARGS__ "\n"; ++g_fail; } } while (0)
 
-int main() {
-    using namespace wf;
+using namespace wf;
 
-    // --- property system: print every field of a Wall without a Wall-specific printer
-    Wall w; w.id = "w1"; w.a = {0, 0}; w.b = {12.4f, 0}; w.thickness = 0.2f;
-    std::cout << describe(w) << "\n";
+static bool contains(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
+
+static Building makeBuilding() {
+    Building b;
+    b.building.name = "Test Block";
+    b.building.id = "B1";
+    b.source.file = "plan.svg";
+    b.source.pixelsPerMetre = 50.f;
+    b.source.rectified = true;
+
+    Level l1;
+    l1.id = "L1"; l1.name = "Ground"; l1.elevation = 0.f; l1.ceilingHeight = 2.8f;
+    Wall w1; w1.id = "w1"; w1.a = Vec2{ 0.f, 0.f }; w1.b = Vec2{ 4.f, 0.f }; w1.thickness = 0.15f; w1.confidence = 0.9f;
+    Wall w2; w2.id = "w2"; w2.a = Vec2{ 4.f, 0.f }; w2.b = Vec2{ 4.f, 3.f };
+    l1.walls = { w1, w2 };
+    Opening o1; o1.id = "o1"; o1.wall = "w1"; o1.offset = 1.f; o1.width = 0.9f; o1.type = OpeningType::Door;
+    l1.openings = { o1 };
+    Room r1; r1.id = "r1"; r1.code = "A101"; r1.name = "Lab"; r1.kind = RoomKind::Lab;
+    r1.boundary = { "w1", "w2" };
+    r1.polygon = { Vec2{0.f, 0.f}, Vec2{4.f, 0.f}, Vec2{4.f, 3.f}, Vec2{0.f, 3.f} };
+    r1.centroid = polygonCentroid(r1.polygon);
+    r1.area = polygonArea(r1.polygon);
+    l1.rooms = { r1 };
+    Node n1; n1.id = "n1"; n1.pos = Vec2{ 2.f, 1.5f }; n1.kind = NodeKind::Room; n1.room = "r1";
+    Node n2; n2.id = "n2"; n2.pos = Vec2{ 1.5f, 0.f }; n2.kind = NodeKind::Door;
+    l1.nodes = { n1, n2 };
+    Edge e1; e1.a = "n1"; e1.b = "n2"; e1.cost = 1.9f; e1.stepFree = true;
+    l1.edges = { e1 };
+    Poi p1; p1.id = "p1"; p1.kind = "water"; p1.pos = Vec2{ 3.f, 1.f }; p1.label = "Fountain";
+    l1.pois = { p1 };
+    Anchor a1; a1.id = "a1"; a1.name = "Main entrance"; a1.pos = Vec2{ 0.5f, 0.f }; a1.heading = 1.5708f;
+    l1.anchors = { a1 };
+
+    Level l2;
+    l2.id = "L2"; l2.name = "First"; l2.elevation = 4.2f;
+    Node m1; m1.id = "n1"; m1.pos = Vec2{ 2.f, 1.5f }; m1.kind = NodeKind::Lift;
+    l2.nodes = { m1 };
+
+    b.levels = { l1, l2 };
+    Link k; k.a = "L1:n1"; k.b = "L2:n1"; k.kind = LinkKind::Lift; k.stepFree = true; k.cost = 8.f;
+    b.links = { k };
+    return b;
+}
+
+static void testProperties() {
     CHECK(propertiesOf<Wall>().size() == 5);
-    CHECK(std::get<float>(getProperty(w, "thickness")) == 0.2f);
-    CHECK(setProperty(w, "thickness", 0.3f) && w.thickness == 0.3f);
-    CHECK(!setProperty(w, "thickness", std::string("nope")));     // wrong type rejected
-    CHECK(!setProperty(w, "doesNotExist", 1.f));
-    Opening o; o.type = OpeningType::Window;
-    CHECK(std::get<int>(getProperty(o, "type")) == 1);
-    CHECK(setProperty(o, "type", std::string("door")) && o.type == OpeningType::Door);
-    CHECK(propertyValueToString(getProperty(o, "type"), findProperty(propertiesOf<Opening>(), "type")) == "door");
+    CHECK(propertiesOf<Room>().size() == 7);
+    CHECK(propertiesOf<Opening>().size() == 8);
+    CHECK(findProperty(propertiesOf<Wall>(), "thickness") != nullptr);
+    CHECK(findProperty(propertiesOf<Wall>(), "nope") == nullptr);
 
-    // --- undo: create a wall, drag it, change thickness, undo three times -> back to start
-    Document doc;
-    Level lvl; lvl.id = "L1"; lvl.name = "Level 1";
-    doc.addLevel(lvl);
-    CHECK(doc.level(0)->walls.empty());
+    Wall w;
+    w.thickness = 0.3f;
+    auto t = getProperty(w, "thickness");
+    CHECK(t && std::get<float>(*t) == 0.3f);
+    CHECK(setProperty(w, "thickness", PropertyValue{ 0.5f }) && w.thickness == 0.5f);
+    CHECK(!setProperty(w, "thickness", PropertyValue{ std::string("x") }));
+    CHECK(w.thickness == 0.5f);
+    CHECK(!getProperty(w, "nope").has_value());
+    CHECK(setProperty(w, "a", PropertyValue{ Vec2{1.f, 2.f} }) && w.a == Vec2{ 1.f, 2.f });
+    CHECK(setProperty(w, "id", "w7") && w.id == "w7");
 
-    std::string id = doc.addWall(0, {0, 0}, {5, 0}, 0.2f);
-    CHECK(doc.level(0)->walls.size() == 1);
-    doc.commands().breakCoalescing();
-    // a "drag": 10 tiny moves that should coalesce into one undo step
-    for (int i = 1; i <= 10; ++i) doc.moveWall(0, id, {0, 0.1f * i}, {5, 0.1f * i});
-    doc.commands().breakCoalescing();
-    doc.setProperty(0, ElementKind::Wall, id, "thickness", 0.35f);
-    CHECK(doc.commands().undoDepth() == 3);
-    CHECK(std::abs(doc.level(0)->walls[0].a.y - 1.f) < 1e-5f);
-    CHECK(doc.level(0)->walls[0].thickness == 0.35f);
+    Room r;
+    CHECK(setProperty(r, "kind", "exit") && r.kind == RoomKind::Exit);
+    CHECK(!setProperty(r, "kind", "banana") && r.kind == RoomKind::Exit);
+    auto k = getProperty(r, "kind");
+    CHECK(k && std::get<std::string>(*k) == "exit");
 
-    CHECK(doc.undo()); CHECK(doc.level(0)->walls[0].thickness == 0.2f);
-    CHECK(doc.undo()); CHECK(doc.level(0)->walls[0].a.y == 0.f);         // whole drag undone in one step
-    CHECK(doc.undo()); CHECK(doc.level(0)->walls.empty());
-    CHECK(!doc.undo());
-    CHECK(doc.redo()); CHECK(doc.level(0)->walls.size() == 1);
-    CHECK(doc.redo()); CHECK(std::abs(doc.level(0)->walls[0].a.y - 1.f) < 1e-5f);
+    const PropertyInfo* pi = findProperty(propertiesOf<Wall>(), "a");
+    CHECK(pi && propertyValueToString(getPropertyRaw(&w, *pi), pi) == "1,2");
+    CHECK(std::string(propertyTypeName(PropertyType::Vec2)) == "vec2");
+}
 
-    // failed property set must not leave a no-op on the stack
-    size_t depth = doc.commands().undoDepth();
-    CHECK(!doc.setProperty(0, ElementKind::Wall, id, "nonsense", 1.f));
-    CHECK(doc.commands().undoDepth() == depth);
+static void testGeometry() {
+    std::vector<Vec2> sq{ Vec2{0.f, 0.f}, Vec2{4.f, 0.f}, Vec2{4.f, 3.f}, Vec2{0.f, 3.f} };
+    CHECK(polygonArea(sq) == 12.f);
+    CHECK(polygonCentroid(sq) == Vec2{ 2.f, 1.5f });
+    CHECK(pointInPolygon(Vec2{ 1.f, 1.f }, sq) && !pointInPolygon(Vec2{ 5.f, 1.f }, sq));
+    CHECK(polygonBounds(sq).max == Vec2{ 4.f, 3.f });
 
-    // delete wall removes its openings, undo restores both
-    std::string oid = doc.addOpening(0, id, OpeningType::Door, 1.f, 0.9f);
-    CHECK(!oid.empty() && doc.level(0)->openings.size() == 1);
-    CHECK(doc.deleteWall(0, id));
-    CHECK(doc.level(0)->walls.empty() && doc.level(0)->openings.empty());
-    CHECK(doc.undo());
-    CHECK(doc.level(0)->walls.size() == 1 && doc.level(0)->openings.size() == 1);
+    Wall w; w.a = Vec2{ 0.f, 0.f }; w.b = Vec2{ 4.f, 0.f };
+    Opening o; o.offset = 1.f; o.width = 1.f;
+    CHECK(openingPosition(w, o) == Vec2{ 1.5f, 0.f });
 
-    // --- serialization round trip: save -> load -> save, byte-compare
-    Room r; r.id = "r1"; r.code = "E2-05-12"; r.name = "LT3"; r.kind = RoomKind::Classroom;
-    r.polygon = {{0,0},{5,0},{5,4},{0,4}}; r.area = polygonArea(r.polygon); r.centroid = polygonCentroid(r.polygon);
-    doc.mutableLevel(0)->rooms.push_back(r);
-    Node n1; n1.id = "n1"; n1.pos = r.centroid; n1.room = "r1"; n1.kind = NodeKind::Room;
-    Node n2; n2.id = "n2"; n2.pos = {2.5f, 6}; n2.kind = NodeKind::Corridor;
-    doc.mutableLevel(0)->nodes = {n1, n2};
-    Edge e; e.a = "n1"; e.b = "n2"; e.cost = 4.f; e.stepFree = true; e.via = oid;
-    doc.mutableLevel(0)->edges = {e};
-    Link link; link.a = "L1:n2"; link.b = "L2:n9"; link.kind = LinkKind::Lift; link.stepFree = true; link.cost = 25.f;
-    doc.mutableBuilding().links = {link};
+    Level lv; w.id = "w7"; lv.walls.push_back(w);
+    CHECK(lv.findWall("w7") != nullptr && lv.findWall("zz") == nullptr);
+}
 
-    std::string json1 = doc.toJson();
-    auto loaded = Document::fromJson(json1);
-    CHECK(loaded.ok());
-    if (loaded) {
-        std::string json2 = loaded->toJson();
-        CHECK(json1 == json2);                                          // byte-identical round trip
-        CHECK(compareBuildings(doc.building(), loaded->building()).empty());
-        CHECK(loaded->level(0)->rooms[0].kind == RoomKind::Classroom);
-        CHECK(loaded->level(0)->rooms[0].polygon.size() == 4);
-        CHECK(loaded->building().links[0].kind == LinkKind::Lift);
-        // id generator continues after the highest existing id
-        CHECK(idNumber(loaded->nextId("w")) > 1);
+static void testSerialize() {
+    const Building a = makeBuilding();
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto f1 = dir / "wf_doc_test_1.wfb";
+    const auto f2 = dir / "wf_doc_test_2.wfb";
+
+    CHECK(saveBuilding(a, f1).ok);
+    Result<Building> b = loadBuilding(f1);
+    CHECK(static_cast<bool>(b));
+    if (b) {
+        auto diffs = compareBuildings(a, *b);
+        for (const auto& d : diffs) std::cerr << "diff: " << d << "\n";
+        CHECK(diffs.empty());
+
+        CHECK(saveBuilding(*b, f2).ok);
+        Result<std::string> t1 = io::readText(f1), t2 = io::readText(f2);
+        CHECK(t1 && t2 && *t1 == *t2);
     }
 
-    // --- good error messages
-    auto bad = Document::fromJson("{ \"version\": 1, \"levels\": [ { \"id\": \"L1\", \"walls\": [ { \"id\": \"w1\", \"thickness\": \"thick\" } ] } ] }");
-    CHECK(!bad.ok());
-    std::cout << "expected error: " << bad.error() << "\n";
-    CHECK(bad.error().find("thickness") != std::string::npos);
-    auto bad2 = Document::fromJson("{ \"version\": 1, \"levels\": [ { \"id\": \"L1\", \"openings\": [ { \"id\": \"o1\", \"wall\": \"w9\" } ] } ] }");
-    CHECK(!bad2.ok() && bad2.error().find("w9") != std::string::npos);
-    auto bad3 = Document::fromJson("not json");
-    CHECK(!bad3.ok());
+    Building c = a;
+    c.levels[0].walls[0].thickness = 0.3f;
+    CHECK(compareBuildings(a, c).size() == 1);
+    c.levels[1].nodes.clear();
+    CHECK(compareBuildings(a, c).size() == 2);
 
-    // geometry helpers
-    std::vector<Vec2> sq = {{0,0},{2,0},{2,2},{0,2}};
-    CHECK(std::abs(polygonArea(sq) - 4.f) < 1e-5f);
-    CHECK(pointInPolygon({1,1}, sq) && !pointInPolygon({3,1}, sq));
-    CHECK(std::abs(polygonCentroid(sq).x - 1.f) < 1e-5f);
+    json j = buildingToJson(a);
+    j["levels"][0]["walls"][0]["a"] = "oops";
+    Result<Building> bad = buildingFromJson(j, "plan.wfb");
+    CHECK(!bad);
+    if (!bad) {
+        std::cerr << "expected error text: " << bad.error() << "\n";
+        CHECK(contains(bad.error(), "plan.wfb"));
+        CHECK(contains(bad.error(), "walls[0]"));
+        CHECK(contains(bad.error(), "\"a\""));
+    }
 
-    if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }
-    std::cout << "wf_doc: all checks passed\n";
-    return 0;
+    j = buildingToJson(a);
+    j["levels"][0]["rooms"][0]["kind"] = "banana";
+    bad = buildingFromJson(j, "plan.wfb");
+    CHECK(!bad && contains(bad.error(), "rooms[0]") && contains(bad.error(), "\"kind\""));
+
+    j = buildingToJson(a);
+    j["version"] = 99;
+    bad = buildingFromJson(j, "plan.wfb");
+    CHECK(!bad && contains(bad.error(), "99") && contains(bad.error(), "1"));
+
+    j = buildingToJson(a);
+    j["futureThing"] = 1;
+    j["levels"][0]["walls"][0]["colour"] = "red";
+    CHECK(static_cast<bool>(buildingFromJson(j, "plan.wfb")));
+
+    Result<Building> missing = loadBuilding(dir / "wf_doc_no_such_file.wfb");
+    CHECK(!missing && contains(missing.error(), "wf_doc_no_such_file"));
+
+    std::error_code ec;
+    std::filesystem::remove(f1, ec);
+    std::filesystem::remove(f2, ec);
+}
+
+int main() {
+    testProperties();
+    testGeometry();
+    testSerialize();
+    std::cout << (g_fail ? "wf_doc: FAILED\n" : "wf_doc: all checks passed\n");
+    return g_fail ? 1 : 0;
 }

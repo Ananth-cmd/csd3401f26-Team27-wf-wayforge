@@ -8,7 +8,7 @@
 //       WF_PROPERTIES(Wall, WF_PROP(a), WF_PROP(b), WF_PROP(thickness)) };
 //
 //   for (auto& p : wf::propertiesOf<Wall>()) ...      // reflection
-//   wf::getProperty(wall, "thickness")                // -> PropertyValue
+//   wf::getProperty(wall, "thickness")                // -> optional<PropertyValue>
 //   wf::setProperty(wall, "thickness", 0.3f)
 //
 // The editor inspector, the JSON serializer and the generic SetPropertyCommand
@@ -16,6 +16,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -26,78 +27,90 @@
 
 namespace wf {
 
-enum class PropertyType : uint8_t { Bool, Int, Float, String, Vec2, Enum };
+    enum class PropertyType : uint8_t { Bool, Int, Float, String, Vec2, Enum };
 
-using PropertyValue = std::variant<bool, int, float, std::string, Vec2>;
+    using PropertyValue = std::variant<bool, int, float, std::string, Vec2>;
 
-struct PropertyInfo {
-    std::string_view name;
-    PropertyType     type;
-    size_t           offset;
-    const char* const* enumNames = nullptr;   // for Enum: null-terminated list of names
-    int              enumCount = 0;
-};
+    struct PropertyInfo 
+    {
+        std::string_view name;
+        PropertyType     type;
+        size_t           offset;
+        const char* const* enumNames = nullptr;   
+        int              enumCount = 0;
+    };
 
-template <class T> struct PropertyTraits;   // specialised by WF_PROPERTIES
+    template <class T> struct PropertyTraits;   // specialised by WF_PROPERTIES
 
-template <class T> inline constexpr bool is_wf_enum_v = std::is_enum_v<T>;
+    template <class T> inline constexpr bool is_wf_enum_v = std::is_enum_v<T>;
 
-// Map a C++ field type to a PropertyType.
-template <class F> constexpr PropertyType propertyTypeOf() {
-    if constexpr (std::is_same_v<F, bool>)        return PropertyType::Bool;
-    else if constexpr (std::is_same_v<F, int>)    return PropertyType::Int;
-    else if constexpr (std::is_same_v<F, float>)  return PropertyType::Float;
-    else if constexpr (std::is_same_v<F, std::string>) return PropertyType::String;
-    else if constexpr (std::is_same_v<F, Vec2>)   return PropertyType::Vec2;
-    else if constexpr (std::is_enum_v<F>)         return PropertyType::Enum;
-    else static_assert(sizeof(F) == 0, "unsupported property field type");
-}
-
-// Enum name tables: specialise wf::EnumNames<E> for each enum used as a property.
-template <class E> struct EnumNames;   // { static constexpr const char* names[] = {..., nullptr}; }
-
-template <class F> constexpr const char* const* enumNamesOf() {
-    if constexpr (std::is_enum_v<F>) return EnumNames<F>::names;
-    else return nullptr;
-}
-template <class F> constexpr int enumCountOf() {
-    if constexpr (std::is_enum_v<F>) {
-        int n = 0; while (EnumNames<F>::names[n]) ++n; return n;
-    } else return 0;
-}
-
-// Public API ---------------------------------------------------------------
-template <class T> std::span<const PropertyInfo> propertiesOf() { return PropertyTraits<T>::properties(); }
-template <class T> constexpr std::string_view typeName() { return PropertyTraits<T>::name(); }
-
-const PropertyInfo* findProperty(std::span<const PropertyInfo> props, std::string_view name) noexcept;
-
-// Raw (type-erased) access, used by the serializer and the C API.
-PropertyValue getPropertyRaw(const void* object, const PropertyInfo& info);
-bool          setPropertyRaw(void* object, const PropertyInfo& info, const PropertyValue& value);
-std::string   propertyValueToString(const PropertyValue& v, const PropertyInfo* info = nullptr);
-
-template <class T> PropertyValue getProperty(const T& obj, std::string_view name) {
-    const PropertyInfo* p = findProperty(propertiesOf<T>(), name);
-    return p ? getPropertyRaw(&obj, *p) : PropertyValue{};
-}
-template <class T> bool setProperty(T& obj, std::string_view name, const PropertyValue& value) {
-    const PropertyInfo* p = findProperty(propertiesOf<T>(), name);
-    return p ? setPropertyRaw(&obj, *p, value) : false;
-}
-// "name = value" lines for every field. No per-type print function needed.
-template <class T> std::string describe(const T& obj) {
-    std::string out(typeName<T>());
-    out += " {\n";
-    for (const auto& p : propertiesOf<T>()) {
-        out += "  "; out += p.name; out += " = ";
-        out += propertyValueToString(getPropertyRaw(&obj, p), &p); out += "\n";
+    // Map a C++ field type to a PropertyType.
+    template <class F> constexpr PropertyType propertyTypeOf() 
+    {
+        if constexpr (std::is_same_v<F, bool>)        return PropertyType::Bool;
+        else if constexpr (std::is_same_v<F, int>)    return PropertyType::Int;
+        else if constexpr (std::is_same_v<F, float>)  return PropertyType::Float;
+        else if constexpr (std::is_same_v<F, std::string>) return PropertyType::String;
+        else if constexpr (std::is_same_v<F, Vec2>)   return PropertyType::Vec2;
+        else if constexpr (std::is_enum_v<F>)         return PropertyType::Enum;
+        else static_assert(sizeof(F) == 0, "unsupported property field type");
     }
-    out += "}";
-    return out;
-}
 
-const char* propertyTypeName(PropertyType t) noexcept;
+    // Enum name tables: specialise wf::EnumNames<E> for each enum used as a property.
+    template <class E> struct EnumNames;   // { static constexpr const char* names[] = {..., nullptr}; }
+
+    template <class F> constexpr const char* const* enumNamesOf() 
+    {
+        if constexpr (std::is_enum_v<F>) return EnumNames<F>::names;
+        else return nullptr;
+    }
+
+    template <class F> constexpr int enumCountOf() 
+    {
+        if constexpr (std::is_enum_v<F>) { int n = 0; while (EnumNames<F>::names[n]) ++n; return n;}
+        else return 0;
+    }
+
+    // Public API ---------------------------------------------------------------
+    template <class T> std::span<const PropertyInfo> propertiesOf() { return PropertyTraits<T>::properties(); }
+    template <class T> constexpr std::string_view typeName() { return PropertyTraits<T>::name(); }
+
+    const PropertyInfo* findProperty(std::span<const PropertyInfo> props, std::string_view name) noexcept;
+
+    PropertyValue getPropertyRaw(const void* object, const PropertyInfo& info);
+
+    bool setPropertyRaw(void* object, const PropertyInfo& info, const PropertyValue& value);
+
+    std::string propertyValueToString(const PropertyValue& v, const PropertyInfo* info = nullptr);
+
+    template <class T> std::optional<PropertyValue> getProperty(const T& obj, std::string_view name) 
+    {
+        const PropertyInfo* p = findProperty(propertiesOf<T>(), name);
+        if (!p) return std::nullopt;
+        return getPropertyRaw(&obj, *p);
+    }
+
+    template <class T> bool setProperty(T& obj, std::string_view name, const PropertyValue& value) 
+    {
+        const PropertyInfo* p = findProperty(propertiesOf<T>(), name);
+        return p ? setPropertyRaw(&obj, *p, value) : false;
+    }
+
+    template <class T> std::string describe(const T& obj) 
+    {
+        std::string out(typeName<T>());
+        out += " {\n";
+        for (const auto& p : propertiesOf<T>()) 
+        {
+            out += "  "; out += p.name; out += " = ";
+            out += propertyValueToString(getPropertyRaw(&obj, p), &p); out += "\n";
+        }
+
+        out += "}";
+        return out;
+    }
+
+    const char* propertyTypeName(PropertyType t) noexcept;
 
 } // namespace wf
 
