@@ -1,81 +1,90 @@
 #include "wf_doc/Property.hpp"
-#include <cstdio>
+#include <cstring>
+#include <sstream>
+#include <iomanip>
 
 namespace wf {
 
-    const PropertyInfo* findProperty(std::span<const PropertyInfo> ps, std::string_view name) {
-        for (const PropertyInfo& p : ps)
-            if (p.name == name) return &p;
-        return nullptr;
-    }
+const PropertyInfo* findProperty(std::span<const PropertyInfo> props, std::string_view name) noexcept {
+    for (const auto& p : props) if (p.name == name) return &p;
+    return nullptr;
+}
 
-    PropertyValue getPropertyRaw(const void* obj, const PropertyInfo& p) {
-        const auto* b = static_cast<const unsigned char*>(obj) + p.offset;
-        switch (p.type) {
-        case PropertyType::Bool:   return *reinterpret_cast<const bool*>(b);
-        case PropertyType::Int:    return *reinterpret_cast<const int*>(b);
-        case PropertyType::Float:  return *reinterpret_cast<const float*>(b);
-        case PropertyType::String: return *reinterpret_cast<const std::string*>(b);
-        case PropertyType::Vec2:   return *reinterpret_cast<const Vec2*>(b);
-        case PropertyType::Enum: 
-        {
-            int i = *b;
-            return std::string(i < p.enumCount ? p.enumNames[i] : "");
-        }
-        }
-        return false;
+PropertyValue getPropertyRaw(const void* object, const PropertyInfo& info) {
+    const auto* base = static_cast<const std::byte*>(object) + info.offset;
+    switch (info.type) {
+        case PropertyType::Bool:   return *reinterpret_cast<const bool*>(base);
+        case PropertyType::Int:    return *reinterpret_cast<const int*>(base);
+        case PropertyType::Float:  return *reinterpret_cast<const float*>(base);
+        case PropertyType::String: return *reinterpret_cast<const std::string*>(base);
+        case PropertyType::Vec2:   return *reinterpret_cast<const Vec2*>(base);
+        case PropertyType::Enum:   return static_cast<int>(*reinterpret_cast<const uint8_t*>(base));
     }
+    return {};
+}
 
-    bool setPropertyRaw(void* obj, const PropertyInfo& p, const PropertyValue& v) {
-        auto* b = static_cast<unsigned char*>(obj) + p.offset;
-        switch (p.type) {
+bool setPropertyRaw(void* object, const PropertyInfo& info, const PropertyValue& value) {
+    auto* base = static_cast<std::byte*>(object) + info.offset;
+    switch (info.type) {
         case PropertyType::Bool:
-            if (const bool* x = std::get_if<bool>(&v)) { *reinterpret_cast<bool*>(b) = *x; return true; }
+            if (auto* v = std::get_if<bool>(&value)) { *reinterpret_cast<bool*>(base) = *v; return true; }
+            if (auto* v = std::get_if<int>(&value))  { *reinterpret_cast<bool*>(base) = *v != 0; return true; }
             return false;
         case PropertyType::Int:
-            if (const int* x = std::get_if<int>(&v)) { *reinterpret_cast<int*>(b) = *x; return true; }
+            if (auto* v = std::get_if<int>(&value))   { *reinterpret_cast<int*>(base) = *v; return true; }
+            if (auto* v = std::get_if<float>(&value)) { *reinterpret_cast<int*>(base) = static_cast<int>(*v); return true; }
             return false;
         case PropertyType::Float:
-            if (const float* x = std::get_if<float>(&v)) { *reinterpret_cast<float*>(b) = *x; return true; }
-            if (const int* i = std::get_if<int>(&v)) { *reinterpret_cast<float*>(b) = static_cast<float>(*i); return true; }
+            if (auto* v = std::get_if<float>(&value)) { *reinterpret_cast<float*>(base) = *v; return true; }
+            if (auto* v = std::get_if<int>(&value))   { *reinterpret_cast<float*>(base) = static_cast<float>(*v); return true; }
             return false;
         case PropertyType::String:
-            if (const std::string* x = std::get_if<std::string>(&v)) { *reinterpret_cast<std::string*>(b) = *x; return true; }
+            if (auto* v = std::get_if<std::string>(&value)) { *reinterpret_cast<std::string*>(base) = *v; return true; }
             return false;
         case PropertyType::Vec2:
-            if (const Vec2* x = std::get_if<Vec2>(&v)) { *reinterpret_cast<Vec2*>(b) = *x; return true; }
+            if (auto* v = std::get_if<Vec2>(&value)) { *reinterpret_cast<Vec2*>(base) = *v; return true; }
             return false;
-        case PropertyType::Enum:
-            if (const std::string* s = std::get_if<std::string>(&v)) {
-                for (int i = 0; i < p.enumCount; ++i)
-                    if (*s == p.enumNames[i]) { *b = static_cast<unsigned char>(i); return true; }
+        case PropertyType::Enum: {
+            int idx = -1;
+            if (auto* v = std::get_if<int>(&value)) idx = *v;
+            else if (auto* s = std::get_if<std::string>(&value)) {
+                for (int i = 0; i < info.enumCount; ++i)
+                    if (*s == info.enumNames[i]) { idx = i; break; }
             }
-            return false;
+            if (idx < 0 || idx >= info.enumCount) return false;
+            *reinterpret_cast<uint8_t*>(base) = static_cast<uint8_t>(idx);
+            return true;
         }
-        return false;
     }
+    return false;
+}
 
-    std::string propertyValueToString(const PropertyValue& v, const PropertyInfo*) {
-        char buf[64];
-        if (const bool* b = std::get_if<bool>(&v))               return *b ? "true" : "false";
-        if (const int* i = std::get_if<int>(&v))                 return std::to_string(*i);
-        if (const float* f = std::get_if<float>(&v)) { std::snprintf(buf, sizeof buf, "%g", static_cast<double>(*f)); return buf; }
-        if (const std::string* s = std::get_if<std::string>(&v)) return *s;
-        const Vec2& p = std::get<Vec2>(v);
-        std::snprintf(buf, sizeof buf, "%g,%g", static_cast<double>(p.x), static_cast<double>(p.y));
-        return buf;
+std::string propertyValueToString(const PropertyValue& v, const PropertyInfo* info) {
+    std::ostringstream os;
+    os << std::setprecision(6);
+    if (info && info->type == PropertyType::Enum) {
+        if (auto* i = std::get_if<int>(&v); i && *i >= 0 && *i < info->enumCount) return info->enumNames[*i];
     }
+    std::visit([&](const auto& x) {
+        using T = std::decay_t<decltype(x)>;
+        if constexpr (std::is_same_v<T, bool>)        os << (x ? "true" : "false");
+        else if constexpr (std::is_same_v<T, Vec2>)   os << "(" << x.x << ", " << x.y << ")";
+        else if constexpr (std::is_same_v<T, std::string>) os << '"' << x << '"';
+        else os << x;
+    }, v);
+    return os.str();
+}
 
-    const char* propertyTypeName(PropertyType t) {
-        switch (t) {
-        case PropertyType::Bool:   return "bool";
-        case PropertyType::Int:    return "int";
-        case PropertyType::Float:  return "float";
+const char* propertyTypeName(PropertyType t) noexcept {
+    switch (t) {
+        case PropertyType::Bool: return "bool";
+        case PropertyType::Int: return "int";
+        case PropertyType::Float: return "float";
         case PropertyType::String: return "string";
-        case PropertyType::Vec2:   return "vec2";
-        case PropertyType::Enum:   return "enum";
-        }
-        return "unknown";
+        case PropertyType::Vec2: return "vec2";
+        case PropertyType::Enum: return "enum";
     }
+    return "?";
+}
 
 } // namespace wf

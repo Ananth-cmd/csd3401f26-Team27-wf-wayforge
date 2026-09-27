@@ -1,3 +1,6 @@
+// Tiny logger. Stream-style so we do not depend on std::format (NDK / older GCC)
+// or spdlog. spdlog is approved and can replace this later without touching callers.
+//
 //   WF_LOG_INFO("loaded " << n << " walls");
 //   wf::log::setLevel(wf::log::Level::Debug);
 #pragma once
@@ -8,15 +11,15 @@
 
 namespace wf::log {
 
-    enum class Level { Trace = 0, Debug, Info, Warn, Error, Off };
+enum class Level { Trace = 0, Debug, Info, Warn, Error, Off };
 
-    using Sink = std::function<void(Level, std::string_view)>;
+using Sink = std::function<void(Level, std::string_view)>;
 
-    void  setLevel(Level level) noexcept;
-    Level level() noexcept;
-    void  setSink(Sink sink);          // default sink writes to stdout/stderr (logcat on Android)
-    void  write(Level level, std::string_view message);
-    const char* levelName(Level level) noexcept;
+void  setLevel(Level level) noexcept;
+Level level() noexcept;
+void  setSink(Sink sink);          // default sink writes to stdout/stderr (logcat on Android)
+void  write(Level level, std::string_view message);
+const char* levelName(Level level) noexcept;
 
 } // namespace wf::log
 
