@@ -7,6 +7,7 @@
 | `WayforgeDocument.cs` | IMGD 2 | the real document: reads the C++ core (wf_doc) through NativeBridge |
 | `WfTypes.cs` | IMGD 2 | plain C# structs for walls, rooms, openings, nodes, edges |
 | `PolygonUtil.cs` | IMGD 2 | ear-clipping triangulation for room fills (2D canvas and 3D floors) |
+| `BuildingModelBuilder.cs` | IMGD 2 | builds the 3D model (floors, walls, doors, labels) for Studio's "View 3D" and later the app |
 
 The Editor's `DocumentProvider` hands out `WayforgeDocument` when `wayforge.dll` loads and the fake
 `StubWayforgeDocument` when it doesn't. The navigation app scripts come in the App phase and will

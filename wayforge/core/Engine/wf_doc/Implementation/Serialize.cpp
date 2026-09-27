@@ -1,332 +1,197 @@
 #include "wf_doc/Serialize.hpp"
-#include <algorithm>
-#include <cstdio>
-#include <cstdlib>
+#include <nlohmann/json.hpp>
+#include <cmath>
+
+using json = nlohmann::json;
 
 namespace wf {
-    namespace {
+namespace {
 
-        //Helper Functs
-        std::string fieldError(const std::string& file, const std::string& path,
-            const std::string& field, const std::string& what) {
-            return file + ": " + path + ": \"" + field + "\" must be " + what + ".";
+// ---- generic: reflected fields <-> json -------------------------------------------
+template <class T> void reflectToJson(json& j, const T& obj) {
+    for (const auto& p : propertiesOf<T>()) {
+        PropertyValue v = getPropertyRaw(&obj, p);
+        std::string key(p.name);
+        switch (p.type) {
+            case PropertyType::Bool:   j[key] = std::get<bool>(v); break;
+            case PropertyType::Int:    j[key] = std::get<int>(v); break;
+            case PropertyType::Float:  j[key] = std::get<float>(v); break;
+            case PropertyType::String: j[key] = std::get<std::string>(v); break;
+            case PropertyType::Vec2:   { auto& x = std::get<Vec2>(v); j[key] = json::array({x.x, x.y}); break; }
+            case PropertyType::Enum:   { int i = std::get<int>(v); j[key] = (i >= 0 && i < p.enumCount) ? p.enumNames[i] : "?"; break; }
         }
-
-        json floatToJson(float f) 
-        {
-            char buf[32];
-            for (int prec = 1; prec <= 9; ++prec) {
-                std::snprintf(buf, sizeof buf, "%.*g", prec, static_cast<double>(f));
-                if (std::strtof(buf, nullptr) == f) break;
-            }
-            return std::strtod(buf, nullptr);
-        }
-
-        json vec2ToJson(Vec2 p) { return json::array({ floatToJson(p.x), floatToJson(p.y) }); }
-
-        bool readVec2(const json& j, Vec2& out) {
-            if (!j.is_array() || j.size() != 2 || !j[0].is_number() || !j[1].is_number()) return false;
-            out.x = static_cast<float>(j[0].get<double>());
-            out.y = static_cast<float>(j[1].get<double>());
-            return true;
-        }
-
-        //  Write to file
-
-        json valueToJson(const PropertyValue& v) {
-            if (const bool* b = std::get_if<bool>(&v))               return *b;
-            if (const int* i = std::get_if<int>(&v))                 return *i;
-            if (const float* f = std::get_if<float>(&v))             return floatToJson(*f);
-            if (const std::string* s = std::get_if<std::string>(&v)) return *s;
-            return vec2ToJson(std::get<Vec2>(v));
-        }
-
-        template <class T> json objectToJson(const T& o) {
-            json j = json::object();
-            for (const PropertyInfo& p : propertiesOf<T>())
-                j[std::string(p.name)] = valueToJson(getPropertyRaw(&o, p));
-            return j;
-        }
-
-        template <class T> json listToJson(const std::vector<T>& v) {
-            json a = json::array();
-            for (const T& e : v) a.push_back(objectToJson(e));
-            return a;
-        }
-
-        json roomToJson(const Room& r) {
-            json j = objectToJson(r);
-            json boundary = json::array();
-            for (const std::string& id : r.boundary) boundary.push_back(id);
-            j["boundary"] = boundary;
-            json poly = json::array();
-            for (Vec2 p : r.polygon) poly.push_back(vec2ToJson(p));
-            j["polygon"] = poly;
-            return j;
-        }
-
-        json levelToJson(const Level& lv) {
-            json j = objectToJson(lv);
-            j["walls"] = listToJson(lv.walls);
-            j["openings"] = listToJson(lv.openings);
-            json rooms = json::array();
-            for (const Room& r : lv.rooms) rooms.push_back(roomToJson(r));
-            j["rooms"] = rooms;
-            j["nodes"] = listToJson(lv.nodes);
-            j["edges"] = listToJson(lv.edges);
-            j["pois"] = listToJson(lv.pois);
-            j["anchors"] = listToJson(lv.anchors);
-            return j;
-        }
-
-        //read from file
-
-        std::string expectedText(const PropertyInfo& p) {
-            switch (p.type) {
-            case PropertyType::Bool:   return "true or false";
-            case PropertyType::Int:    return "an integer";
-            case PropertyType::Float:  return "a number";
-            case PropertyType::String: return "a string";
-            case PropertyType::Vec2:   return "two numbers";
-            case PropertyType::Enum: {
-                std::string s = "one of:";
-                for (int i = 0; i < p.enumCount; ++i) s += (i ? ", " : " ") + std::string(p.enumNames[i]);
-                return s;
-            }
-            }
-            return "valid";
-        }
-
-        bool jsonToValue(const json& j, const PropertyInfo& p, PropertyValue& out) {
-            switch (p.type) {
-            case PropertyType::Bool:
-                if (!j.is_boolean()) return false;
-                out = j.get<bool>();
-                return true;
-            case PropertyType::Int:
-                if (!j.is_number_integer()) return false;
-                out = j.get<int>();
-                return true;
-            case PropertyType::Float:
-                if (!j.is_number()) return false;
-                out = static_cast<float>(j.get<double>());
-                return true;
-            case PropertyType::String:
-            case PropertyType::Enum:      
-                if (!j.is_string()) return false;
-                out = j.get<std::string>();
-                return true;
-            case PropertyType::Vec2: {
-                Vec2 v;
-                if (!readVec2(j, v)) return false;
-                out = v;
-                return true;
-            }
-            }
-            return false;
-        }
-
-        template <class T>
-        Status readObject(const json& j, T& o, const std::string& file, const std::string& path) {
-            if (!j.is_object()) return Status::fail(file + ": " + path + ": must be an object.");
-            for (const PropertyInfo& p : propertiesOf<T>()) {
-                auto it = j.find(std::string(p.name));
-                if (it == j.end()) continue;                       
-                PropertyValue v;
-                if (!jsonToValue(*it, p, v) || !setPropertyRaw(&o, p, v))
-                    return Status::fail(fieldError(file, path, std::string(p.name), expectedText(p)));
-            }
-            return Status::success();
-        }
-
-        struct NoExtra
-        {
-            template <class T> Status operator()(const json&, T&, const std::string&) const { return Status::success(); }
-        };
-
-        // Reads parent[key]  into out. extra(itemJson, item, itemPath) reads the vector fields.
-        template <class T, class Extra>
-        Status readList(const json& parent, const char* key, const std::string& parentPath, const std::string& file,
-            std::vector<T>& out, Extra extra) {
-            auto it = parent.find(key);
-            if (it == parent.end()) return Status::success();
-            if (!it->is_array())
-                return Status::fail(fieldError(file, parentPath.empty() ? std::string("(root)") : parentPath, key, "an array"));
-            const std::string listPath = parentPath.empty() ? std::string(key) : parentPath + "." + key;
-            out.clear();
-            out.reserve(it->size());
-            for (size_t i = 0; i < it->size(); ++i) {
-                const json& ji = (*it)[i];
-                const std::string path = listPath + "[" + std::to_string(i) + "]";
-                T item;
-                Status s = readObject(ji, item, file, path);
-                if (!s.ok) return s;
-                s = extra(ji, item, path);
-                if (!s.ok) return s;
-                out.push_back(std::move(item));
-            }
-            return Status::success();
-        }
-
-        Status readRoomExtras(const json& j, Room& r, const std::string& file, const std::string& path) {
-            auto b = j.find("boundary");
-            if (b != j.end()) {
-                if (!b->is_array()) return Status::fail(fieldError(file, path, "boundary", "an array of strings"));
-                for (const json& e : *b) {
-                    if (!e.is_string()) return Status::fail(fieldError(file, path, "boundary", "an array of strings"));
-                    r.boundary.push_back(e.get<std::string>());
-                }
-            }
-            auto p = j.find("polygon");
-            if (p != j.end()) {
-                if (!p->is_array()) return Status::fail(fieldError(file, path, "polygon", "an array of [x, y] pairs"));
-                for (const json& e : *p) {
-                    Vec2 v;
-                    if (!readVec2(e, v)) return Status::fail(fieldError(file, path, "polygon", "an array of [x, y] pairs"));
-                    r.polygon.push_back(v);
-                }
-            }
-            return Status::success();
-        }
-
-        Status readLevelChildren(const json& j, Level& lv, const std::string& file, const std::string& path) {
-            Status s = readList(j, "walls", path, file, lv.walls, NoExtra{});
-            if (!s.ok) return s;
-            s = readList(j, "openings", path, file, lv.openings, NoExtra{});
-            if (!s.ok) return s;
-            s = readList(j, "rooms", path, file, lv.rooms,
-                [&](const json& jr, Room& r, const std::string& rp) { return readRoomExtras(jr, r, file, rp); });
-            if (!s.ok) return s;
-            s = readList(j, "nodes", path, file, lv.nodes, NoExtra{});
-            if (!s.ok) return s;
-            s = readList(j, "edges", path, file, lv.edges, NoExtra{});
-            if (!s.ok) return s;
-            s = readList(j, "pois", path, file, lv.pois, NoExtra{});
-            if (!s.ok) return s;
-            return readList(j, "anchors", path, file, lv.anchors, NoExtra{});
-        }
-
-        // ---------------------------------------------------------------- compare
-
-        template <class T>
-        void diffObject(const T& a, const T& b, const std::string& path, std::vector<std::string>& out) {
-            for (const PropertyInfo& p : propertiesOf<T>()) {
-                PropertyValue va = getPropertyRaw(&a, p);
-                PropertyValue vb = getPropertyRaw(&b, p);
-                if (va != vb)
-                    out.push_back(path + "." + std::string(p.name) + ": " + propertyValueToString(va, &p) +
-                        " vs " + propertyValueToString(vb, &p));
-            }
-        }
-
-        struct NoDiffExtra {
-            template <class T> void operator()(const T&, const T&, const std::string&, std::vector<std::string>&) const {}
-        };
-
-        template <class T, class Extra>
-        void diffList(const std::vector<T>& a, const std::vector<T>& b, const std::string& path,
-            std::vector<std::string>& out, Extra extra) {
-            if (a.size() != b.size())
-                out.push_back(path + ": " + std::to_string(a.size()) + " items vs " + std::to_string(b.size()));
-            const size_t n = std::min(a.size(), b.size());
-            for (size_t i = 0; i < n; ++i) {
-                const std::string p = path + "[" + std::to_string(i) + "]";
-                diffObject(a[i], b[i], p, out);
-                extra(a[i], b[i], p, out);
-            }
-        }
-
-        void diffRoomExtras(const Room& a, const Room& b, const std::string& path, std::vector<std::string>& out) {
-            if (a.boundary != b.boundary) out.push_back(path + ".boundary differs");
-            bool same = a.polygon.size() == b.polygon.size();
-            for (size_t i = 0; same && i < a.polygon.size(); ++i) same = (a.polygon[i] == b.polygon[i]);
-            if (!same) out.push_back(path + ".polygon differs");
-        }
-
-        void diffLevelChildren(const Level& a, const Level& b, const std::string& path, std::vector<std::string>& out) {
-            diffList(a.walls, b.walls, path + ".walls", out, NoDiffExtra{});
-            diffList(a.openings, b.openings, path + ".openings", out, NoDiffExtra{});
-            diffList(a.rooms, b.rooms, path + ".rooms", out, diffRoomExtras);
-            diffList(a.nodes, b.nodes, path + ".nodes", out, NoDiffExtra{});
-            diffList(a.edges, b.edges, path + ".edges", out, NoDiffExtra{});
-            diffList(a.pois, b.pois, path + ".pois", out, NoDiffExtra{});
-            diffList(a.anchors, b.anchors, path + ".anchors", out, NoDiffExtra{});
-        }
-
-    } // namespace
-
-    // public
-
-    json buildingToJson(const Building& b) {
-        json j = json::object();
-        j["version"] = b.version;
-        j["building"] = objectToJson(b.building);
-        j["source"] = objectToJson(b.source);
-        json levels = json::array();
-        for (const Level& lv : b.levels) levels.push_back(levelToJson(lv));
-        j["levels"] = levels;
-        j["links"] = listToJson(b.links);
-        return j;
     }
+}
 
-    Result<Building> buildingFromJson(const json& j, std::string_view fileNameForErrors) {
-        const std::string file(fileNameForErrors);
-        if (!j.is_object()) return Result<Building>::fail(file + ": the top level must be a JSON object.");
-
-        Building out;
-        auto v = j.find("version");
-        if (v != j.end()) {
-            if (!v->is_number_integer()) return Result<Building>::fail(fieldError(file, "(root)", "version", "an integer"));
-            const int ver = v->get<int>();
-            if (ver > kWfbVersion)
-                return Result<Building>::fail(file + ": file version " + std::to_string(ver) +
-                    " is newer than this program supports (version " +
-                    std::to_string(kWfbVersion) + "); update Wayforge.");
-            out.version = ver;
+template <class T> void reflectFromJson(const json& j, T& obj, const std::string& where) {
+    for (const auto& p : propertiesOf<T>()) {
+        auto it = j.find(std::string(p.name));
+        if (it == j.end()) continue;                      // missing fields keep their defaults
+        const json& v = *it;
+        bool ok = true;
+        switch (p.type) {
+            case PropertyType::Bool:   ok = v.is_boolean() && setPropertyRaw(&obj, p, v.get<bool>()); break;
+            case PropertyType::Int:    ok = v.is_number()  && setPropertyRaw(&obj, p, v.get<int>()); break;
+            case PropertyType::Float:  ok = v.is_number()  && setPropertyRaw(&obj, p, v.get<float>()); break;
+            case PropertyType::String: ok = v.is_string()  && setPropertyRaw(&obj, p, v.get<std::string>()); break;
+            case PropertyType::Vec2:   ok = v.is_array() && v.size() == 2 && setPropertyRaw(&obj, p, Vec2{v[0].get<float>(), v[1].get<float>()}); break;
+            case PropertyType::Enum:   ok = v.is_string()  && setPropertyRaw(&obj, p, v.get<std::string>()); break;
         }
+        if (!ok) throw std::runtime_error(where + ": field '" + std::string(p.name) + "' has the wrong type, expected " + propertyTypeName(p.type));
+    }
+}
 
-        auto bi = j.find("building");
-        if (bi != j.end()) {
-            Status s = readObject(*bi, out.building, file, "building");
-            if (!s.ok) return Result<Building>::fail(s.message);
+json vecArray(std::span<const Vec2> pts) {
+    json a = json::array();
+    for (auto& p : pts) a.push_back(json::array({p.x, p.y}));
+    return a;
+}
+std::vector<Vec2> vecArrayFrom(const json& j, const std::string& where) {
+    std::vector<Vec2> out;
+    if (!j.is_array()) throw std::runtime_error(where + ": expected an array of [x,y]");
+    for (auto& e : j) {
+        if (!e.is_array() || e.size() != 2) throw std::runtime_error(where + ": expected [x,y] pairs");
+        out.push_back({e[0].get<float>(), e[1].get<float>()});
+    }
+    return out;
+}
+
+template <class T> json listToJson(const std::vector<T>& v) {
+    json a = json::array();
+    for (auto& e : v) { json o; reflectToJson(o, e); a.push_back(std::move(o)); }
+    return a;
+}
+template <class T> std::vector<T> listFromJson(const json& j, const std::string& where) {
+    std::vector<T> out;
+    if (j.is_null()) return out;
+    if (!j.is_array()) throw std::runtime_error(where + ": expected an array");
+    size_t i = 0;
+    for (auto& e : j) { T t; reflectFromJson(e, t, where + "[" + std::to_string(i++) + "]"); out.push_back(std::move(t)); }
+    return out;
+}
+
+} // namespace
+
+std::string buildingToJson(const Building& b, int indent) {
+    json root;
+    root["version"] = b.version;
+    reflectToJson(root["building"], b.building);
+    json levels = json::array();
+    for (const auto& l : b.levels) {
+        json lj; reflectToJson(lj, l);
+        lj["walls"]    = listToJson(l.walls);
+        lj["openings"] = listToJson(l.openings);
+        json rooms = json::array();
+        for (const auto& r : l.rooms) {
+            json rj; reflectToJson(rj, r);
+            rj["boundary"] = r.boundary;
+            rj["polygon"]  = vecArray(r.polygon);
+            rooms.push_back(std::move(rj));
         }
-        auto si = j.find("source");
-        if (si != j.end()) {
-            Status s = readObject(*si, out.source, file, "source");
-            if (!s.ok) return Result<Building>::fail(s.message);
+        lj["rooms"]   = std::move(rooms);
+        lj["nodes"]   = listToJson(l.nodes);
+        lj["edges"]   = listToJson(l.edges);
+        lj["pois"]    = listToJson(l.pois);
+        lj["anchors"] = listToJson(l.anchors);
+        levels.push_back(std::move(lj));
+    }
+    root["levels"] = std::move(levels);
+    root["links"]  = listToJson(b.links);
+    reflectToJson(root["source"], b.source);
+    return root.dump(indent);
+}
+
+Result<Building> buildingFromJson(std::string_view text) {
+    try {
+        json root = json::parse(text);
+        if (!root.is_object()) return Result<Building>::fail("root is not a JSON object");
+        Building b;
+        b.version = root.value("version", 1);
+        if (b.version != 1) return Result<Building>::fail("unsupported .wfb version " + std::to_string(b.version) + ", this build reads version 1");
+        if (root.contains("building")) reflectFromJson(root["building"], b.building, "building");
+        if (root.contains("source"))   reflectFromJson(root["source"],   b.source,   "source");
+        size_t li = 0;
+        for (auto& lj : root.value("levels", json::array())) {
+            const std::string where = "levels[" + std::to_string(li++) + "]";
+            Level l; reflectFromJson(lj, l, where);
+            l.walls    = listFromJson<Wall>   (lj.value("walls",    json::array()), where + ".walls");
+            l.openings = listFromJson<Opening>(lj.value("openings", json::array()), where + ".openings");
+            size_t ri = 0;
+            for (auto& rj : lj.value("rooms", json::array())) {
+                const std::string rw = where + ".rooms[" + std::to_string(ri++) + "]";
+                Room r; reflectFromJson(rj, r, rw);
+                if (rj.contains("boundary")) r.boundary = rj["boundary"].get<std::vector<std::string>>();
+                if (rj.contains("polygon"))  r.polygon  = vecArrayFrom(rj["polygon"], rw + ".polygon");
+                l.rooms.push_back(std::move(r));
+            }
+            l.nodes   = listFromJson<Node>  (lj.value("nodes",   json::array()), where + ".nodes");
+            l.edges   = listFromJson<Edge>  (lj.value("edges",   json::array()), where + ".edges");
+            l.pois    = listFromJson<Poi>   (lj.value("pois",    json::array()), where + ".pois");
+            l.anchors = listFromJson<Anchor>(lj.value("anchors", json::array()), where + ".anchors");
+            // referential integrity - say which element is wrong, not just "parse error"
+            for (auto& o : l.openings)
+                if (!l.findWall(o.wall)) return Result<Building>::fail(where + ": opening '" + o.id + "' references missing wall '" + o.wall + "'");
+            for (auto& e : l.edges) {
+                if (!l.findNode(e.a)) return Result<Building>::fail(where + ": edge references missing node '" + e.a + "'");
+                if (!l.findNode(e.b)) return Result<Building>::fail(where + ": edge references missing node '" + e.b + "'");
+            }
+            b.levels.push_back(std::move(l));
         }
-
-        Status s = readList(j, "levels", "", file, out.levels,
-            [&](const json& jl, Level& lv, const std::string& lp) { return readLevelChildren(jl, lv, file, lp); });
-        if (!s.ok) return Result<Building>::fail(s.message);
-        s = readList(j, "links", "", file, out.links, NoExtra{});
-        if (!s.ok) return Result<Building>::fail(s.message);
-
-        return Result<Building>(std::move(out));
+        b.links = listFromJson<Link>(root.value("links", json::array()), "links");
+        return b;
+    } catch (const json::exception& e) {
+        return Result<Building>::fail(std::string("invalid JSON: ") + e.what());
+    } catch (const std::exception& e) {
+        return Result<Building>::fail(e.what());
     }
+}
 
-    std::vector<std::string> compareBuildings(const Building& a, const Building& b) {
-        std::vector<std::string> out;
-        if (a.version != b.version)
-            out.push_back("version: " + std::to_string(a.version) + " vs " + std::to_string(b.version));
-        diffObject(a.building, b.building, "building", out);
-        diffObject(a.source, b.source, "source", out);
-        diffList(a.levels, b.levels, "levels", out, diffLevelChildren);
-        diffList(a.links, b.links, "links", out, NoDiffExtra{});
-        return out;
-    }
+// ---- golden comparison -------------------------------------------------------------
+namespace {
+    bool near(float a, float b, float tol) { return std::abs(a - b) <= tol; }
+    bool near(const Vec2& a, const Vec2& b, float tol) { return near(a.x, b.x, tol) && near(a.y, b.y, tol); }
 
-    Status saveBuilding(const Building& b, const std::filesystem::path& path) {
-        const std::string text = buildingToJson(b).dump(2, ' ', false, json::error_handler_t::replace) + "\n";
-        return io::writeText(path, text);
+    template <class T> std::string cmpReflected(const T& a, const T& b, float tol, const std::string& where) {
+        for (const auto& p : propertiesOf<T>()) {
+            PropertyValue va = getPropertyRaw(&a, p), vb = getPropertyRaw(&b, p);
+            bool eq = true;
+            if (p.type == PropertyType::Float)     eq = near(std::get<float>(va), std::get<float>(vb), tol);
+            else if (p.type == PropertyType::Vec2) eq = near(std::get<Vec2>(va), std::get<Vec2>(vb), tol);
+            else                                   eq = va == vb;
+            if (!eq) return where + "." + std::string(p.name) + ": " + propertyValueToString(va, &p) + " vs " + propertyValueToString(vb, &p);
+        }
+        return {};
     }
+    template <class T> std::string cmpList(const std::vector<T>& a, const std::vector<T>& b, float tol, const std::string& where) {
+        if (a.size() != b.size()) return where + ": count " + std::to_string(a.size()) + " vs " + std::to_string(b.size());
+        for (size_t i = 0; i < a.size(); ++i)
+            if (auto d = cmpReflected(a[i], b[i], tol, where + "[" + std::to_string(i) + "]"); !d.empty()) return d;
+        return {};
+    }
+}
 
-    Result<Building> loadBuilding(const std::filesystem::path& path) {
-        Result<std::string> text = io::readText(path);
-        if (!text) return Result<Building>::fail(text.error());
-        json j = json::parse(*text, nullptr, false);
-        if (j.is_discarded()) return Result<Building>::fail(path.string() + ": not valid JSON.");
-        return buildingFromJson(j, path.string());
+std::string compareBuildings(const Building& a, const Building& b, float tol) {
+    if (auto d = cmpReflected(a.building, b.building, tol, "building"); !d.empty()) return d;
+    if (a.levels.size() != b.levels.size()) return "levels: count " + std::to_string(a.levels.size()) + " vs " + std::to_string(b.levels.size());
+    for (size_t i = 0; i < a.levels.size(); ++i) {
+        const std::string w = "levels[" + std::to_string(i) + "]";
+        const Level& la = a.levels[i]; const Level& lb = b.levels[i];
+        if (auto d = cmpReflected(la, lb, tol, w); !d.empty()) return d;
+        if (auto d = cmpList(la.walls, lb.walls, tol, w + ".walls"); !d.empty()) return d;
+        if (auto d = cmpList(la.openings, lb.openings, tol, w + ".openings"); !d.empty()) return d;
+        if (auto d = cmpList(la.rooms, lb.rooms, tol, w + ".rooms"); !d.empty()) return d;
+        for (size_t r = 0; r < la.rooms.size(); ++r) {
+            if (la.rooms[r].polygon.size() != lb.rooms[r].polygon.size())
+                return w + ".rooms[" + std::to_string(r) + "].polygon: vertex count differs";
+            for (size_t k = 0; k < la.rooms[r].polygon.size(); ++k)
+                if (!near(la.rooms[r].polygon[k], lb.rooms[r].polygon[k], tol))
+                    return w + ".rooms[" + std::to_string(r) + "].polygon[" + std::to_string(k) + "] differs";
+        }
+        if (auto d = cmpList(la.nodes, lb.nodes, tol, w + ".nodes"); !d.empty()) return d;
+        if (auto d = cmpList(la.edges, lb.edges, tol, w + ".edges"); !d.empty()) return d;
     }
+    if (auto d = cmpList(a.links, b.links, tol, "links"); !d.empty()) return d;
+    return {};
+}
 
 } // namespace wf

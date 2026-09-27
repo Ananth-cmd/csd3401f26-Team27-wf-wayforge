@@ -1,10 +1,10 @@
-// Draws the right sidebar. Read-only for M1 (Studio shows the blueprint,
-// it doesn't edit it). Shows different things depending on what's
+// Draws the right sidebar. Studio shows the blueprint; the only edit it
+// allows is renaming rooms. Shows different things depending on what's
 // selected in PlanCanvas:
-//   - room selected -> code, name, kind, area, confidence
+//   - room selected -> info + rename (code, name)
 //   - wall selected -> property list (built from GetProperties so we
 //     don't need to hardcode a field per property)
-//   - nothing selected -> route preview
+//   - nothing selected -> short help text
 
 using System;
 using UnityEditor;
@@ -16,11 +16,11 @@ namespace Wayforge.Editor
     {
         public const float SidebarWidth = 292f;
 
-        // route preview input state, not building data
-        private string _routeFromInput = "";
-        private string _routeToInput = "";
-        private bool _routeStepFreeOnly = false;
-        private WfRouteResult? _lastRoute;
+        // text-box state, not building data
+        private string _roomCodeInput = "";
+        private string _roomNameInput = "";
+        private string _lastSelectedRoomId, _lastRoomCode, _lastRoomName;
+
 
         private Vector2 _wallPropsScroll;
 
@@ -44,7 +44,8 @@ namespace Wayforge.Editor
             else if (sel.IsWall)
                 DrawWallInspector(doc, levelIndex, sel.id);
             else
-                DrawRoutePreview(doc, levelIndex);
+                EditorGUILayout.HelpBox("Click a room to see it and rename it, or a wall to see its details.\n" +
+                                        "Scroll to zoom, middle-mouse drag to pan.", MessageType.Info);
 
             EditorGUILayout.EndVertical();
             GUILayout.EndArea();
@@ -60,16 +61,45 @@ namespace Wayforge.Editor
                 return;
             }
 
+            // Only refresh the text boxes when the selection changes (or after
+            // undo/redo changes the room), not every frame - otherwise typing
+            // would get overwritten mid-keystroke.
+            if (_lastSelectedRoomId != roomId || _lastRoomCode != room.code || _lastRoomName != room.name)
+            {
+                _roomCodeInput = room.code ?? "";
+                _roomNameInput = room.name ?? "";
+                _lastSelectedRoomId = roomId;
+                _lastRoomCode = room.code;
+                _lastRoomName = room.name;
+            }
+
             EditorGUILayout.LabelField("Room", EditorStyles.boldLabel);
             EditorGUILayout.Space(4);
 
             InfoRow("Id", room.id);
-            InfoRow("Code", room.IsTagged ? room.code : "(untagged)");
-            InfoRow("Name", string.IsNullOrEmpty(room.name) ? "-" : room.name);
             InfoRow("Kind", room.kind.ToString());
             InfoRow("Area", $"{room.area:F1} m\u00b2");
-            InfoRow("Corners", room.polygon?.Count.ToString() ?? "0");
             InfoRow("Confidence", $"{room.confidence:P0}");
+            EditorGUILayout.Space(8);
+
+            // Renaming is the one edit Studio allows: a room code (e.g. E2-05-12)
+            // and a display name. Goes through the core's undo stack, so Ctrl+Z works.
+            EditorGUILayout.LabelField("Rename", EditorStyles.boldLabel);
+            _roomCodeInput = EditorGUILayout.TextField("Code", _roomCodeInput);
+            _roomNameInput = EditorGUILayout.TextField("Name", _roomNameInput);
+
+            bool changed = _roomCodeInput != (room.code ?? "") || _roomNameInput != (room.name ?? "");
+            using (new EditorGUI.DisabledScope(!changed))
+            {
+                if (GUILayout.Button("Apply name"))
+                {
+                    doc.SetRoomCode(levelIndex, room.id, _roomCodeInput.Trim(), _roomNameInput.Trim());
+                    GUI.FocusControl(null);
+                }
+            }
+
+            if (!room.IsTagged)
+                EditorGUILayout.HelpBox("No code yet - give the room a code (e.g. A1) so it shows on the plan and in 3D.", MessageType.Info);
         }
 
         private void DrawWallInspector(IWayforgeDocument doc, int levelIndex, string wallId)
@@ -102,63 +132,6 @@ namespace Wayforge.Editor
             EditorGUILayout.EndHorizontal();
         }
 
-        private void DrawRoutePreview(IWayforgeDocument doc, int levelIndex)
-        {
-            EditorGUILayout.LabelField("Route preview", EditorStyles.boldLabel);
-            EditorGUILayout.Space(4);
-            EditorGUILayout.HelpBox("Nothing selected. Click a room or wall to inspect it, or preview a route below.", MessageType.None);
-            EditorGUILayout.Space(8);
-
-            _routeFromInput = EditorGUILayout.DelayedTextField("From (code)", _routeFromInput);
-            _routeToInput = EditorGUILayout.DelayedTextField("To (code)", _routeToInput);
-            _routeStepFreeOnly = EditorGUILayout.Toggle("Step-free only", _routeStepFreeOnly);
-
-            EditorGUILayout.Space(4);
-
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(_routeFromInput) || string.IsNullOrEmpty(_routeToInput)))
-            {
-                if (GUILayout.Button("Find route"))
-                {
-                    RunRoute(doc);
-                }
-            }
-
-            if (_lastRoute.HasValue)
-            {
-                EditorGUILayout.Space(8);
-                var r = _lastRoute.Value;
-                if (r.success)
-                {
-                    EditorGUILayout.LabelField("Steps:", r.stepCount.ToString());
-                    EditorGUILayout.LabelField("Cost:", $"{r.totalCost:F1} m");
-                    EditorGUILayout.LabelField("Step-free:", r.stepFree ? "yes" : "no");
-                }
-                else
-                {
-                    EditorGUILayout.HelpBox(r.errorMessage ?? "Route failed.", MessageType.Error);
-                }
-            }
-        }
-
-        private void RunRoute(IWayforgeDocument doc)
-        {
-            string fromRef = doc.NodeForRoom(_routeFromInput);
-            string toRef = doc.NodeForRoom(_routeToInput);
-
-            if (fromRef == null)
-            {
-                _lastRoute = new WfRouteResult { success = false, errorMessage = $"'{_routeFromInput}' not found -- check the code, and that the graph has been built." };
-                return;
-            }
-            if (toRef == null)
-            {
-                _lastRoute = new WfRouteResult { success = false, errorMessage = $"'{_routeToInput}' not found -- check the code, and that the graph has been built." };
-                return;
-            }
-
-            _lastRoute = doc.Route(fromRef, toRef, _routeStepFreeOnly);
-        }
-
         private static WfRoom FindRoom(IWayforgeDocument doc, int levelIndex, string roomId)
         {
             foreach (var r in doc.Rooms(levelIndex))
@@ -166,4 +139,4 @@ namespace Wayforge.Editor
             return default;
         }
     }
-}
+}

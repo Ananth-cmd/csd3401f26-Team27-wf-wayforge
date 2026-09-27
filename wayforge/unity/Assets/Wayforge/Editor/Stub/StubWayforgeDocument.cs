@@ -49,6 +49,7 @@ namespace Wayforge.Stub
         private bool _dirty;
 
         public bool IsOpen { get; private set; }
+        public string FilePath => _openPath;
         public bool IsDirty => _dirty;
         public int LevelCount => _levels.Count;
         public int CurrentLevel { get; set; }
@@ -81,6 +82,16 @@ namespace Wayforge.Stub
             _dirty = false;
             _undoStack.Clear();
             _redoStack.Clear();
+        }
+
+        // No image processing without the native core: shows the built-in
+        // house instead, so the Import flow can still be clicked through.
+        public void ImportImage(string imagePath, float widthMetres)
+        {
+            Open(null);
+            _openPath = imagePath;
+            BuildingName = Path.GetFileNameWithoutExtension(imagePath);
+            Debug.LogWarning("[StubWayforgeDocument] No native plugin - showing the built-in sample house instead of your image.");
         }
 
         public void Save()
@@ -586,4 +597,4 @@ namespace Wayforge.Stub
             return copy;
         }
     }
-}
+}

@@ -41,7 +41,6 @@ namespace Wayforge.Editor
         public Selection CurrentSelection { get; private set; } = Selection.None;
         public event Action<Selection> OnSelectionChanged;
 
-        public bool ShowGraph { get; set; } = false;
         public bool ShowConfidence { get; set; } = true;
 
         private const float WallClickToleranceMeters = 0.25f;
@@ -56,8 +55,6 @@ namespace Wayforge.Editor
         private static readonly Color WallRed = new Color(0.85f, 0.25f, 0.25f, 1f);
         private static readonly Color WallFlatColor = new Color(0.15f, 0.15f, 0.18f, 1f);
         private static readonly Color DoorColor = new Color(0.9f, 0.9f, 0.2f, 1f);
-        private static readonly Color GraphNodeColor = new Color(0.2f, 0.8f, 0.9f, 1f);
-        private static readonly Color GraphEdgeColor = new Color(0.2f, 0.8f, 0.9f, 0.5f);
         private static readonly Color BackgroundColor = new Color(0.20f, 0.20f, 0.22f, 1f);
         private static readonly Color GridColor = new Color(1f, 1f, 1f, 0.04f);
 
@@ -134,7 +131,6 @@ namespace Wayforge.Editor
             DrawRooms(doc, levelIndex);
             DrawWalls(doc, levelIndex);
             DrawOpenings(doc, levelIndex);
-            if (ShowGraph) DrawGraph(doc, levelIndex);
 
             _canvasRect = canvasRect;
             GUI.EndClip();
@@ -203,7 +199,9 @@ namespace Wayforge.Editor
         private void DrawRoomLabel(WfRoom room)
         {
             Vector2 screenCentroid = WorldToScreen(room.centroid);
-            string label = room.IsTagged ? room.code : "untagged";
+            string label = room.IsTagged
+                ? (string.IsNullOrEmpty(room.name) ? room.code : $"{room.code}\n{room.name}")
+                : (string.IsNullOrEmpty(room.name) ? "untagged" : room.name);
             var style = new GUIStyle(EditorStyles.miniLabel)
             {
                 alignment = TextAnchor.MiddleCenter,
@@ -250,30 +248,6 @@ namespace Wayforge.Editor
                 Vector2 screenPos = WorldToScreen(worldPos);
                 float radius = Mathf.Max(3f, opening.width * 0.5f * _pixelsPerMeter);
                 Handles.DrawSolidDisc(screenPos, Vector3.forward, radius);
-            }
-            Handles.color = Color.white;
-            Handles.EndGUI();
-        }
-
-        private void DrawGraph(IWayforgeDocument doc, int levelIndex)
-        {
-            var nodes = doc.Nodes(levelIndex);
-            var nodeById = nodes.ToDictionary(n => n.id, n => n);
-
-            Handles.BeginGUI();
-            Handles.color = GraphEdgeColor;
-            foreach (var edge in doc.Edges(levelIndex))
-            {
-                if (!nodeById.TryGetValue(edge.a, out var na) || !nodeById.TryGetValue(edge.b, out var nb))
-                    continue;
-                Handles.DrawAAPolyLine(2f, WorldToScreen(na.pos), WorldToScreen(nb.pos));
-            }
-
-            Handles.color = GraphNodeColor;
-            foreach (var node in nodes)
-            {
-                Vector2 s = WorldToScreen(node.pos);
-                Handles.DrawSolidDisc(s, Vector3.forward, 4f);
             }
             Handles.color = Color.white;
             Handles.EndGUI();
@@ -393,4 +367,4 @@ namespace Wayforge.Editor
             return inside;
         }
     }
-}
+}

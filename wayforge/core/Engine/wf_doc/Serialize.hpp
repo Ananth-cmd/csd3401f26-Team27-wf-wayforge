@@ -1,30 +1,18 @@
+// JSON serialization of the model via nlohmann::json, driven by the property
+// system: any WF_REGISTER_TYPE struct serialises its reflected fields
+// automatically. Containers (walls, rooms, polygons) are handled once here.
 #pragma once
-// .wfb file: JSON on disk. Property-driven, so adding a field to a struct's WF_PROPERTIES
-// updates save, load and compare automatically. Vector fields (polygon, boundary) are handled by hand.
-
-#include "wf_doc/Types.hpp"
-#include <filesystem>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
-#include <vector>
+#include "Types.hpp"
 
 namespace wf {
 
-    // ordered_json keeps insertion order, so keys are written in a fixed order:
-    // version, building, source, levels, links. 
-    using json = nlohmann::ordered_json;
+std::string buildingToJson(const Building& b, int indent = 2);
+Result<Building> buildingFromJson(std::string_view json);
 
-    json buildingToJson(const Building&);
-
-
-    Result<Building> buildingFromJson(const json&, std::string_view fileNameForErrors);
-
-    std::vector<std::string> compareBuildings(const Building&, const Building&);
-
-    Status saveBuilding(const Building&, const std::filesystem::path&);
-    Result<Building> loadBuilding(const std::filesystem::path&);
-
-    constexpr int kWfbVersion = 1;
+// Golden-test helper: semantic comparison with a float tolerance.
+// Returns an empty string when equal, otherwise a description of the first difference.
+std::string compareBuildings(const Building& a, const Building& b, float tolerance = 1e-3f);
 
 } // namespace wf

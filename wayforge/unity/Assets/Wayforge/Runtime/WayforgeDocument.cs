@@ -24,6 +24,7 @@ namespace Wayforge
         private const int TextCap = 256;
 
         public bool IsOpen => _handle != IntPtr.Zero;
+        public string FilePath => _path;
         public bool IsDirty => IsOpen && NativeBridge.wf_is_dirty(_handle) == 1;
 
         public int CurrentLevel { get; set; }
@@ -39,7 +40,7 @@ namespace Wayforge
 
         public void Open(string path)
         {
-            // .wfb is loaded as-is; .svg is converted by the core at 1 unit = 1 m.
+            // .wfb is loaded as-is; .svg is converted at 1 unit = 1 m; images at 1 px = 2 cm.
             IntPtr h = NativeBridge.wf_open_plan(path);
             if (h == IntPtr.Zero)
                 throw new IOException($"The core could not open '{Path.GetFileName(path)}': {NativeBridge.LastError()}");
@@ -47,6 +48,19 @@ namespace Wayforge
             Close();
             _handle = h;
             _path = path;
+            CurrentLevel = 0;
+        }
+
+        public void ImportImage(string imagePath, float widthMetres)
+        {
+            // threshold -> thin -> trace -> clean -> walls/doors/rooms -> graph, all in the C++ core
+            IntPtr h = NativeBridge.wf_convert_image(imagePath, widthMetres);
+            if (h == IntPtr.Zero)
+                throw new IOException($"The core could not read a floor plan from '{Path.GetFileName(imagePath)}': {NativeBridge.LastError()}");
+
+            Close();
+            _handle = h;
+            _path = imagePath;
             CurrentLevel = 0;
         }
 
@@ -247,7 +261,7 @@ namespace Wayforge
                 if (NativeBridge.wf_get_property(_handle, levelIndex, (int)kind, elementId, name.ToString(), value, TextCap) < 0)
                     return new List<WfPropertyRow>();
 
-                rows.Add(new WfPropertyRow { name = name.ToString(), type = ParseType(type.ToString()), valueText = value.ToString() });
+                rows.Add(new WfPropertyRow { name = name.ToString(), type = ParseType(type.ToString()), valueText = Unquote(value.ToString()) });
             }
             return rows;
         }
@@ -318,8 +332,13 @@ namespace Wayforge
         private string GetPropertyText(int levelIndex, ElementKind kind, string id, string prop)
         {
             var sb = new StringBuilder(TextCap);
-            return NativeBridge.wf_get_property(_handle, levelIndex, (int)kind, id, prop, sb, TextCap) >= 0 ? sb.ToString() : "";
+            return NativeBridge.wf_get_property(_handle, levelIndex, (int)kind, id, prop, sb, TextCap) >= 0 ? Unquote(sb.ToString()) : "";
         }
+
+        // The core writes text properties as "value" (in quotes, no escaping);
+        // numbers, bools and enums come back bare.
+        private static string Unquote(string s) =>
+            s != null && s.Length >= 2 && s[0] == '"' && s[s.Length - 1] == '"' ? s.Substring(1, s.Length - 2) : s;
 
         private int RoomIndex(int levelIndex, string roomId)
         {

@@ -23,6 +23,7 @@ namespace Wayforge
         [DllImport(Lib)] static extern IntPtr wf_last_error();
         [DllImport(Lib)] public static extern IntPtr wf_open_plan(string path);
         [DllImport(Lib)] public static extern IntPtr wf_convert_svg(string path, float metresPerUnit);
+        [DllImport(Lib)] public static extern IntPtr wf_convert_image(string path, float widthMetres);
         [DllImport(Lib)] public static extern IntPtr wf_new_doc(string name);
         [DllImport(Lib)] public static extern void   wf_close(IntPtr doc);
         [DllImport(Lib)] public static extern int    wf_save(IntPtr doc, string path);
