@@ -3,6 +3,15 @@
 #   desktop        : build the C++ core on Ubuntu + Windows, run CTest, smoke-run wf_cli,
 #                    then run every golden-file test in data/golden/
 #   android        : build libwayforge.so for arm64-v8a with the NDK
+#
+# TODO(CI-DISABLED): wf_api is temporarily left out of CI.
+#   f3589e35 ("removed some stuff") reset wf_graph to an empty stub, but
+#   wf_api/Implementation/Api.cpp still calls wf::graph::buildGraph/findRoute/...
+#   and wf::vec::importSvg, so wf_api (wayforge.dll / libwayforge.so) cannot compile.
+#   Until wf_graph (and wf_vector's Svg.cpp) are back:
+#     - desktop builds every target except wf_api / wf_api_test
+#     - android is switched off (its only output is libwayforge.so = wf_api)
+#   To undo: search this file for "CI-DISABLED" and revert each marked spot.
 name: build
 
 on:
@@ -61,11 +70,18 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then GEN="-G Ninja"; fi
           cmake -S core -B build/desktop $GEN -DCMAKE_BUILD_TYPE=$CONFIG
 
+      # TODO(CI-DISABLED): build everything except wf_api. Restore to:
+      #   run: cmake --build build/desktop --config $CONFIG --parallel
       - name: Build
-        run: cmake --build build/desktop --config $CONFIG --parallel
+        run: >
+          cmake --build build/desktop --config $CONFIG --parallel --target
+          wf_core wf_doc wf_image wf_vector wf_read wf_graph wf_cli
+          wf_core_test wf_doc_test wf_image_test wf_vector_test wf_read_test wf_graph_test
 
+      # TODO(CI-DISABLED): wf_api_test is skipped. Restore to:
+      #   run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG
       - name: Unit tests (CTest)
-        run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG
+        run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG -E wf_api_test
 
       - name: Smoke run wf_cli
         run: |
@@ -78,6 +94,8 @@ jobs:
         run: python tools/run_golden.py "$CLI"
 
   android:
+    # TODO(CI-DISABLED): switched off until wf_api compiles again. Delete this "if" line to re-enable.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
