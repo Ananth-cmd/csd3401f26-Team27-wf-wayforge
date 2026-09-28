@@ -5,16 +5,16 @@ m_ProjectFiles:
     m_ContentTrackingEnabled: 1
     m_ModificationDate:
       serializedVersion: 2
-      ticks: 639254922999442661
-    m_Hash: 2380992443
+      ticks: 639260825987233109
+    m_Hash: 2799598674
   m_LockFileStatus:
     m_FilePath: C:/Users/katie/Documents/SIT Y2/wf-wayforge/wayforge/unity/Packages/packages-lock.json
     m_PathExists: 1
     m_ContentTrackingEnabled: 1
     m_ModificationDate:
       serializedVersion: 2
-      ticks: 639254923241343876
-    m_Hash: 3119373340
+      ticks: 639260825987248258
+    m_Hash: 563259240
 m_EmbeddedPackageManifests:
   m_ManifestsStatus: {}
 m_LocalPackages:
@@ -277,9 +277,11 @@ m_ResolvedPackages:
     - 2.0.12
     - 2.0.13
     - 2.0.14
+    - 2.0.15
     compatible:
     - 2.0.14
-    recommended: 2.0.14
+    - 2.0.15
+    recommended: 2.0.15
     deprecated: []
   dependencies:
   - name: com.unity.modules.ai

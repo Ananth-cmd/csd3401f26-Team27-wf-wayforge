@@ -1,14 +1,14 @@
-# Runtime (shared by the Editor tool and the app)
+# Wayforge Unity (M1 prototype)
 
 | File | Owner | Job |
 |---|---|---|
-| `NativeBridge.cs` | RTIS 2 | the only `DllImport` file; one declaration per function in `core/Engine/wf_api/wf_api.h` |
-| `IWayforgeDocument.cs` | IMGD 2 | the interface Studio's UI talks to |
-| `WayforgeDocument.cs` | IMGD 2 | the real document: reads the C++ core (wf_doc) through NativeBridge |
-| `WfTypes.cs` | IMGD 2 | plain C# structs for walls, rooms, openings, nodes, edges |
-| `PolygonUtil.cs` | IMGD 2 | ear-clipping triangulation for room fills (2D canvas and 3D floors) |
-| `BuildingModelBuilder.cs` | IMGD 2 | builds the 3D model (floors, walls, doors, labels) for Studio's "View 3D" and later the app |
+| `Runtime/NativeBridge.cs` | RTIS 2 (Kervin) | the only `DllImport` file; mirrors `core/Engine/wf_api/wf_api.h` |
+| `Runtime/WayforgeDocument.cs` | IMGD 2 (Katie) | opens a `.wfb` through the bridge and keeps its walls and rooms |
+| `Editor/StudioWindow.cs` | IMGD 2 (Katie) | Wayforge > Studio: Import image (room found automatically, or drag to draw it) or Open .wfb, zoom/pan, click a room, Make 3D |
+| `Editor/BlockMaker.cs` | IMGD 2 (Katie) | turns each room into a solid block in the scene |
+| `Samples/square_plan.png` | IMGD 2 (Katie) | demo picture: one square room, 20 m wide image |
+| `Samples/square.wfb` | IMGD 2 (Katie) | test file: one 10 m x 10 m room, saved with `wf_doc` (IMGD 1) |
 
-The Editor's `DocumentProvider` hands out `WayforgeDocument` when `wayforge.dll` loads and the fake
-`StubWayforgeDocument` when it doesn't. The navigation app scripts come in the App phase and will
-live here too. They read `StreamingAssets/*.wfb` and never write it.
+`wayforge.dll` goes in `Plugins/x86_64` (built from `core/`, not committed).
+
+M1 note: finding the room in an image is a simple placeholder (box around the dark lines, `FindDarkBox`). The real image reading is T04.
