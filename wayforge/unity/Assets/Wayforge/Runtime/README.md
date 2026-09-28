@@ -1,14 +1,12 @@
-# Runtime (shared by the Editor tool and the app)
+# Wayforge Unity
 
-| File | Owner | Job |
+| File | Owner | What it does |
 |---|---|---|
-| `NativeBridge.cs` | RTIS 2 | the only `DllImport` file; one declaration per function in `core/Engine/wf_api/wf_api.h` |
-| `IWayforgeDocument.cs` | IMGD 2 | the interface Studio's UI talks to |
-| `WayforgeDocument.cs` | IMGD 2 | the real document: reads the C++ core (wf_doc) through NativeBridge |
-| `WfTypes.cs` | IMGD 2 | plain C# structs for walls, rooms, openings, nodes, edges |
-| `PolygonUtil.cs` | IMGD 2 | ear-clipping triangulation for room fills (2D canvas and 3D floors) |
-| `BuildingModelBuilder.cs` | IMGD 2 | builds the 3D model (floors, walls, doors, labels) for Studio's "View 3D" and later the app |
+| `Runtime/NativeBridge.cs` | Kervin | connects Unity to the C++ core (wayforge.dll) |
+| `Runtime/WayforgeDocument.cs` | Katie | holds the walls, doors and rooms of a plan, and opens .wfb files |
+| `Editor/StudioWindow.cs` | Katie | the Wayforge > Studio window: import an image (finds the room and its door) or open a .wfb, see it in 2D |
+| `Editor/RoomBuilder.cs` | Katie | builds the plan in 3D: floor, walls, and a beam over each door |
+| `Samples/square_plan.png` | Katie | sample picture of one square room |
+| `Samples/square.wfb` | Katie | sample plan with one square room, saved with wf_doc |
 
-The Editor's `DocumentProvider` hands out `WayforgeDocument` when `wayforge.dll` loads and the fake
-`StubWayforgeDocument` when it doesn't. The navigation app scripts come in the App phase and will
-live here too. They read `StreamingAssets/*.wfb` and never write it.
+Put `wayforge.dll` in `Plugins/x86_64`.

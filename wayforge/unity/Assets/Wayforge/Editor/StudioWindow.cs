@@ -1,371 +1,435 @@
-// The Studio window itself: toolbar, keyboard shortcuts, and layout
-// (canvas on the left, sidebar on the right, status bar on the bottom).
-// Actual drawing is delegated to PlanCanvas and RoomTagger.
-
-using System;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
 namespace Wayforge.Editor
 {
-    public class StudioWindow : UnityEditor.EditorWindow
+    // The Wayforge Studio window (Wayforge > Studio).
+    // Import a floor plan image or open a .wfb file, see the plan in 2D, then make it 3D.
+    public class StudioWindow : EditorWindow
     {
+        const float ToolbarHeight = 22f;
+        const float SidebarWidth = 240f;
+
+        WayforgeDocument doc;          // the plan being shown
+        RoomData selected;             // the room clicked on
+        Texture2D image;               // the imported picture
+        float imageWidthMetres = 20f;  // real width of the picture
+
+        float pixelsPerMetre = 30f;    // zoom
+        Vector2 offset;                // pan
+
+        bool dragging;                 // true while drawing a room with the mouse
+        Vector2 dragStart, dragEnd;    // drag corners, in metres
+        string status = "";
+
         [MenuItem("Wayforge/Studio")]
-        public static void Open()
+        public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
+
+        void OnDisable()
         {
-            var window = GetWindow<StudioWindow>("Wayforge Studio");
-            window.minSize = new Vector2(700, 420);
-            window.Show();
+            if (image != null) DestroyImmediate(image);
         }
 
-        private PlanCanvas _canvas;
-        private RoomTagger _tagger;
-        private IWayforgeDocument _doc;
-
-        private const float ToolbarHeight = 22f;
-        private const float StatusBarHeight = 20f;
-        private const float LevelSliderWidth = 160f;
-
-        private string _statusMessage = "";
-        private double _statusMessageExpiry;
-
-        private void OnEnable()
+        void OnGUI()
         {
-            _canvas = new PlanCanvas();
-            _tagger = new RoomTagger();
-            _doc = DocumentProvider.Current;
-
-            // Note: script recompiles call OnEnable again with a fresh
-            // document, so an open file will show as closed after Unity
-            // recompiles. Not fixed yet - would need either remembering
-            // the path and reopening, or the real document reattaching
-            // instead of recreating itself.
-        }
-
-        private void OnDisable()
-        {
-            // Dispose the document here. The real version holds native
-            // memory that needs to be released properly, not left to the GC.
-            DocumentProvider.Reset();
-        }
-
-        // OnDisable runs on every script recompile too, not just a real
-        // close, so the unsaved-changes check can't live there (it would
-        // pop up constantly while coding). OnDestroy only runs when the
-        // window is actually closed, so it goes here instead.
-        private void OnDestroy()
-        {
-            if (_doc == null || !_doc.IsOpen || !_doc.IsDirty) return;
-
-            bool discard = EditorUtility.DisplayDialog(
-                "Unsaved changes",
-                $"{_doc.BuildingName} has unsaved changes that will be lost if you close Studio now.",
-                "Close without saving",
-                "Cancel");
-
-            if (!discard)
-            {
-                // Can't actually cancel the close from here, so just
-                // reopen the window and let the user save from there.
-                Debug.LogWarning("[StudioWindow] Closed with unsaved changes. Reopening so you can save.");
-                EditorApplication.delayCall += Open;
-            }
-        }
-
-        // Shared check before any action that would throw away unsaved
-        // changes (currently just Open). Returns true if it's safe to continue.
-        private bool ConfirmDiscardUnsavedChanges(string aboutToDoWhat)
-        {
-            if (!_doc.IsOpen || !_doc.IsDirty) return true;
-
-            return EditorUtility.DisplayDialog(
-                "Unsaved changes",
-                $"{_doc.BuildingName} has unsaved changes. They'll be lost if you continue {aboutToDoWhat}.",
-                "Discard changes",
-                "Cancel");
-        }
-
-        private void OnGUI()
-        {
-            HandleShortcuts();
-
             DrawToolbar();
 
-            Rect body = new Rect(0, ToolbarHeight, position.width, position.height - ToolbarHeight - StatusBarHeight);
-            Rect canvasRect = new Rect(body.x, body.y, body.width - RoomTagger.SidebarWidth, body.height);
-            Rect sidebarRect = new Rect(canvasRect.xMax, body.y, RoomTagger.SidebarWidth, body.height);
-
-            _canvas.HandleInput(_doc, _doc.CurrentLevel, canvasRect);
-            _canvas.Draw(_doc, _doc.CurrentLevel, canvasRect);
-
-            EditorGUI.DrawRect(sidebarRect, new Color(0.24f, 0.24f, 0.26f, 1f));
-            _tagger.Draw(_doc, _doc.CurrentLevel, _canvas, sidebarRect);
-
-            DrawStatusBar();
-
-            // keep repainting while the mouse is over the window so
-            // pan/zoom feels smooth
-            if (mouseOverWindow == this) Repaint();
-        }
-
-        private void DrawToolbar()
-        {
-            GUILayout.BeginHorizontal(EditorStyles.toolbar, GUILayout.Height(ToolbarHeight));
-
-            using (new EditorGUI.DisabledScope(false))
+            if (doc == null)
             {
-                if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
-                    DoImportImage();
-
-                if (GUILayout.Button("Open", EditorStyles.toolbarButton, GUILayout.Width(50)))
-                    DoOpen();
-
-                using (new EditorGUI.DisabledScope(!CanSave))
-                {
-                    if (GUILayout.Button("Save", EditorStyles.toolbarButton, GUILayout.Width(50)))
-                        DoSave();
-                }
-            }
-
-            GUILayout.Space(6);
-            EditorGUI.BeginDisabledGroup(!_doc.IsOpen);
-            GUILayout.Box("", EditorStyles.toolbarButton, GUILayout.Width(1), GUILayout.Height(ToolbarHeight));
-            EditorGUI.EndDisabledGroup();
-            GUILayout.Space(6);
-
-            using (new EditorGUI.DisabledScope(!_doc.IsOpen || !_doc.CanUndo))
-            {
-                if (GUILayout.Button("Undo", EditorStyles.toolbarButton, GUILayout.Width(50)))
-                    DoUndo();
-            }
-            using (new EditorGUI.DisabledScope(!_doc.IsOpen || !_doc.CanRedo))
-            {
-                if (GUILayout.Button("Redo", EditorStyles.toolbarButton, GUILayout.Width(50)))
-                    DoRedo();
-            }
-
-            GUILayout.Space(6);
-
-            using (new EditorGUI.DisabledScope(!_doc.IsOpen))
-            {
-                if (GUILayout.Button("View 3D", EditorStyles.toolbarButton, GUILayout.Width(65)))
-                    DoView3D();
-            }
-
-            GUILayout.FlexibleSpace();
-
-            _canvas.ShowConfidence = GUILayout.Toggle(_canvas.ShowConfidence, "Wall accuracy", EditorStyles.toolbarButton, GUILayout.Width(100));
-
-            GUILayout.Space(10);
-
-            if (_doc.IsOpen && _doc.LevelCount > 1)
-            {
-                GUILayout.Label(_doc.LevelName(_doc.CurrentLevel), EditorStyles.toolbarButton, GUILayout.Width(70));
-                int newLevel = (int)GUILayout.HorizontalSlider(_doc.CurrentLevel, 0, _doc.LevelCount - 1, GUILayout.Width(LevelSliderWidth));
-                if (newLevel != _doc.CurrentLevel)
-                {
-                    _doc.CurrentLevel = newLevel;
-                    _canvas.ClearSelection();
-                }
-            }
-
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawStatusBar()
-        {
-            Rect statusRect = new Rect(0, position.height - StatusBarHeight, position.width, StatusBarHeight);
-            EditorGUI.DrawRect(statusRect, new Color(0.16f, 0.16f, 0.18f, 1f));
-
-            GUILayout.BeginArea(statusRect);
-            GUILayout.BeginHorizontal();
-
-            string left = !_doc.IsOpen
-                ? "No document open."
-                : $"{_doc.BuildingName}{(_doc.IsDirty ? " *" : "")}  —  {_doc.Walls(_doc.CurrentLevel).Count} walls, {_doc.Rooms(_doc.CurrentLevel).Count} rooms";
-            GUILayout.Label(left, EditorStyles.miniLabel);
-
-            GUILayout.FlexibleSpace();
-
-            if (!string.IsNullOrEmpty(_statusMessage) && EditorApplication.timeSinceStartup < _statusMessageExpiry)
-                GUILayout.Label(_statusMessage, EditorStyles.miniLabel);
-            else if (DocumentProvider.UsingFakeData)
-                GUILayout.Label("⚠ wayforge.dll not loaded - showing the sample house (see Plugins/x86_64)", EditorStyles.miniLabel);
-            else
-                GUILayout.Label($"core {NativeBridge.Version()}", EditorStyles.miniLabel);
-
-            GUILayout.EndHorizontal();
-            GUILayout.EndArea();
-        }
-
-        private void HandleShortcuts()
-        {
-            Event e = Event.current;
-            if (e.type != EventType.KeyDown) return;
-            bool ctrl = e.control || e.command; // command on macOS
-
-            if (ctrl && e.keyCode == KeyCode.Z && !e.shift)
-            {
-                if (_doc.IsOpen && _doc.CanUndo) DoUndo();
-                e.Use();
-            }
-            else if (ctrl && (e.keyCode == KeyCode.Y || (e.keyCode == KeyCode.Z && e.shift)))
-            {
-                if (_doc.IsOpen && _doc.CanRedo) DoRedo();
-                e.Use();
-            }
-            else if (ctrl && e.keyCode == KeyCode.S)
-            {
-                if (CanSave) DoSave();
-                e.Use();
-            }
-        }
-
-        // Every action below catches exceptions and shows a dialog
-        // instead of letting Unity print a raw stack trace.
-
-        private void DoOpen()
-        {
-            if (!_doc.NativePluginLoaded)
-            {
-                EditorUtility.DisplayDialog(
-                    "Cannot open",
-                    "The native plugin isn't loaded, so Studio can't open a plan file.\n\n" +
-                    "Use Wayforge > Check native plugin for details.",
-                    "OK");
+                EditorGUILayout.HelpBox("Import image: pick a floor plan picture.\n" +
+                                        "Open .wfb: load a saved plan (try Assets/Wayforge/Samples/square.wfb).",
+                                        MessageType.Info);
                 return;
             }
 
-            if (!ConfirmDiscardUnsavedChanges("opening another file")) return;
+            // Plan on the left, sidebar on the right
+            var canvas = new Rect(0, ToolbarHeight, position.width - SidebarWidth, position.height - ToolbarHeight);
+            HandleMouse(canvas);
+            DrawPlan(canvas);
+            DrawSidebar(new Rect(canvas.xMax, ToolbarHeight, SidebarWidth, canvas.height));
+        }
 
-            string path = EditorUtility.OpenFilePanel("Open plan", DefaultPlanFolder(), "wfb,svg");
+        // ---------- Toolbar ----------
+
+        void DrawToolbar()
+        {
+            GUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+            if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                ImportImage();
+
+            // Opening a .wfb needs the C++ dll
+            using (new EditorGUI.DisabledScope(!NativeBridge.PluginLoads()))
+            {
+                if (GUILayout.Button("Open .wfb", EditorStyles.toolbarButton, GUILayout.Width(70)))
+                    OpenFile();
+            }
+
+            using (new EditorGUI.DisabledScope(doc == null))
+            {
+                if (GUILayout.Button("Make 3D", EditorStyles.toolbarButton, GUILayout.Width(70)))
+                {
+                    RoomBuilder.Build(doc);
+                    status = "3D room made, see the Scene view";
+                }
+
+                if (GUILayout.Button("Clear rooms", EditorStyles.toolbarButton, GUILayout.Width(80)))
+                {
+                    doc.Walls.Clear();
+                    doc.Rooms.Clear();
+                    doc.Doors.Clear();
+                    selected = null;
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(status, EditorStyles.miniLabel);
+            GUILayout.EndHorizontal();
+        }
+
+        // Loads a picture, shows it, and finds the room in it
+        void ImportImage()
+        {
+            string path = EditorUtility.OpenFilePanel("Import floor plan image", "", "png,jpg,jpeg");
+            if (string.IsNullOrEmpty(path)) return;
+
+            var tex = new Texture2D(2, 2);
+            if (!tex.LoadImage(File.ReadAllBytes(path)))
+            {
+                DestroyImmediate(tex);
+                EditorUtility.DisplayDialog("Wayforge", "That file is not a png or jpg.", "OK");
+                return;
+            }
+
+            if (image != null) DestroyImmediate(image);
+            image = tex;
+            doc = new WayforgeDocument();
+            FitTo(Vector2.zero, new Vector2(imageWidthMetres, ImageHeightMetres));
+            DetectRoom();
+
+            status = Path.GetFileName(path) + (doc.Rooms.Count > 0
+                ? $": found room {doc.Rooms[0].code} ({doc.Rooms[0].Area:F1} m²), {doc.Doors.Count} door(s)"
+                : ": no room found, drag on the picture to draw one");
+        }
+
+        // Loads a .wfb file through the C++ core
+        void OpenFile()
+        {
+            string path = EditorUtility.OpenFilePanel("Open building", Application.dataPath + "/Wayforge/Samples", "wfb");
             if (string.IsNullOrEmpty(path)) return;
 
             try
             {
-                _doc.Open(path);
-                _canvas.ClearSelection();
-                Rect canvasRect = new Rect(0, ToolbarHeight, position.width - RoomTagger.SidebarWidth, position.height - ToolbarHeight - StatusBarHeight);
-                _canvas.FitToContent(_doc, _doc.CurrentLevel, canvasRect);
-                SetStatus($"Opened {System.IO.Path.GetFileName(path)}");
+                doc = WayforgeDocument.Load(path);
+                if (image != null) { DestroyImmediate(image); image = null; }
+                selected = null;
+                FitToWalls();
+                status = $"{Path.GetFileName(path)}: {doc.Walls.Count} walls, {doc.Rooms.Count} rooms";
             }
-            catch (Exception ex)
+            catch (System.Exception e)
             {
-                Debug.LogException(ex);
-                EditorUtility.DisplayDialog("Couldn't open file",
-                    $"Failed to open:\n{path}\n\n{ex.Message}", "OK");
+                EditorUtility.DisplayDialog("Wayforge", e.Message, "OK");
             }
         }
 
-        private void DoImportImage()
+        // ---------- Finding the room in the image ----------
+
+        // Puts a room where the dark lines of the picture are, then looks for doors in its walls
+        void DetectRoom()
         {
-            if (!ConfirmDiscardUnsavedChanges("importing an image")) return;
+            doc.Walls.Clear();
+            doc.Rooms.Clear();
+            doc.Doors.Clear();
+            selected = null;
 
-            string path = EditorUtility.OpenFilePanelWithFilters("Import floor plan image", DefaultPlanFolder(),
-                new[] { "Images", "png,jpg,jpeg,bmp", "All files", "*" });
-            if (string.IsNullOrEmpty(path)) return;
+            if (!FindDarkBox(image, out RectInt box)) return;
 
-            ImportImageDialog.Show(path, (imagePath, widthMetres) =>
+            float metresPerPixel = imageWidthMetres / image.width;
+            selected = doc.AddRectangle(new Vector2(box.xMin, box.yMin) * metresPerPixel,
+                                        new Vector2(box.xMax, box.yMax) * metresPerPixel);
+
+            // Check each wall for a gap (a door). Look a few pixels inside the edge,
+            // so we walk along the middle of the wall line.
+            const int inset = 3;
+            int left = box.xMin, right = box.xMax - 1, bottom = box.yMin, top = box.yMax - 1;
+            FindDoor(new Vector2Int(left, bottom + inset), new Vector2Int(right, bottom + inset), box, metresPerPixel);  // bottom wall
+            FindDoor(new Vector2Int(left, top - inset),    new Vector2Int(right, top - inset),    box, metresPerPixel);  // top wall
+            FindDoor(new Vector2Int(left + inset, bottom), new Vector2Int(left + inset, top),     box, metresPerPixel);  // left wall
+            FindDoor(new Vector2Int(right - inset, bottom), new Vector2Int(right - inset, top),   box, metresPerPixel);  // right wall
+        }
+
+        // Walks along one wall line in the picture. The longest light stretch is the door.
+        void FindDoor(Vector2Int from, Vector2Int to, RectInt box, float metresPerPixel)
+        {
+            Color32[] pixels = image.GetPixels32();
+            bool horizontal = from.y == to.y;
+            int length = horizontal ? to.x - from.x : to.y - from.y;
+
+            int bestStart = 0, bestLength = 0, runLength = 0;
+            for (int i = 0; i <= length; i++)
             {
-                try
+                int x = horizontal ? from.x + i : from.x;
+                int y = horizontal ? from.y : from.y + i;
+                Color32 c = pixels[y * image.width + x];
+                bool light = c.r + c.g + c.b >= 300;
+
+                runLength = light ? runLength + 1 : 0;
+                if (runLength > bestLength)
                 {
-                    EditorUtility.DisplayProgressBar("Wayforge", "Reading walls, doors and rooms from the image...", 0.5f);
-                    _doc.ImportImage(imagePath, widthMetres);
-                    _canvas.ClearSelection();
-                    Rect canvasRect = new Rect(0, ToolbarHeight, position.width - RoomTagger.SidebarWidth, position.height - ToolbarHeight - StatusBarHeight);
-                    _canvas.FitToContent(_doc, _doc.CurrentLevel, canvasRect);
-                    var lvl = _doc.CurrentLevel;
-                    SetStatus($"Imported {System.IO.Path.GetFileName(imagePath)}: {_doc.Walls(lvl).Count} walls, {_doc.Openings(lvl).Count} doors, {_doc.Rooms(lvl).Count} rooms");
+                    bestLength = runLength;
+                    bestStart = i - runLength + 1;
                 }
-                catch (Exception ex)
+            }
+
+            // A door is longer than 5% of the wall. A gap over 80% means we missed the wall line.
+            if (bestLength < length * 0.05f || bestLength > length * 0.8f) return;
+
+            // Put the door on the room's edge so it lines up with the walls
+            Vector2 a, b;
+            if (horizontal)
+            {
+                float y = from.y < box.center.y ? box.yMin : box.yMax;
+                a = new Vector2(from.x + bestStart, y);
+                b = new Vector2(from.x + bestStart + bestLength, y);
+            }
+            else
+            {
+                float x = from.x < box.center.x ? box.xMin : box.xMax;
+                a = new Vector2(x, from.y + bestStart);
+                b = new Vector2(x, from.y + bestStart + bestLength);
+            }
+            doc.AddDoor(a * metresPerPixel, b * metresPerPixel);
+        }
+
+        // Finds the smallest box around all the dark pixels (the walls)
+        static bool FindDarkBox(Texture2D tex, out RectInt box)
+        {
+            Color32[] pixels = tex.GetPixels32();
+            int minX = tex.width, minY = tex.height, maxX = -1, maxY = -1;
+
+            for (int y = 0; y < tex.height; y++)
+            {
+                for (int x = 0; x < tex.width; x++)
                 {
-                    Debug.LogException(ex);
-                    EditorUtility.DisplayDialog("Couldn't import image", ex.Message, "OK");
+                    Color32 c = pixels[y * tex.width + x];
+                    bool dark = c.r + c.g + c.b < 300;
+                    if (!dark) continue;
+
+                    minX = Mathf.Min(minX, x);
+                    maxX = Mathf.Max(maxX, x);
+                    minY = Mathf.Min(minY, y);
+                    maxY = Mathf.Max(maxY, y);
                 }
-                finally
+            }
+
+            box = new RectInt(minX, minY, maxX - minX + 1, maxY - minY + 1);
+            return maxX > minX && maxY > minY;
+        }
+
+        float ImageHeightMetres => image == null ? 0 : imageWidthMetres * image.height / image.width;
+
+        // ---------- Drawing the plan ----------
+
+        // Metres to pixels. The plan's y goes up but the screen's y goes down, so it's flipped here.
+        Vector2 ToScreen(Vector2 m, Rect canvas) =>
+            new Vector2(canvas.x + offset.x + m.x * pixelsPerMetre, canvas.yMax - offset.y - m.y * pixelsPerMetre);
+
+        // Pixels back to metres
+        Vector2 ToMetres(Vector2 s, Rect canvas) =>
+            new Vector2((s.x - canvas.x - offset.x) / pixelsPerMetre, (canvas.yMax - offset.y - s.y) / pixelsPerMetre);
+
+        // Zooms and pans so the area from min to max fills the window
+        void FitTo(Vector2 min, Vector2 max)
+        {
+            Vector2 size = Vector2.Max(max - min, Vector2.one);
+            float w = position.width - SidebarWidth - 60;
+            float h = position.height - ToolbarHeight - 60;
+            pixelsPerMetre = Mathf.Min(w / size.x, h / size.y);
+            offset = new Vector2(30 - min.x * pixelsPerMetre, 30 - min.y * pixelsPerMetre);
+        }
+
+        void FitToWalls()
+        {
+            if (doc.Walls.Count == 0) return;
+            Vector2 min = doc.Walls[0].a, max = min;
+            foreach (var w in doc.Walls)
+            {
+                min = Vector2.Min(min, Vector2.Min(w.a, w.b));
+                max = Vector2.Max(max, Vector2.Max(w.a, w.b));
+            }
+            FitTo(min, max);
+        }
+
+        void DrawPlan(Rect canvas)
+        {
+            if (Event.current.type != EventType.Repaint) return;
+
+            // Keep the drawing inside the plan area
+            GUI.BeginClip(canvas);
+            var area = new Rect(0, 0, canvas.width, canvas.height);
+            EditorGUI.DrawRect(area, new Color(0.18f, 0.18f, 0.2f));
+
+            // The picture
+            if (image != null)
+            {
+                Vector2 topLeft = ToScreen(new Vector2(0, ImageHeightMetres), area);
+                GUI.DrawTexture(new Rect(topLeft.x, topLeft.y, imageWidthMetres * pixelsPerMetre, ImageHeightMetres * pixelsPerMetre), image);
+            }
+
+            Handles.BeginGUI();
+
+            // Rooms (the selected one in yellow)
+            foreach (var room in doc.Rooms)
+            {
+                if (room.corners.Length < 3) continue;
+                var points = new Vector3[room.corners.Length];
+                for (int i = 0; i < points.Length; i++) points[i] = ToScreen(room.corners[i], area);
+                Handles.color = room == selected ? new Color(1f, 0.8f, 0.3f, 0.6f) : new Color(0.4f, 0.65f, 0.95f, 0.45f);
+                Handles.DrawAAConvexPolygon(points);
+            }
+
+            // Walls
+            Handles.color = new Color(0.1f, 0.5f, 1f);
+            foreach (var w in doc.Walls)
+                Handles.DrawAAPolyLine(3f, ToScreen(w.a, area), ToScreen(w.b, area));
+
+            // Doors
+            Handles.color = new Color(0.3f, 0.9f, 0.4f);
+            foreach (var d in doc.Doors)
+                Handles.DrawAAPolyLine(5f, ToScreen(d.a, area), ToScreen(d.b, area));
+
+            // The room being drawn with the mouse
+            if (dragging)
+            {
+                Vector2 a = ToScreen(dragStart, area), b = ToScreen(dragEnd, area);
+                Handles.color = Color.yellow;
+                Handles.DrawAAPolyLine(2f, a, new Vector2(b.x, a.y), b, new Vector2(a.x, b.y), a);
+            }
+
+            Handles.EndGUI();
+
+            // Room names in the middle of each room
+            var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white } };
+            foreach (var room in doc.Rooms)
+            {
+                if (room.corners.Length == 0) continue;
+                Vector2 centre = Vector2.zero;
+                foreach (var c in room.corners) centre += c;
+                Vector2 s = ToScreen(centre / room.corners.Length, area);
+                GUI.Label(new Rect(s.x - 40, s.y - 8, 80, 16), string.IsNullOrEmpty(room.code) ? room.id : room.code, labelStyle);
+            }
+
+            GUI.EndClip();
+        }
+
+        // ---------- Mouse ----------
+        // Scroll = zoom, right-drag = pan, left-drag = draw a room, left-click = select a room
+
+        void HandleMouse(Rect canvas)
+        {
+            Event e = Event.current;
+            bool overPlan = canvas.Contains(e.mousePosition);
+
+            if (e.type == EventType.ScrollWheel && overPlan)
+            {
+                pixelsPerMetre = Mathf.Clamp(pixelsPerMetre * (e.delta.y < 0 ? 1.1f : 0.9f), 2f, 500f);
+                e.Use();
+                Repaint();
+            }
+            else if (e.type == EventType.MouseDrag && e.button != 0 && overPlan)
+            {
+                offset += new Vector2(e.delta.x, -e.delta.y);
+                e.Use();
+                Repaint();
+            }
+            else if (e.type == EventType.MouseDown && e.button == 0 && overPlan)
+            {
+                dragging = true;
+                dragStart = dragEnd = ToMetres(e.mousePosition, canvas);
+                e.Use();
+            }
+            else if (e.type == EventType.MouseDrag && e.button == 0 && dragging)
+            {
+                dragEnd = ToMetres(e.mousePosition, canvas);
+                e.Use();
+                Repaint();
+            }
+            else if (e.type == EventType.MouseUp && e.button == 0 && dragging)
+            {
+                dragging = false;
+                dragEnd = ToMetres(e.mousePosition, canvas);
+                Vector2 size = dragEnd - dragStart;
+
+                if (Mathf.Abs(size.x) > 0.3f && Mathf.Abs(size.y) > 0.3f)
                 {
-                    EditorUtility.ClearProgressBar();
-                    Repaint();
+                    // A drag: add a new room
+                    selected = doc.AddRectangle(dragStart, dragEnd);
+                    status = $"{selected.code} added ({selected.Area:F1} m²)";
                 }
-            });
-        }
-
-        private void DoView3D()
-        {
-            try
-            {
-                var root = Model3DPreview.Show(_doc, _doc.CurrentLevel);
-                SetStatus($"3D model built: {root.name} (see the Scene view)");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-                EditorUtility.DisplayDialog("View 3D failed", ex.Message, "OK");
-            }
-        }
-
-        // Save is available after any rename, and also straight after importing
-        // an image or svg, because that building has never been written to a .wfb.
-        private bool CanSave => _doc.IsOpen && (_doc.IsDirty || !IsWfb(_doc.FilePath));
-
-        private static bool IsWfb(string path) =>
-            !string.IsNullOrEmpty(path) && string.Equals(System.IO.Path.GetExtension(path), ".wfb", StringComparison.OrdinalIgnoreCase);
-
-        private void DoSave()
-        {
-            try
-            {
-                if (IsWfb(_doc.FilePath))
+                else
                 {
-                    _doc.Save();
-                    SetStatus("Saved.");
-                    return;
+                    // A click: select the room under the mouse
+                    selected = null;
+                    foreach (var room in doc.Rooms)
+                        if (IsInside(dragStart, room.corners)) { selected = room; break; }
                 }
-
-                string folder = DefaultBuildingsFolder();
-                string name = string.IsNullOrEmpty(_doc.FilePath) ? _doc.BuildingName : System.IO.Path.GetFileNameWithoutExtension(_doc.FilePath);
-                string path = EditorUtility.SaveFilePanel("Save building", folder, name + ".wfb", "wfb");
-                if (string.IsNullOrEmpty(path)) return;
-                _doc.SaveAs(path);
-                SetStatus($"Saved {System.IO.Path.GetFileName(path)}");
+                e.Use();
+                Repaint();
             }
-            catch (Exception ex)
+        }
+
+        // True if point p is inside the outline
+        static bool IsInside(Vector2 p, Vector2[] outline)
+        {
+            bool inside = false;
+            for (int i = 0, j = outline.Length - 1; i < outline.Length; j = i++)
             {
-                Debug.LogException(ex);
-                EditorUtility.DisplayDialog("Couldn't save", ex.Message, "OK");
+                Vector2 a = outline[i], b = outline[j];
+                if ((a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x)
+                    inside = !inside;
             }
+            return inside;
         }
 
-        private void DoUndo()
-        {
-            _doc.Undo();
-            _canvas.ClearSelection(); // selected item might not exist anymore
-        }
+        // ---------- Sidebar ----------
 
-        private void DoRedo()
+        void DrawSidebar(Rect area)
         {
-            _doc.Redo();
-            _canvas.ClearSelection();
-        }
+            GUILayout.BeginArea(new Rect(area.x + 8, area.y + 8, area.width - 16, area.height - 16));
 
-        // wayforge/data/buildings next to the Unity project (created if missing).
-        private static string DefaultBuildingsFolder()
-        {
-            string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../data/buildings"));
-            try { System.IO.Directory.CreateDirectory(dir); return dir; } catch { return ""; }
-        }
+            // Image scale
+            if (image != null)
+            {
+                GUILayout.Label("Image", EditorStyles.boldLabel);
+                EditorGUI.BeginChangeCheck();
+                imageWidthMetres = Mathf.Max(1f, EditorGUILayout.FloatField("Real width (m)", imageWidthMetres));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    FitTo(Vector2.zero, new Vector2(imageWidthMetres, ImageHeightMetres));
+                    DetectRoom();
+                }
+                if (GUILayout.Button("Find room again")) DetectRoom();
+                EditorGUILayout.Space();
+            }
 
-        // wayforge/data/plans next to the Unity project, if it exists.
-        private static string DefaultPlanFolder()
-        {
-            string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../data/plans"));
-            return System.IO.Directory.Exists(dir) ? dir : "";
-        }
+            // Selected room
+            GUILayout.Label("Room", EditorStyles.boldLabel);
+            if (selected == null)
+            {
+                EditorGUILayout.HelpBox("Click a room to select it, or drag to draw one.\nScroll to zoom, right-drag to pan.", MessageType.None);
+            }
+            else
+            {
+                EditorGUILayout.LabelField("Id", selected.id);
+                EditorGUILayout.LabelField("Code", string.IsNullOrEmpty(selected.code) ? "-" : selected.code);
+                EditorGUILayout.LabelField("Corners", selected.corners.Length.ToString());
+                EditorGUILayout.LabelField("Area", selected.Area.ToString("F1") + " m²");
+            }
 
-        private void SetStatus(string message)
-        {
-            _statusMessage = message;
-            _statusMessageExpiry = EditorApplication.timeSinceStartup + 3.0;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label(NativeBridge.PluginLoads() ? "core " + NativeBridge.Version() : "wayforge.dll not loaded", EditorStyles.miniLabel);
+            GUILayout.EndArea();
         }
     }
-}
+}

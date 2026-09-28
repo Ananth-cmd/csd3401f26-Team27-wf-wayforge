@@ -1,0 +1,119 @@
+{
+  "building": {
+    "id": "",
+    "name": "Square test",
+    "unitsPerMetre": 1.0
+  },
+  "levels": [
+    {
+      "anchors": [],
+      "ceilingHeight": 3.0,
+      "edges": [],
+      "elevation": 0.0,
+      "id": "L1",
+      "name": "Level 1",
+      "nodes": [],
+      "openings": [],
+      "pois": [],
+      "rooms": [
+        {
+          "area": 100.0,
+          "boundary": [
+            "w1",
+            "w2",
+            "w3",
+            "w4"
+          ],
+          "centroid": [
+            5.0,
+            5.0
+          ],
+          "code": "A1",
+          "confidence": 1.0,
+          "id": "r1",
+          "kind": "unknown",
+          "name": "Square room",
+          "polygon": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              10.0,
+              0.0
+            ],
+            [
+              10.0,
+              10.0
+            ],
+            [
+              0.0,
+              10.0
+            ]
+          ]
+        }
+      ],
+      "walls": [
+        {
+          "a": [
+            0.0,
+            0.0
+          ],
+          "b": [
+            10.0,
+            0.0
+          ],
+          "confidence": 1.0,
+          "id": "w1",
+          "thickness": 0.2
+        },
+        {
+          "a": [
+            10.0,
+            0.0
+          ],
+          "b": [
+            10.0,
+            10.0
+          ],
+          "confidence": 1.0,
+          "id": "w2",
+          "thickness": 0.2
+        },
+        {
+          "a": [
+            10.0,
+            10.0
+          ],
+          "b": [
+            0.0,
+            10.0
+          ],
+          "confidence": 1.0,
+          "id": "w3",
+          "thickness": 0.2
+        },
+        {
+          "a": [
+            0.0,
+            10.0
+          ],
+          "b": [
+            0.0,
+            0.0
+          ],
+          "confidence": 1.0,
+          "id": "w4",
+          "thickness": 0.2
+        }
+      ]
+    }
+  ],
+  "links": [],
+  "source": {
+    "file": "",
+    "pixelsPerMetre": 0.0,
+    "rectified": false
+  },
+  "version": 1
+}
