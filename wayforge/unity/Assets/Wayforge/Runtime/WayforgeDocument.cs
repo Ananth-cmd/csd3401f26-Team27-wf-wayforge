@@ -12,6 +12,12 @@ namespace Wayforge
         public Vector2 a, b;
     }
 
+    // One door: the gap in a wall from a to b, in metres
+    public class DoorData
+    {
+        public Vector2 a, b;
+    }
+
     // One room: its name and the corners of its outline, in metres
     public class RoomData
     {
@@ -42,6 +48,7 @@ namespace Wayforge
         public string Path { get; private set; }
         public List<WallData> Walls { get; } = new List<WallData>();
         public List<RoomData> Rooms { get; } = new List<RoomData>();
+        public List<DoorData> Doors { get; } = new List<DoorData>();
 
         // Adds a rectangle room (and its 4 walls) from two opposite corners
         public RoomData AddRectangle(Vector2 cornerA, Vector2 cornerB)
@@ -56,6 +63,34 @@ namespace Wayforge
             var room = new RoomData { id = "r" + (Rooms.Count + 1), code = "R" + (Rooms.Count + 1), corners = corners };
             Rooms.Add(room);
             return room;
+        }
+
+        // Adds a door from a to b. The wall it sits on is split in two around the gap.
+        public void AddDoor(Vector2 a, Vector2 b)
+        {
+            for (int i = 0; i < Walls.Count; i++)
+            {
+                WallData wall = Walls[i];
+                if (!IsOnWall(a, wall) || !IsOnWall(b, wall)) continue;
+
+                // Make "a" the door end closer to the start of the wall
+                if (Vector2.Distance(wall.a, b) < Vector2.Distance(wall.a, a))
+                {
+                    Vector2 t = a; a = b; b = t;
+                }
+
+                Walls[i] = new WallData { a = wall.a, b = a };            // piece before the door
+                Walls.Insert(i + 1, new WallData { a = b, b = wall.b });  // piece after the door
+                Doors.Add(new DoorData { a = a, b = b });
+                return;
+            }
+        }
+
+        // True if point p lies on the wall line
+        static bool IsOnWall(Vector2 p, WallData wall)
+        {
+            float length = Vector2.Distance(wall.a, wall.b);
+            return Mathf.Abs(Vector2.Distance(wall.a, p) + Vector2.Distance(p, wall.b) - length) < 0.05f;
         }
 
         // Opens a .wfb file with the C++ core and copies its walls and rooms

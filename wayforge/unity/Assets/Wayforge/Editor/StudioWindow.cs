@@ -69,12 +69,16 @@ namespace Wayforge.Editor
             using (new EditorGUI.DisabledScope(doc == null))
             {
                 if (GUILayout.Button("Make 3D", EditorStyles.toolbarButton, GUILayout.Width(70)))
-                    status = BlockMaker.Build(doc) + " block(s) made, see the Scene view";
+                {
+                    RoomBuilder.Build(doc);
+                    status = "3D room made, see the Scene view";
+                }
 
                 if (GUILayout.Button("Clear rooms", EditorStyles.toolbarButton, GUILayout.Width(80)))
                 {
                     doc.Walls.Clear();
                     doc.Rooms.Clear();
+                    doc.Doors.Clear();
                     selected = null;
                 }
             }
@@ -105,7 +109,7 @@ namespace Wayforge.Editor
             DetectRoom();
 
             status = Path.GetFileName(path) + (doc.Rooms.Count > 0
-                ? $": found room {doc.Rooms[0].code} ({doc.Rooms[0].Area:F1} m²)"
+                ? $": found room {doc.Rooms[0].code} ({doc.Rooms[0].Area:F1} m²), {doc.Doors.Count} door(s)"
                 : ": no room found, drag on the picture to draw one");
         }
 
@@ -131,11 +135,12 @@ namespace Wayforge.Editor
 
         // ---------- Finding the room in the image ----------
 
-        // Puts a room where the dark lines of the picture are
+        // Puts a room where the dark lines of the picture are, then looks for doors in its walls
         void DetectRoom()
         {
             doc.Walls.Clear();
             doc.Rooms.Clear();
+            doc.Doors.Clear();
             selected = null;
 
             if (!FindDarkBox(image, out RectInt box)) return;
@@ -143,6 +148,58 @@ namespace Wayforge.Editor
             float metresPerPixel = imageWidthMetres / image.width;
             selected = doc.AddRectangle(new Vector2(box.xMin, box.yMin) * metresPerPixel,
                                         new Vector2(box.xMax, box.yMax) * metresPerPixel);
+
+            // Check each wall for a gap (a door). Look a few pixels inside the edge,
+            // so we walk along the middle of the wall line.
+            const int inset = 3;
+            int left = box.xMin, right = box.xMax - 1, bottom = box.yMin, top = box.yMax - 1;
+            FindDoor(new Vector2Int(left, bottom + inset), new Vector2Int(right, bottom + inset), box, metresPerPixel);  // bottom wall
+            FindDoor(new Vector2Int(left, top - inset),    new Vector2Int(right, top - inset),    box, metresPerPixel);  // top wall
+            FindDoor(new Vector2Int(left + inset, bottom), new Vector2Int(left + inset, top),     box, metresPerPixel);  // left wall
+            FindDoor(new Vector2Int(right - inset, bottom), new Vector2Int(right - inset, top),   box, metresPerPixel);  // right wall
+        }
+
+        // Walks along one wall line in the picture. The longest light stretch is the door.
+        void FindDoor(Vector2Int from, Vector2Int to, RectInt box, float metresPerPixel)
+        {
+            Color32[] pixels = image.GetPixels32();
+            bool horizontal = from.y == to.y;
+            int length = horizontal ? to.x - from.x : to.y - from.y;
+
+            int bestStart = 0, bestLength = 0, runLength = 0;
+            for (int i = 0; i <= length; i++)
+            {
+                int x = horizontal ? from.x + i : from.x;
+                int y = horizontal ? from.y : from.y + i;
+                Color32 c = pixels[y * image.width + x];
+                bool light = c.r + c.g + c.b >= 300;
+
+                runLength = light ? runLength + 1 : 0;
+                if (runLength > bestLength)
+                {
+                    bestLength = runLength;
+                    bestStart = i - runLength + 1;
+                }
+            }
+
+            // A door is longer than 5% of the wall. A gap over 80% means we missed the wall line.
+            if (bestLength < length * 0.05f || bestLength > length * 0.8f) return;
+
+            // Put the door on the room's edge so it lines up with the walls
+            Vector2 a, b;
+            if (horizontal)
+            {
+                float y = from.y < box.center.y ? box.yMin : box.yMax;
+                a = new Vector2(from.x + bestStart, y);
+                b = new Vector2(from.x + bestStart + bestLength, y);
+            }
+            else
+            {
+                float x = from.x < box.center.x ? box.xMin : box.xMax;
+                a = new Vector2(x, from.y + bestStart);
+                b = new Vector2(x, from.y + bestStart + bestLength);
+            }
+            doc.AddDoor(a * metresPerPixel, b * metresPerPixel);
         }
 
         // Finds the smallest box around all the dark pixels (the walls)
@@ -236,6 +293,11 @@ namespace Wayforge.Editor
             Handles.color = new Color(0.1f, 0.5f, 1f);
             foreach (var w in doc.Walls)
                 Handles.DrawAAPolyLine(3f, ToScreen(w.a, area), ToScreen(w.b, area));
+
+            // Doors
+            Handles.color = new Color(0.3f, 0.9f, 0.4f);
+            foreach (var d in doc.Doors)
+                Handles.DrawAAPolyLine(5f, ToScreen(d.a, area), ToScreen(d.b, area));
 
             // The room being drawn with the mouse
             if (dragging)
