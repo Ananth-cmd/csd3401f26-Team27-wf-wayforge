@@ -20,9 +20,16 @@ namespace Wayforge
         [DllImport(Lib)] public static extern IntPtr wf_open_plan(string path);
         [DllImport(Lib)] public static extern void   wf_close(IntPtr doc);
 
+        // Turn a floor plan picture into walls, doors and rooms (Ananth's image code + Shrinivasan's wf_read)
+        [DllImport(Lib)] public static extern IntPtr wf_convert_image(string path, float widthMetres);
+
         // Walls: 5 numbers each (start x, start y, end x, end y, thickness)
         [DllImport(Lib)] public static extern int wf_wall_count(IntPtr doc, int level);
         [DllImport(Lib)] public static extern int wf_get_walls(IntPtr doc, int level, float[] outBuf, int maxFloats);
+
+        // Doors: 4 numbers each (x, y, width, type)
+        [DllImport(Lib)] public static extern int wf_opening_count(IntPtr doc, int level);
+        [DllImport(Lib)] public static extern int wf_get_openings(IntPtr doc, int level, float[] outBuf, int maxFloats);
 
         // Rooms
         [DllImport(Lib)] public static extern int wf_room_count(IntPtr doc, int level);
