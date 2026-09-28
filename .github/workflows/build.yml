@@ -1,0 +1,91 @@
+# Wayforge CI
+#   golden-checker : checks tools/compare_golden.py against tools/testdata/ (fast, Python only)
+#   desktop        : build the C++ core on Ubuntu + Windows, run CTest, smoke-run wf_cli,
+#                    then run every golden-file test in data/golden/
+#   android        : build libwayforge.so for arm64-v8a with the NDK
+name: build
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: wayforge
+
+jobs:
+  golden-checker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Self-test compare_golden.py
+        run: |
+          # same geometry, different ids -> must match (exit 0)
+          python tools/compare_golden.py tools/testdata/actual_same.wfb tools/testdata/expected.wfb
+          # wrong geometry -> must report a mismatch (exit 1)
+          set +e
+          python tools/compare_golden.py tools/testdata/actual_wrong.wfb tools/testdata/expected.wfb
+          [ $? -eq 1 ] || { echo "compare_golden.py did not catch the wrong file"; exit 1; }
+
+  desktop:
+    needs: golden-checker
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CONFIG: Release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install Ninja (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: |
+          GEN=""
+          if [ "$RUNNER_OS" = "Linux" ]; then GEN="-G Ninja"; fi
+          cmake -S core -B build/desktop $GEN -DCMAKE_BUILD_TYPE=$CONFIG
+
+      - name: Build
+        run: cmake --build build/desktop --config $CONFIG --parallel
+
+      - name: Unit tests (CTest)
+        run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG
+
+      - name: Smoke run wf_cli
+        run: |
+          CLI=$(find build/desktop/Sandbox/wf_cli -maxdepth 2 -type f \( -name wf_cli -o -name wf_cli.exe \) | head -n 1)
+          [ -n "$CLI" ] || { echo "wf_cli not found"; exit 1; }
+          echo "CLI=$CLI" >> "$GITHUB_ENV"
+          "$CLI" --version
+
+      - name: Golden-file tests
+        run: python tools/run_golden.py "$CLI"
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Build libwayforge.so (arm64-v8a)
+        run: ANDROID_NDK="$ANDROID_NDK_LATEST_HOME" bash ./core/script_build_android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libwayforge-android-arm64-v8a
+          path: wayforge/unity/Assets/Wayforge/Plugins/Android/libs/arm64-v8a/libwayforge.so
