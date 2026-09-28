@@ -18,28 +18,6 @@ namespace Wayforge.Editor
             window.Show();
         }
 
-        [MenuItem("Wayforge/Check native plugin")]
-        public static void CheckNativePlugin()
-        {
-            var doc = DocumentProvider.Current;
-            if (doc.NativePluginLoaded)
-            {
-                EditorUtility.DisplayDialog(
-                    "Wayforge native plugin",
-                    $"Plugin loaded OK.\nVersion: {doc.NativeVersion}",
-                    "OK");
-            }
-            else
-            {
-                EditorUtility.DisplayDialog(
-                    "Wayforge native plugin",
-                    "The native plugin (wayforge.dll / .so / .dylib) did not load.\n\n" +
-                    "Check Console for the specific load error, and confirm the plugin " +
-                    "is present under Assets/Plugins for your platform.",
-                    "OK");
-            }
-        }
-
         private PlanCanvas _canvas;
         private RoomTagger _tagger;
         private IWayforgeDocument _doc;
@@ -136,10 +114,13 @@ namespace Wayforge.Editor
 
             using (new EditorGUI.DisabledScope(false))
             {
+                if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                    DoImportImage();
+
                 if (GUILayout.Button("Open", EditorStyles.toolbarButton, GUILayout.Width(50)))
                     DoOpen();
 
-                using (new EditorGUI.DisabledScope(!_doc.IsOpen || !_doc.IsDirty))
+                using (new EditorGUI.DisabledScope(!CanSave))
                 {
                     if (GUILayout.Button("Save", EditorStyles.toolbarButton, GUILayout.Width(50)))
                         DoSave();
@@ -167,13 +148,12 @@ namespace Wayforge.Editor
 
             using (new EditorGUI.DisabledScope(!_doc.IsOpen))
             {
-                if (GUILayout.Button("Build graph", EditorStyles.toolbarButton, GUILayout.Width(85)))
-                    DoBuildGraph();
+                if (GUILayout.Button("View 3D", EditorStyles.toolbarButton, GUILayout.Width(65)))
+                    DoView3D();
             }
 
             GUILayout.FlexibleSpace();
 
-            _canvas.ShowGraph = GUILayout.Toggle(_canvas.ShowGraph, "Show routes", EditorStyles.toolbarButton, GUILayout.Width(90));
             _canvas.ShowConfidence = GUILayout.Toggle(_canvas.ShowConfidence, "Wall accuracy", EditorStyles.toolbarButton, GUILayout.Width(100));
 
             GUILayout.Space(10);
@@ -209,8 +189,10 @@ namespace Wayforge.Editor
 
             if (!string.IsNullOrEmpty(_statusMessage) && EditorApplication.timeSinceStartup < _statusMessageExpiry)
                 GUILayout.Label(_statusMessage, EditorStyles.miniLabel);
-            else if (!_doc.NativePluginLoaded)
-                GUILayout.Label("⚠ native plugin not loaded", EditorStyles.miniLabel);
+            else if (DocumentProvider.UsingFakeData)
+                GUILayout.Label("⚠ wayforge.dll not loaded - showing the sample house (see Plugins/x86_64)", EditorStyles.miniLabel);
+            else
+                GUILayout.Label($"core {NativeBridge.Version()}", EditorStyles.miniLabel);
 
             GUILayout.EndHorizontal();
             GUILayout.EndArea();
@@ -234,7 +216,7 @@ namespace Wayforge.Editor
             }
             else if (ctrl && e.keyCode == KeyCode.S)
             {
-                if (_doc.IsOpen && _doc.IsDirty) DoSave();
+                if (CanSave) DoSave();
                 e.Use();
             }
         }
@@ -256,7 +238,7 @@ namespace Wayforge.Editor
 
             if (!ConfirmDiscardUnsavedChanges("opening another file")) return;
 
-            string path = EditorUtility.OpenFilePanel("Open plan", "", "wfb,svg");
+            string path = EditorUtility.OpenFilePanel("Open plan", DefaultPlanFolder(), "wfb,svg");
             if (string.IsNullOrEmpty(path)) return;
 
             try
@@ -275,12 +257,77 @@ namespace Wayforge.Editor
             }
         }
 
+        private void DoImportImage()
+        {
+            if (!ConfirmDiscardUnsavedChanges("importing an image")) return;
+
+            string path = EditorUtility.OpenFilePanelWithFilters("Import floor plan image", DefaultPlanFolder(),
+                new[] { "Images", "png,jpg,jpeg,bmp", "All files", "*" });
+            if (string.IsNullOrEmpty(path)) return;
+
+            ImportImageDialog.Show(path, (imagePath, widthMetres) =>
+            {
+                try
+                {
+                    EditorUtility.DisplayProgressBar("Wayforge", "Reading walls, doors and rooms from the image...", 0.5f);
+                    _doc.ImportImage(imagePath, widthMetres);
+                    _canvas.ClearSelection();
+                    Rect canvasRect = new Rect(0, ToolbarHeight, position.width - RoomTagger.SidebarWidth, position.height - ToolbarHeight - StatusBarHeight);
+                    _canvas.FitToContent(_doc, _doc.CurrentLevel, canvasRect);
+                    var lvl = _doc.CurrentLevel;
+                    SetStatus($"Imported {System.IO.Path.GetFileName(imagePath)}: {_doc.Walls(lvl).Count} walls, {_doc.Openings(lvl).Count} doors, {_doc.Rooms(lvl).Count} rooms");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    EditorUtility.DisplayDialog("Couldn't import image", ex.Message, "OK");
+                }
+                finally
+                {
+                    EditorUtility.ClearProgressBar();
+                    Repaint();
+                }
+            });
+        }
+
+        private void DoView3D()
+        {
+            try
+            {
+                var root = Model3DPreview.Show(_doc, _doc.CurrentLevel);
+                SetStatus($"3D model built: {root.name} (see the Scene view)");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                EditorUtility.DisplayDialog("View 3D failed", ex.Message, "OK");
+            }
+        }
+
+        // Save is available after any rename, and also straight after importing
+        // an image or svg, because that building has never been written to a .wfb.
+        private bool CanSave => _doc.IsOpen && (_doc.IsDirty || !IsWfb(_doc.FilePath));
+
+        private static bool IsWfb(string path) =>
+            !string.IsNullOrEmpty(path) && string.Equals(System.IO.Path.GetExtension(path), ".wfb", StringComparison.OrdinalIgnoreCase);
+
         private void DoSave()
         {
             try
             {
-                _doc.Save();
-                SetStatus("Saved.");
+                if (IsWfb(_doc.FilePath))
+                {
+                    _doc.Save();
+                    SetStatus("Saved.");
+                    return;
+                }
+
+                string folder = DefaultBuildingsFolder();
+                string name = string.IsNullOrEmpty(_doc.FilePath) ? _doc.BuildingName : System.IO.Path.GetFileNameWithoutExtension(_doc.FilePath);
+                string path = EditorUtility.SaveFilePanel("Save building", folder, name + ".wfb", "wfb");
+                if (string.IsNullOrEmpty(path)) return;
+                _doc.SaveAs(path);
+                SetStatus($"Saved {System.IO.Path.GetFileName(path)}");
             }
             catch (Exception ex)
             {
@@ -301,18 +348,18 @@ namespace Wayforge.Editor
             _canvas.ClearSelection();
         }
 
-        private void DoBuildGraph()
+        // wayforge/data/buildings next to the Unity project (created if missing).
+        private static string DefaultBuildingsFolder()
         {
-            try
-            {
-                _doc.BuildGraph();
-                SetStatus("Graph built.");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-                EditorUtility.DisplayDialog("Build graph failed", ex.Message, "OK");
-            }
+            string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../data/buildings"));
+            try { System.IO.Directory.CreateDirectory(dir); return dir; } catch { return ""; }
+        }
+
+        // wayforge/data/plans next to the Unity project, if it exists.
+        private static string DefaultPlanFolder()
+        {
+            string dir = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, "../../data/plans"));
+            return System.IO.Directory.Exists(dir) ? dir : "";
         }
 
         private void SetStatus(string message)
@@ -321,4 +368,4 @@ namespace Wayforge.Editor
             _statusMessageExpiry = EditorApplication.timeSinceStartup + 3.0;
         }
     }
-}
+}

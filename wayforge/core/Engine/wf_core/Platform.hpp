@@ -1,20 +1,22 @@
+// Platform detection. __ANDROID__ MUST be tested before __linux__ because
+// Android also defines __linux__ (the most common cross-platform mistake).
 #pragma once
 
 #if defined(__ANDROID__)
-#define WF_PLATFORM_ANDROID 1
-#define WF_PLATFORM_NAME "Android"
+    #define WF_PLATFORM_ANDROID 1
+    #define WF_PLATFORM_NAME "Android"
 #elif defined(_WIN32)
-#define WF_PLATFORM_WINDOWS 1
-#define WF_PLATFORM_NAME "Windows"
+    #define WF_PLATFORM_WINDOWS 1
+    #define WF_PLATFORM_NAME "Windows"
 #elif defined(__APPLE__)
-#define WF_PLATFORM_MACOS 1
-#define WF_PLATFORM_NAME "macOS"
+    #define WF_PLATFORM_MACOS 1
+    #define WF_PLATFORM_NAME "macOS"
 #elif defined(__linux__)
-#define WF_PLATFORM_LINUX 1
-#define WF_PLATFORM_NAME "Linux"
+    #define WF_PLATFORM_LINUX 1
+    #define WF_PLATFORM_NAME "Linux"
 #else
-#define WF_PLATFORM_UNKNOWN 1
-#define WF_PLATFORM_NAME "Unknown"
+    #define WF_PLATFORM_UNKNOWN 1
+    #define WF_PLATFORM_NAME "Unknown"
 #endif
 
 namespace wf {

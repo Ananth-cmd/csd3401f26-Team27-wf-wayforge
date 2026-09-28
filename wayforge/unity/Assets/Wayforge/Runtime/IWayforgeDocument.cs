@@ -22,6 +22,14 @@ namespace Wayforge
         ///Opens a plan file. Throws if it can't be read.
         void Open(string path);
 
+        /// Turns a floor-plan image (png / jpg / bmp) into a building: walls,
+        /// doors and rooms are detected by the core. widthMetres is the real
+        /// width of the drawing; 0 means "assume 1 pixel = 2 cm". Throws on failure.
+        void ImportImage(string imagePath, float widthMetres);
+
+        /// The file this document came from (.wfb, .svg or an image). Null if none.
+        string FilePath { get; }
+
         /// Saves to the last opened/saved path. Does nothing if nothing changed.
         void Save();
 
@@ -85,4 +93,4 @@ namespace Wayforge
         bool NativePluginLoaded { get; }
         string NativeVersion { get; }
     }
-}
+}

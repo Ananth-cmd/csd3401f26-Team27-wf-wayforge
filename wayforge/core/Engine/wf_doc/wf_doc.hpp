@@ -1,11 +1,10 @@
-// wf_doc - public header. Everything the rest of the project may use from this library goes here.
-// Private code lives in Implementation/.
+// wf_doc - public header.
+// The document model (walls, openings, rooms, graph), the property system,
+// the undo/redo command stack and JSON save/load of the .wfb file.
+
 #pragma once
-
-#include "wf_doc/Types.hpp"
-#include "wf_doc/Property.hpp"
-#include "wf_doc/Serialize.hpp"
-
-namespace wf {
-    // Top-level wf_doc API declarations can go here.
-}
+#include "Types.hpp"
+#include "Property.hpp"
+#include "Command.hpp"
+#include "Document.hpp"
+#include "Serialize.hpp"

@@ -1,30 +1,23 @@
 #pragma once
-// .wfb file: JSON on disk. Property-driven, so adding a field to a struct's WF_PROPERTIES
-// updates save, load and compare automatically. Vector fields (polygon, boundary) are handled by hand.
-
-#include "wf_doc/Types.hpp"
-#include <filesystem>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
+#include <filesystem>
+#include <nlohmann/json.hpp>
+#include "Types.hpp"
 
-namespace wf {
+namespace wf 
+{
 
-    // ordered_json keeps insertion order, so keys are written in a fixed order:
-    // version, building, source, levels, links. 
-    using json = nlohmann::ordered_json;
+	using json = nlohmann::json;
 
-    json buildingToJson(const Building&);
+	json              buildingToJson(const Building& b);
+	Result<Building>  buildingFromJson(const json& j, std::string_view fileName = {});
+	Result<Building>  buildingFromJsonText(std::string_view jsonText, std::string_view fileName = {});
 
+	Status            saveBuilding(const Building& b, const std::filesystem::path& path, int indent = 2);
+	Result<Building>  loadBuilding(const std::filesystem::path& path);
 
-    Result<Building> buildingFromJson(const json&, std::string_view fileNameForErrors);
-
-    std::vector<std::string> compareBuildings(const Building&, const Building&);
-
-    Status saveBuilding(const Building&, const std::filesystem::path&);
-    Result<Building> loadBuilding(const std::filesystem::path&);
-
-    constexpr int kWfbVersion = 1;
+	std::vector<std::string> compareBuildings(const Building& a, const Building& b, float tolerance = 1e-3f);
 
 } // namespace wf
