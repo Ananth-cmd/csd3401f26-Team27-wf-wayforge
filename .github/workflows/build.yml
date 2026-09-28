@@ -5,7 +5,7 @@
 #   android        : build libwayforge.so for arm64-v8a with the NDK
 #
 # TODO(CI-DISABLED): wf_api is temporarily left out of CI.
-#   f3589e35 ("removed some stuff") reset wf_graph to an empty stub, but
+#   reset wf_graph to an empty stub, but
 #   wf_api/Implementation/Api.cpp still calls wf::graph::buildGraph/findRoute/...
 #   and wf::vec::importSvg, so wf_api (wayforge.dll / libwayforge.so) cannot compile.
 #   Until wf_graph (and wf_vector's Svg.cpp) are back:
