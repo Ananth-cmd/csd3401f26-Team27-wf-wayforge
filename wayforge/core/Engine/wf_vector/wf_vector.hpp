@@ -23,7 +23,7 @@ namespace wf::vec {
 
     using Polyline = std::vector<Vec2>;
 
-    // ---- 1. the vector shortcut ------------------------------------------------------
+    //the vector shortcut
     struct SvgImportResult {
         std::vector<Segment> segments;
         float  width = 0.f;                        // document size in SVG user units
@@ -36,7 +36,7 @@ namespace wf::vec {
     Result<SvgImportResult> importSvg(const std::filesystem::path& path);
     Result<SvgImportResult> importSvgText(std::string_view svg);
 
-    // ---- 2. the raster path ----------------------------------------------------------------
+    //the raster path 
     // Zhang-Suen thinning: reduces thick strokes to a one-pixel skeleton. Input 0=ink.
     img::Image8 thin(const img::Image8& binary);
     // Walk the skeleton following connected pixels, breaking at junctions (>=3 neighbours).
@@ -45,7 +45,7 @@ namespace wf::vec {
     Polyline             douglasPeucker(const Polyline& pts, float tolerance);
     std::vector<Segment> fitPolylines(const std::vector<Polyline>& runs, float tolerance, float minLength = 2.f);
 
-    // ---- 3. clean-up (both paths) --------------------------------------------------------
+    //clean-up (both paths)
     struct CleanParams {
         float mergeAngleDeg = 3.f;    // two segments merge if within this of parallel...
         float mergeGap = 0.15f;  // ...and their endpoints are closer than this
@@ -65,7 +65,7 @@ namespace wf::vec {
     std::vector<Segment> straighten(const std::vector<Segment>& in, float axisAngle, float toleranceDeg);
     std::vector<Segment> clean(const std::vector<Segment>& in, const CleanParams& p = {});
 
-    // ---- 4. planar graph ----------------------------------------------------------------
+    //planar graph
     struct PlanarGraph {
         struct Vertex { Vec2 pos; std::vector<int> edges; };          // edges sorted by angle around the vertex
         struct Edge { int a = -1, b = -1; float confidence = 1.f; };

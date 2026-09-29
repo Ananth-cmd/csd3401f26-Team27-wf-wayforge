@@ -1,0 +1,3 @@
+# The Dockerfile copies nothing from the repo (compose mounts it instead), so send Docker
+# an empty build context. Without this it would upload the whole Unity Library/ folder (GBs).
+*

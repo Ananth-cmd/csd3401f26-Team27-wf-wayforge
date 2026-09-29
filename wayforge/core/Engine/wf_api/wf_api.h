@@ -42,6 +42,7 @@ extern "C" {
 
     WF_API wf_doc      wf_open_plan(const char* path);       /* .wfb loads; .svg converts (metresPerUnit=1) */
     WF_API wf_doc      wf_convert_svg(const char* path, float metresPerUnit);
+    WF_API wf_doc      wf_convert_image(const char* path, float widthMetres);   /* floor plan picture -> walls, doors, rooms */
     WF_API wf_doc      wf_new_doc(const char* buildingName);
     WF_API void        wf_close(wf_doc d);
     WF_API int         wf_save(wf_doc d, const char* path);

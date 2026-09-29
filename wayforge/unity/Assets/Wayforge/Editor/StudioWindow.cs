@@ -6,6 +6,7 @@ namespace Wayforge.Editor
 {
     // The Wayforge Studio window (Wayforge > Studio).
     // Import a floor plan image or open a .wfb file, see the plan in 2D, then make it 3D.
+    // Both go through the C++ core (wayforge.dll): the core finds the walls, doors and rooms.
     public class StudioWindow : EditorWindow
     {
         const float ToolbarHeight = 22f;
@@ -13,8 +14,8 @@ namespace Wayforge.Editor
 
         WayforgeDocument doc;          // the plan being shown
         RoomData selected;             // the room clicked on
-        Texture2D image;               // the imported picture
-        float imageWidthMetres = 20f;  // real width of the picture
+        Texture2D image;               // the imported picture, shown under the plan
+        const float MetresPerPixel = 0.02f;   // the core reads pictures at 1 pixel = 2 cm
 
         float pixelsPerMetre = 30f;    // zoom
         Vector2 offset;                // pan
@@ -22,6 +23,7 @@ namespace Wayforge.Editor
         bool dragging;                 // true while drawing a room with the mouse
         Vector2 dragStart, dragEnd;    // drag corners, in metres
         string status = "";
+        Vector2 roomListScroll;        // sidebar room list
 
         [MenuItem("Wayforge/Studio")]
         public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
@@ -56,12 +58,11 @@ namespace Wayforge.Editor
         {
             GUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
-                ImportImage();
-
-            // Opening a .wfb needs the C++ dll
+            // Both buttons need the C++ dll
             using (new EditorGUI.DisabledScope(!NativeBridge.PluginLoads()))
             {
+                if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                    ImportImage();
                 if (GUILayout.Button("Open .wfb", EditorStyles.toolbarButton, GUILayout.Width(70)))
                     OpenFile();
             }
@@ -88,29 +89,30 @@ namespace Wayforge.Editor
             GUILayout.EndHorizontal();
         }
 
-        // Loads a picture, shows it, and finds the room in it
+        // Sends a picture to the C++ core, which finds the walls, doors and rooms. The picture is shown underneath.
         void ImportImage()
         {
-            string path = EditorUtility.OpenFilePanel("Import floor plan image", "", "png,jpg,jpeg");
+            string path = EditorUtility.OpenFilePanel("Import floor plan image", Application.dataPath + "/Wayforge/Samples", "png,jpg,jpeg");
             if (string.IsNullOrEmpty(path)) return;
 
-            var tex = new Texture2D(2, 2);
-            if (!tex.LoadImage(File.ReadAllBytes(path)))
+            try
             {
-                DestroyImmediate(tex);
-                EditorUtility.DisplayDialog("Wayforge", "That file is not a png or jpg.", "OK");
+                doc = WayforgeDocument.ImportImage(path);
+            }
+            catch (System.Exception e)
+            {
+                EditorUtility.DisplayDialog("Wayforge", e.Message, "OK");
                 return;
             }
 
+            // Load the same picture for display
             if (image != null) DestroyImmediate(image);
-            image = tex;
-            doc = new WayforgeDocument();
-            FitTo(Vector2.zero, new Vector2(imageWidthMetres, ImageHeightMetres));
-            DetectRoom();
+            image = new Texture2D(2, 2);
+            image.LoadImage(File.ReadAllBytes(path));
 
-            status = Path.GetFileName(path) + (doc.Rooms.Count > 0
-                ? $": found room {doc.Rooms[0].code} ({doc.Rooms[0].Area:F1} m²), {doc.Doors.Count} door(s)"
-                : ": no room found, drag on the picture to draw one");
+            selected = null;
+            FitTo(Vector2.zero, new Vector2(ImageWidthMetres, ImageHeightMetres));
+            status = $"{Path.GetFileName(path)}: {doc.Walls.Count} walls, {doc.Doors.Count} door(s), {doc.Rooms.Count} room(s)";
         }
 
         // Loads a .wfb file through the C++ core
@@ -133,101 +135,8 @@ namespace Wayforge.Editor
             }
         }
 
-        // ---------- Finding the room in the image ----------
-
-        // Puts a room where the dark lines of the picture are, then looks for doors in its walls
-        void DetectRoom()
-        {
-            doc.Walls.Clear();
-            doc.Rooms.Clear();
-            doc.Doors.Clear();
-            selected = null;
-
-            if (!FindDarkBox(image, out RectInt box)) return;
-
-            float metresPerPixel = imageWidthMetres / image.width;
-            selected = doc.AddRectangle(new Vector2(box.xMin, box.yMin) * metresPerPixel,
-                                        new Vector2(box.xMax, box.yMax) * metresPerPixel);
-
-            // Check each wall for a gap (a door). Look a few pixels inside the edge,
-            // so we walk along the middle of the wall line.
-            const int inset = 3;
-            int left = box.xMin, right = box.xMax - 1, bottom = box.yMin, top = box.yMax - 1;
-            FindDoor(new Vector2Int(left, bottom + inset), new Vector2Int(right, bottom + inset), box, metresPerPixel);  // bottom wall
-            FindDoor(new Vector2Int(left, top - inset),    new Vector2Int(right, top - inset),    box, metresPerPixel);  // top wall
-            FindDoor(new Vector2Int(left + inset, bottom), new Vector2Int(left + inset, top),     box, metresPerPixel);  // left wall
-            FindDoor(new Vector2Int(right - inset, bottom), new Vector2Int(right - inset, top),   box, metresPerPixel);  // right wall
-        }
-
-        // Walks along one wall line in the picture. The longest light stretch is the door.
-        void FindDoor(Vector2Int from, Vector2Int to, RectInt box, float metresPerPixel)
-        {
-            Color32[] pixels = image.GetPixels32();
-            bool horizontal = from.y == to.y;
-            int length = horizontal ? to.x - from.x : to.y - from.y;
-
-            int bestStart = 0, bestLength = 0, runLength = 0;
-            for (int i = 0; i <= length; i++)
-            {
-                int x = horizontal ? from.x + i : from.x;
-                int y = horizontal ? from.y : from.y + i;
-                Color32 c = pixels[y * image.width + x];
-                bool light = c.r + c.g + c.b >= 300;
-
-                runLength = light ? runLength + 1 : 0;
-                if (runLength > bestLength)
-                {
-                    bestLength = runLength;
-                    bestStart = i - runLength + 1;
-                }
-            }
-
-            // A door is longer than 5% of the wall. A gap over 80% means we missed the wall line.
-            if (bestLength < length * 0.05f || bestLength > length * 0.8f) return;
-
-            // Put the door on the room's edge so it lines up with the walls
-            Vector2 a, b;
-            if (horizontal)
-            {
-                float y = from.y < box.center.y ? box.yMin : box.yMax;
-                a = new Vector2(from.x + bestStart, y);
-                b = new Vector2(from.x + bestStart + bestLength, y);
-            }
-            else
-            {
-                float x = from.x < box.center.x ? box.xMin : box.xMax;
-                a = new Vector2(x, from.y + bestStart);
-                b = new Vector2(x, from.y + bestStart + bestLength);
-            }
-            doc.AddDoor(a * metresPerPixel, b * metresPerPixel);
-        }
-
-        // Finds the smallest box around all the dark pixels (the walls)
-        static bool FindDarkBox(Texture2D tex, out RectInt box)
-        {
-            Color32[] pixels = tex.GetPixels32();
-            int minX = tex.width, minY = tex.height, maxX = -1, maxY = -1;
-
-            for (int y = 0; y < tex.height; y++)
-            {
-                for (int x = 0; x < tex.width; x++)
-                {
-                    Color32 c = pixels[y * tex.width + x];
-                    bool dark = c.r + c.g + c.b < 300;
-                    if (!dark) continue;
-
-                    minX = Mathf.Min(minX, x);
-                    maxX = Mathf.Max(maxX, x);
-                    minY = Mathf.Min(minY, y);
-                    maxY = Mathf.Max(maxY, y);
-                }
-            }
-
-            box = new RectInt(minX, minY, maxX - minX + 1, maxY - minY + 1);
-            return maxX > minX && maxY > minY;
-        }
-
-        float ImageHeightMetres => image == null ? 0 : imageWidthMetres * image.height / image.width;
+        float ImageWidthMetres => image == null ? 0 : image.width * MetresPerPixel;
+        float ImageHeightMetres => image == null ? 0 : image.height * MetresPerPixel;
 
         // ---------- Drawing the plan ----------
 
@@ -274,19 +183,33 @@ namespace Wayforge.Editor
             if (image != null)
             {
                 Vector2 topLeft = ToScreen(new Vector2(0, ImageHeightMetres), area);
-                GUI.DrawTexture(new Rect(topLeft.x, topLeft.y, imageWidthMetres * pixelsPerMetre, ImageHeightMetres * pixelsPerMetre), image);
+                GUI.DrawTexture(new Rect(topLeft.x, topLeft.y, ImageWidthMetres * pixelsPerMetre, ImageHeightMetres * pixelsPerMetre), image);
             }
 
             Handles.BeginGUI();
 
-            // Rooms (the selected one in yellow)
+            // Rooms, each in its own colour, filled triangle by triangle so L-shaped rooms draw correctly
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length < 3) continue;
                 var points = new Vector3[room.corners.Length];
                 for (int i = 0; i < points.Length; i++) points[i] = ToScreen(room.corners[i], area);
-                Handles.color = room == selected ? new Color(1f, 0.8f, 0.3f, 0.6f) : new Color(0.4f, 0.65f, 0.95f, 0.45f);
-                Handles.DrawAAConvexPolygon(points);
+
+                Color fill = room.Colour;
+                fill.a = room == selected ? 0.85f : 0.55f;
+                Handles.color = fill;
+                int[] tris = room.Triangles;
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                    Handles.DrawAAConvexPolygon(points[tris[t]], points[tris[t + 1]], points[tris[t + 2]]);
+            }
+
+            // Outline of the selected room
+            if (selected != null && selected.corners.Length >= 3)
+            {
+                var outline = new Vector3[selected.corners.Length + 1];
+                for (int i = 0; i < outline.Length; i++) outline[i] = ToScreen(selected.corners[i % selected.corners.Length], area);
+                Handles.color = Color.yellow;
+                Handles.DrawAAPolyLine(4f, outline);
             }
 
             // Walls
@@ -309,15 +232,16 @@ namespace Wayforge.Editor
 
             Handles.EndGUI();
 
-            // Room names in the middle of each room
-            var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white } };
+            // Room code (and type) in the middle of each room
+            var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.black } };
+            var kindStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0f, 0f, 0f, 0.75f) } };
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length == 0) continue;
-                Vector2 centre = Vector2.zero;
-                foreach (var c in room.corners) centre += c;
-                Vector2 s = ToScreen(centre / room.corners.Length, area);
-                GUI.Label(new Rect(s.x - 40, s.y - 8, 80, 16), string.IsNullOrEmpty(room.code) ? room.id : room.code, labelStyle);
+                Vector2 s = ToScreen(room.Centre, area);
+                GUI.Label(new Rect(s.x - 60, s.y - 10, 120, 16), string.IsNullOrEmpty(room.code) ? room.id : room.code, labelStyle);
+                if (room.kind != "unknown")
+                    GUI.Label(new Rect(s.x - 60, s.y + 4, 120, 14), room.kind, kindStyle);
             }
 
             GUI.EndClip();
@@ -398,22 +322,7 @@ namespace Wayforge.Editor
         {
             GUILayout.BeginArea(new Rect(area.x + 8, area.y + 8, area.width - 16, area.height - 16));
 
-            // Image scale
-            if (image != null)
-            {
-                GUILayout.Label("Image", EditorStyles.boldLabel);
-                EditorGUI.BeginChangeCheck();
-                imageWidthMetres = Mathf.Max(1f, EditorGUILayout.FloatField("Real width (m)", imageWidthMetres));
-                if (EditorGUI.EndChangeCheck())
-                {
-                    FitTo(Vector2.zero, new Vector2(imageWidthMetres, ImageHeightMetres));
-                    DetectRoom();
-                }
-                if (GUILayout.Button("Find room again")) DetectRoom();
-                EditorGUILayout.Space();
-            }
-
-            // Selected room
+            // Selected room: code, name and type can be changed here
             GUILayout.Label("Room", EditorStyles.boldLabel);
             if (selected == null)
             {
@@ -421,11 +330,34 @@ namespace Wayforge.Editor
             }
             else
             {
+                EditorGUI.BeginChangeCheck();
                 EditorGUILayout.LabelField("Id", selected.id);
-                EditorGUILayout.LabelField("Code", string.IsNullOrEmpty(selected.code) ? "-" : selected.code);
-                EditorGUILayout.LabelField("Corners", selected.corners.Length.ToString());
+                selected.code = EditorGUILayout.TextField("Code", selected.code);
+                selected.name = EditorGUILayout.TextField("Name", selected.name);
+                int kind = Mathf.Max(0, System.Array.IndexOf(RoomData.Kinds, selected.kind));
+                selected.kind = RoomData.Kinds[EditorGUILayout.Popup("Type", kind, RoomData.Kinds)];
                 EditorGUILayout.LabelField("Area", selected.Area.ToString("F1") + " m²");
+                if (EditorGUI.EndChangeCheck()) Repaint();
             }
+
+            // Every room, click one to select it
+            GUILayout.Space(8);
+            GUILayout.Label($"Rooms ({doc.Rooms.Count})", EditorStyles.boldLabel);
+            roomListScroll = GUILayout.BeginScrollView(roomListScroll);
+            foreach (var room in doc.Rooms)
+            {
+                Rect row = GUILayoutUtility.GetRect(0, 18, GUILayout.ExpandWidth(true));
+                if (room == selected) EditorGUI.DrawRect(row, new Color(1f, 0.8f, 0.3f, 0.25f));
+                EditorGUI.DrawRect(new Rect(row.x + 2, row.y + 3, 12, 12), room.Colour);
+                GUI.Label(new Rect(row.x + 20, row.y, row.width - 20, row.height), $"{room.Label}   {room.Area:F1} m²");
+                if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition))
+                {
+                    selected = room;
+                    Event.current.Use();
+                    Repaint();
+                }
+            }
+            GUILayout.EndScrollView();
 
             GUILayout.FlexibleSpace();
             GUILayout.Label(NativeBridge.PluginLoads() ? "core " + NativeBridge.Version() : "wayforge.dll not loaded", EditorStyles.miniLabel);
