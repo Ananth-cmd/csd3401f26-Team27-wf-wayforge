@@ -23,6 +23,7 @@ namespace Wayforge.Editor
         bool dragging;                 // true while drawing a room with the mouse
         Vector2 dragStart, dragEnd;    // drag corners, in metres
         string status = "";
+        Vector2 roomListScroll;        // sidebar room list
 
         [MenuItem("Wayforge/Studio")]
         public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
@@ -187,14 +188,28 @@ namespace Wayforge.Editor
 
             Handles.BeginGUI();
 
-            // Rooms (the selected one in yellow)
+            // Rooms, each in its own colour, filled triangle by triangle so L-shaped rooms draw correctly
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length < 3) continue;
                 var points = new Vector3[room.corners.Length];
                 for (int i = 0; i < points.Length; i++) points[i] = ToScreen(room.corners[i], area);
-                Handles.color = room == selected ? new Color(1f, 0.8f, 0.3f, 0.6f) : new Color(0.4f, 0.65f, 0.95f, 0.45f);
-                Handles.DrawAAConvexPolygon(points);
+
+                Color fill = room.Colour;
+                fill.a = room == selected ? 0.85f : 0.55f;
+                Handles.color = fill;
+                int[] tris = room.Triangles;
+                for (int t = 0; t + 2 < tris.Length; t += 3)
+                    Handles.DrawAAConvexPolygon(points[tris[t]], points[tris[t + 1]], points[tris[t + 2]]);
+            }
+
+            // Outline of the selected room
+            if (selected != null && selected.corners.Length >= 3)
+            {
+                var outline = new Vector3[selected.corners.Length + 1];
+                for (int i = 0; i < outline.Length; i++) outline[i] = ToScreen(selected.corners[i % selected.corners.Length], area);
+                Handles.color = Color.yellow;
+                Handles.DrawAAPolyLine(4f, outline);
             }
 
             // Walls
@@ -217,15 +232,16 @@ namespace Wayforge.Editor
 
             Handles.EndGUI();
 
-            // Room names in the middle of each room
-            var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.white } };
+            // Room code (and type) in the middle of each room
+            var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.black } };
+            var kindStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0f, 0f, 0f, 0.75f) } };
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length == 0) continue;
-                Vector2 centre = Vector2.zero;
-                foreach (var c in room.corners) centre += c;
-                Vector2 s = ToScreen(centre / room.corners.Length, area);
-                GUI.Label(new Rect(s.x - 40, s.y - 8, 80, 16), string.IsNullOrEmpty(room.code) ? room.id : room.code, labelStyle);
+                Vector2 s = ToScreen(room.Centre, area);
+                GUI.Label(new Rect(s.x - 60, s.y - 10, 120, 16), string.IsNullOrEmpty(room.code) ? room.id : room.code, labelStyle);
+                if (room.kind != "unknown")
+                    GUI.Label(new Rect(s.x - 60, s.y + 4, 120, 14), room.kind, kindStyle);
             }
 
             GUI.EndClip();
@@ -306,7 +322,7 @@ namespace Wayforge.Editor
         {
             GUILayout.BeginArea(new Rect(area.x + 8, area.y + 8, area.width - 16, area.height - 16));
 
-            // Selected room
+            // Selected room: code, name and type can be changed here
             GUILayout.Label("Room", EditorStyles.boldLabel);
             if (selected == null)
             {
@@ -314,11 +330,34 @@ namespace Wayforge.Editor
             }
             else
             {
+                EditorGUI.BeginChangeCheck();
                 EditorGUILayout.LabelField("Id", selected.id);
-                EditorGUILayout.LabelField("Code", string.IsNullOrEmpty(selected.code) ? "-" : selected.code);
-                EditorGUILayout.LabelField("Corners", selected.corners.Length.ToString());
+                selected.code = EditorGUILayout.TextField("Code", selected.code);
+                selected.name = EditorGUILayout.TextField("Name", selected.name);
+                int kind = Mathf.Max(0, System.Array.IndexOf(RoomData.Kinds, selected.kind));
+                selected.kind = RoomData.Kinds[EditorGUILayout.Popup("Type", kind, RoomData.Kinds)];
                 EditorGUILayout.LabelField("Area", selected.Area.ToString("F1") + " m²");
+                if (EditorGUI.EndChangeCheck()) Repaint();
             }
+
+            // Every room, click one to select it
+            GUILayout.Space(8);
+            GUILayout.Label($"Rooms ({doc.Rooms.Count})", EditorStyles.boldLabel);
+            roomListScroll = GUILayout.BeginScrollView(roomListScroll);
+            foreach (var room in doc.Rooms)
+            {
+                Rect row = GUILayoutUtility.GetRect(0, 18, GUILayout.ExpandWidth(true));
+                if (room == selected) EditorGUI.DrawRect(row, new Color(1f, 0.8f, 0.3f, 0.25f));
+                EditorGUI.DrawRect(new Rect(row.x + 2, row.y + 3, 12, 12), room.Colour);
+                GUI.Label(new Rect(row.x + 20, row.y, row.width - 20, row.height), $"{room.Label}   {room.Area:F1} m²");
+                if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition))
+                {
+                    selected = room;
+                    Event.current.Use();
+                    Repaint();
+                }
+            }
+            GUILayout.EndScrollView();
 
             GUILayout.FlexibleSpace();
             GUILayout.Label(NativeBridge.PluginLoads() ? "core " + NativeBridge.Version() : "wayforge.dll not loaded", EditorStyles.miniLabel);

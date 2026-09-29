@@ -18,28 +18,54 @@ namespace Wayforge
         public Vector2 a, b;
     }
 
-    // One room: its name and the corners of its outline, in metres
+    // One room: its name, type and the corners of its outline, in metres
     public class RoomData
     {
+        // Same order as RoomKind in core/Engine/wf_doc/Types.hpp
+        public static readonly string[] Kinds =
+            { "unknown", "classroom", "lab", "office", "toilet", "corridor", "stair", "lift", "lobby", "food", "storage", "exit" };
+
         public string id;          // e.g. "r1"
         public string code;        // e.g. "A1"
-        public Vector2[] corners;
+        public string name = "";   // e.g. "Lecture Theatre 3"
+        public string kind = "unknown";
+        public int colourIndex;    // picks this room's colour, so neighbours look different
+
+        Vector2[] _corners;
+        int[] _triangles;
+        public Vector2[] corners
+        {
+            get => _corners;
+            set { _corners = value; _triangles = null; }
+        }
+
+        // The outline split into triangles (3 corner indices each), for drawing filled floors
+        public int[] Triangles => _triangles ??= PlanGeometry.Triangulate(_corners);
+
+        public Vector2 Centre => PlanGeometry.Centroid(_corners);
 
         // Floor area in square metres
-        public float Area
+        public float Area => Mathf.Abs(PlanGeometry.SignedArea(_corners));
+
+        // Special rooms have a fixed colour, every other room gets its own
+        public Color Colour
         {
             get
             {
-                float sum = 0;
-                for (int i = 0; i < corners.Length; i++)
+                switch (kind)
                 {
-                    Vector2 p = corners[i];
-                    Vector2 q = corners[(i + 1) % corners.Length];
-                    sum += p.x * q.y - q.x * p.y;
+                    case "corridor": return new Color(0.78f, 0.78f, 0.8f);
+                    case "stair":
+                    case "lift":     return new Color(0.95f, 0.6f, 0.25f);
+                    case "toilet":   return new Color(0.4f, 0.8f, 0.85f);
+                    case "exit":     return new Color(0.35f, 0.8f, 0.4f);
+                    default:         return Color.HSVToRGB((colourIndex * 0.618034f) % 1f, 0.45f, 0.95f);
                 }
-                return Mathf.Abs(sum) * 0.5f;
             }
         }
+
+        // "A1 (classroom)", or just "A1" while the type is unknown
+        public string Label => kind == "unknown" ? code : $"{code} ({kind})";
     }
 
     // Holds the walls, doors and rooms of one plan
@@ -93,7 +119,7 @@ namespace Wayforge
             for (int i = 0; i < 4; i++)
                 Walls.Add(new WallData { a = corners[i], b = corners[(i + 1) % 4] });
 
-            var room = new RoomData { id = "r" + (Rooms.Count + 1), code = "R" + (Rooms.Count + 1), corners = corners };
+            var room = new RoomData { id = "r" + (Rooms.Count + 1), code = "R" + (Rooms.Count + 1), corners = corners, colourIndex = Rooms.Count };
             Rooms.Add(room);
             return room;
         }
@@ -132,13 +158,27 @@ namespace Wayforge
 
                 // The outline comes back as x, y, x, y, ...
                 int n = NativeBridge.wf_get_room_polygon(handle, 0, i, outline, outline.Length);
-                var corners = new Vector2[Math.Max(0, n / 2)];
-                for (int j = 0; j < corners.Length; j++)
-                    corners[j] = new Vector2(outline[j * 2], outline[j * 2 + 1]);
+                var corners = new List<Vector2>();
+                for (int j = 0; j + 1 < n; j += 2)
+                    corners.Add(new Vector2(outline[j], outline[j + 1]));
+                if (corners.Count > 1 && (corners[0] - corners[corners.Count - 1]).sqrMagnitude < 1e-8f)
+                    corners.RemoveAt(corners.Count - 1);   // outline repeats its first corner at the end
+
+                var name = new StringBuilder(128);
+                NativeBridge.wf_get_property(handle, 0, 2, id.ToString(), "name", name, 128);
+
+                int kind = NativeBridge.wf_get_room_kind(handle, 0, i);
 
                 // Rooms found in a picture have no code yet, so number them
-                string name = code.Length > 0 ? code.ToString() : "R" + (i + 1);
-                Rooms.Add(new RoomData { id = id.ToString(), code = name, corners = corners });
+                Rooms.Add(new RoomData
+                {
+                    id = id.ToString(),
+                    code = code.Length > 0 ? code.ToString() : "R" + (i + 1),
+                    name = name.ToString(),
+                    kind = kind >= 0 && kind < RoomData.Kinds.Length ? RoomData.Kinds[kind] : "unknown",
+                    corners = corners.ToArray(),
+                    colourIndex = i,
+                });
             }
         }
 
