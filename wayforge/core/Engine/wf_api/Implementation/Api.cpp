@@ -1,16 +1,25 @@
 #define WF_API_BUILDING 1
 #include "wf_api/wf_api.h"
 #include "wf_doc/wf_doc.hpp"
+#include "wf_image/wf_image.hpp"
 #include "wf_vector/wf_vector.hpp"
 #include "wf_read/wf_read.hpp"
 #include "wf_graph/wf_graph.hpp"
 #include <cstring>
 #include <string>
 #include <algorithm>
+#include <filesystem>
+
+// Set to 1 once wf_graph is written. While it is 0, the routing functions just return -1.
+#define WF_API_WITH_GRAPH 0
 
 struct wf_doc_t {
     wf::Document doc;
+#if WF_API_WITH_GRAPH
     wf::graph::Route lastRoute;                // kept so wf_instructions can describe it
+#else
+    int lastRoute = 0;
+#endif
 };
 
 // helpers 
@@ -76,6 +85,7 @@ namespace {
         return false;
     }
 
+#if WF_API_WITH_GRAPH
     int writeRoute(wf_doc d, const wf::Result<wf::graph::Route>& r, const wf::Building& b, float* out, int maxFloats, float* costOut) {
         if (!r) { setError(r.error()); return -1; }
         d->lastRoute = *r;
@@ -89,6 +99,9 @@ namespace {
         return written;
     }
 
+#else
+    int graphMissing() { setError("routing needs wf_graph, which is not written yet"); return -1; }
+#endif
 } // namespace
 
 #define WF_TRY try {
@@ -118,6 +131,37 @@ WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
     b.levels.push_back(std::move(level));
     auto* h = new wf_doc_t{ wf::Document(std::move(b)), {} };
     return h;
+    WF_CATCH(nullptr)
+}
+
+// Floor plan picture -> walls, doors and rooms.
+// wf_image cleans the picture, wf_vector traces the lines, wf_read finds walls, doors and rooms.
+// widthMetres = real width of the drawing (0 means 1 pixel = 2 cm).
+WF_API wf_doc wf_convert_image(const char* path, float widthMetres) {
+    WF_TRY
+        if (!path) { setError("null path"); return nullptr; }
+    auto image = wf::img::load(path);
+    if (!image) { setError(image.error()); return nullptr; }
+
+    // dark lines -> thin lines -> straight segments
+    auto ink = wf::img::adaptiveThreshold(*image);
+    auto segs = wf::vec::fitPolylines(wf::vec::traceSkeleton(wf::vec::thin(ink)), 1.5f, 3.f);
+    if (segs.empty()) { setError("no lines found in the image"); return nullptr; }
+
+    // pixels -> metres (the image's y goes down, the plan's y goes up)
+    float width = wf::vec::bounds(segs).size().x;
+    float metresPerPixel = (widthMetres > 0.f && width > 0.f) ? widthMetres / width : 0.02f;
+    segs = wf::vec::clean(wf::vec::scale(segs, metresPerPixel, {}, true, static_cast<float>(image->height)));
+
+    // segments -> walls, doors, rooms
+    wf::Building b;
+    b.building.name = std::filesystem::path(path).stem().string();
+    wf::Level level; level.id = "L1"; level.name = "Level 1";
+    wf::IdGenerator ids;
+    auto result = wf::read::interpret(segs, level, ids);
+    if (!result) { setError(result.error()); return nullptr; }
+    b.levels.push_back(std::move(level));
+    return new wf_doc_t{ wf::Document(std::move(b)), {} };
     WF_CATCH(nullptr)
 }
 
@@ -324,6 +368,7 @@ WF_API int wf_can_undo(wf_doc d) { return d ? (d->doc.commands().canUndo() ? 1 :
 WF_API int wf_can_redo(wf_doc d) { return d ? (d->doc.commands().canRedo() ? 1 : 0) : -1; }
 
 // graph / routing 
+#if WF_API_WITH_GRAPH
 WF_API int wf_build_graph(wf_doc d) {
     WF_TRY
         if (!d) { setError("null document"); return -1; }
@@ -332,6 +377,9 @@ WF_API int wf_build_graph(wf_doc d) {
     return 0;
     WF_CATCH(-1)
 }
+#else
+WF_API int wf_build_graph(wf_doc) { return graphMissing(); }
+#endif
 WF_API int wf_node_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->nodes.size()) : -1; WF_CATCH(-1) }
 WF_API int wf_get_nodes(wf_doc d, int level, float* out, int maxFloats) {
     WF_TRY
@@ -358,6 +406,7 @@ WF_API int wf_add_link(wf_doc d, const char* a, const char* b, const char* kind,
     return 0;
     WF_CATCH(-1)
 }
+#if WF_API_WITH_GRAPH
 WF_API int wf_route(wf_doc d, const char* from, const char* to, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
     WF_TRY
         if (!d || !from || !to || !out) { setError("null argument"); return -1; }
@@ -394,6 +443,13 @@ WF_API int wf_nearest_node(wf_doc d, const char* levelId, float x, float y, char
     return copyOut(*ref, out, cap);
     WF_CATCH(-1)
 }
+#else
+WF_API int wf_route(wf_doc, const char*, const char*, int, float*, int, float*) { return graphMissing(); }
+WF_API int wf_route_to_room(wf_doc, const char*, const char*, int, float*, int, float*) { return graphMissing(); }
+WF_API int wf_egress(wf_doc, const char*, int, float*, int, float*) { return graphMissing(); }
+WF_API int wf_node_for_room(wf_doc, const char*, char*, int) { return graphMissing(); }
+WF_API int wf_nearest_node(wf_doc, const char*, float, float, char*, int) { return graphMissing(); }
+#endif
 
 // app helpers 
 namespace {
@@ -409,6 +465,7 @@ namespace {
         return { l, l->findRoom(s.substr(c + 1)) };
     }
 }
+#if WF_API_WITH_GRAPH
 WF_API int wf_instructions(wf_doc d, char* out, int cap) {
     WF_TRY
         if (!d || !out) { setError("null argument"); return -1; }
@@ -432,6 +489,10 @@ WF_API int wf_search_rooms(wf_doc d, const char* query, char* out, int cap) {
     return static_cast<int>(refs.size());
     WF_CATCH(-1)
 }
+#else
+WF_API int wf_instructions(wf_doc, char*, int) { return graphMissing(); }
+WF_API int wf_search_rooms(wf_doc, const char*, char*, int) { return graphMissing(); }
+#endif
 WF_API int wf_room_info(wf_doc d, const char* ref, char* codeOut, int codeCap, char* nameOut, int nameCap, int* kindOut, float* centroidOut) {
     WF_TRY
         if (!d) { setError("null document"); return -1; }
@@ -472,4 +533,4 @@ WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float*
 }
 WF_API int wf_building_name(wf_doc d, char* out, int cap) {
     WF_TRY if (!d) { setError("null document"); return -1; } return copyOut(d->doc.building().building.name, out, cap); WF_CATCH(-1)
-}
+}
