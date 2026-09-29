@@ -1,0 +1,27 @@
+# Usage (from the repo root):
+#   docker compose build            build the Ubuntu 24.04 image (first time / after Dockerfile changes)
+#   docker compose run --rm test    configure, build, run all tests, smoke-run wf_cli
+#   docker compose run --rm dev     open a bash shell inside the container
+#
+# Builds go to wayforge/build/docker so they never clash with the Windows build in build/desktop.
+services:
+  dev:
+    build: .
+    image: wayforge-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace/wayforge
+    stdin_open: true
+    tty: true
+
+  test:
+    image: wayforge-dev
+    volumes:
+      - .:/workspace
+    working_dir: /workspace/wayforge
+    command: >
+      bash -c "set -e
+      && cmake -S core -B build/docker -G Ninja -DCMAKE_BUILD_TYPE=Release
+      && cmake --build build/docker
+      && ctest --test-dir build/docker --output-on-failure
+      && build/docker/Sandbox/wf_cli/wf_cli --version"
