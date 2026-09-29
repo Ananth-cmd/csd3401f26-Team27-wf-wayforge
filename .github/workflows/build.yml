@@ -3,6 +3,8 @@
 #   desktop        : build the C++ core on Ubuntu + Windows, run CTest, smoke-run wf_cli,
 #                    then run every golden-file test in data/golden/
 #   android        : build libwayforge.so for arm64-v8a with the NDK
+#   docker         : build + test inside the team's Ubuntu 24.04 container (Dockerfile /
+#                    docker-compose.yml at the repo root) - same as `docker compose run --rm test`
 #
 # TODO(CI-DISABLED): wf_api is temporarily left out of CI.
 #   reset wf_graph to an empty stub, but
@@ -92,6 +94,19 @@ jobs:
 
       - name: Golden-file tests
         run: python tools/run_golden.py "$CLI"
+
+  docker:
+    needs: golden-checker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .           # docker-compose.yml is at the repo root, not in wayforge/
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dev image (Ubuntu 24.04)
+        run: docker compose build
+      - name: Build + test in container
+        run: docker compose run --rm -T test   # -T: no terminal on CI runners
 
   android:
     # TODO(CI-DISABLED): switched off until wf_api compiles again. Delete this "if" line to re-enable.
