@@ -36,6 +36,10 @@ namespace Wayforge
         [DllImport(Lib)] public static extern int wf_get_room(IntPtr doc, int level, int i, StringBuilder codeOut, int codeCap, float[] centroidOut, out float confidence);
         [DllImport(Lib)] public static extern int wf_get_room_id(IntPtr doc, int level, int i, StringBuilder outBuf, int cap);
         [DllImport(Lib)] public static extern int wf_get_room_polygon(IntPtr doc, int level, int i, float[] outBuf, int maxFloats);
+        [DllImport(Lib)] public static extern int wf_get_room_kind(IntPtr doc, int level, int i);   // index into RoomData.Kinds
+
+        // Any property as text. elementKind: 0 wall, 1 opening, 2 room, 3 node, 4 poi, 5 anchor, 6 level
+        [DllImport(Lib)] public static extern int wf_get_property(IntPtr doc, int level, int elementKind, string elementId, string prop, StringBuilder outBuf, int cap);
 
         public static string Version()   => Marshal.PtrToStringAnsi(wf_version());
         public static string Platform()  => Marshal.PtrToStringAnsi(wf_platform());
