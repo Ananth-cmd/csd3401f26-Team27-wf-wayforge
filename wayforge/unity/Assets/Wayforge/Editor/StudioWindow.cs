@@ -82,6 +82,9 @@ namespace Wayforge.Editor
                     doc.Doors.Clear();
                     selected = null;
                 }
+
+                if (GUILayout.Button("Send to app", EditorStyles.toolbarButton, GUILayout.Width(85)))
+                    SendToApp();
             }
 
             GUILayout.FlexibleSpace();
@@ -133,6 +136,14 @@ namespace Wayforge.Editor
             {
                 EditorUtility.DisplayDialog("Wayforge", e.Message, "OK");
             }
+        }
+
+        // Saves this plan (rooms, names, navigation graph) as the phone app's building in wayforge/android-prototype
+        void SendToApp()
+        {
+            string path = Path.Combine(Application.dataPath, "../../android-prototype/Assets/WayforgeApp/Resources/WayforgeBuilding.json");
+            try { doc.SaveForApp(path); status = "Sent to the app"; }
+            catch (System.Exception e) { EditorUtility.DisplayDialog("Wayforge", e.Message, "OK"); }
         }
 
         float ImageWidthMetres => image == null ? 0 : image.width * MetresPerPixel;

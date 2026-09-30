@@ -41,6 +41,12 @@ namespace Wayforge
         // Any property as text. elementKind: 0 wall, 1 opening, 2 room, 3 node, 4 poi, 5 anchor, 6 level
         [DllImport(Lib)] public static extern int wf_get_property(IntPtr doc, int level, int elementKind, string elementId, string prop, StringBuilder outBuf, int cap);
 
+        // Saving for the phone app: room names/types, the navigation graph (wf_graph), then the .wfb file
+        [DllImport(Lib)] public static extern int wf_set_room_code(IntPtr doc, int level, int i, string code, string name);
+        [DllImport(Lib)] public static extern int wf_set_room_kind(IntPtr doc, int level, int i, string kindName);
+        [DllImport(Lib)] public static extern int wf_build_graph(IntPtr doc);
+        [DllImport(Lib)] public static extern int wf_save(IntPtr doc, string path);
+
         public static string Version()   => Marshal.PtrToStringAnsi(wf_version());
         public static string Platform()  => Marshal.PtrToStringAnsi(wf_platform());
         public static string LastError() => Marshal.PtrToStringAnsi(wf_last_error());

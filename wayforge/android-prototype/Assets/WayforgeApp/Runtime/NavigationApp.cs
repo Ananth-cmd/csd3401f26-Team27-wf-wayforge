@@ -32,6 +32,7 @@ namespace WayforgeApp
             Screen.orientation = ScreenOrientation.Portrait;
             building = Resources.Load<BuildingDefinition>("Building");
             if (!building) building = DemoBuilding.Create();
+            building = WayforgeBuilding.LoadOr(building);   // the converter's building, if the Studio sent one
             panel = ScriptableObject.CreateInstance<PanelSettings>();
             panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
             panel.referenceResolution = new Vector2Int(390, 844);

@@ -83,6 +83,8 @@ namespace WayforgeApp
         public static Route Find(BuildingDefinition building, string start, string end, bool stepFree)
         {
             if (building.ValidateData() != null || building.Node(start) == null || building.Node(end) == null) return null;
+            // A building from our converter is routed by our C++ A* (wf_graph); the demo keeps this Dijkstra.
+            if (WayforgeBuilding.IsLoaded(building)) return WayforgeBuilding.FindRoute(building, start, end, stepFree);
             var costs = new Dictionary<string, float>();
             var previous = new Dictionary<string, string>();
             var modes = new Dictionary<string, Passage>();

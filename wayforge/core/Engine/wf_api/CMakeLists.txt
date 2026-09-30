@@ -17,12 +17,17 @@ if(ANDROID)
     target_link_libraries(wf_api PRIVATE log)     # __android_log_print
 endif()
 
-# After every build, copy the dll into the Unity project so Unity always has the newest one.
+# After every build, copy the dll into both Unity projects so they always have the newest one:
+# the Studio (unity/) and the phone app (android-prototype/, for pressing Play in the Editor).
 if(NOT ANDROID)
     add_custom_command(TARGET wf_api POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             -DSRC=$<TARGET_FILE:wf_api>
             -DDST=${CMAKE_CURRENT_LIST_DIR}/../../../unity/Assets/Wayforge/Plugins/x86_64/$<TARGET_FILE_NAME:wf_api>
+            -P ${CMAKE_CURRENT_LIST_DIR}/../../cmake/CopyToUnity.cmake
+        COMMAND ${CMAKE_COMMAND}
+            -DSRC=$<TARGET_FILE:wf_api>
+            -DDST=${CMAKE_CURRENT_LIST_DIR}/../../../android-prototype/Assets/Plugins/x86_64/$<TARGET_FILE_NAME:wf_api>
             -P ${CMAKE_CURRENT_LIST_DIR}/../../cmake/CopyToUnity.cmake)
 endif()
 

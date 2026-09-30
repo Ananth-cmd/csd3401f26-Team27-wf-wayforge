@@ -18,8 +18,9 @@ cmake -S core -B build/android-$ABI $GEN \
   -DCMAKE_BUILD_TYPE=Release \
   -DWF_BUILD_VIEWER=OFF -DWF_BUILD_TESTS=OFF -DWF_BUILD_CLI=OFF
 cmake --build build/android-$ABI -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
-DEST=unity/Assets/Wayforge/Plugins/Android/libs/$ABI
-mkdir -p "$DEST"
-cp build/android-$ABI/Engine/wf_api/libwayforge.so "$DEST/"
-echo "=== wrote $DEST/libwayforge.so ==="
-ls -la "$DEST/libwayforge.so"
+# Copy into the Studio project and the phone app project
+for DEST in unity/Assets/Wayforge/Plugins/Android/libs/$ABI android-prototype/Assets/Plugins/Android/libs/$ABI; do
+  mkdir -p "$DEST"
+  cp build/android-$ABI/Engine/wf_api/libwayforge.so "$DEST/"
+  echo "=== wrote $DEST/libwayforge.so ==="
+done

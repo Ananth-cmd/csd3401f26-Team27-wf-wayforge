@@ -10,8 +10,8 @@
 #include <algorithm>
 #include <filesystem>
 
-// Set to 1 once wf_graph is written. While it is 0, the routing functions just return -1.
-#define WF_API_WITH_GRAPH 0
+// wf_graph is in, so routing is on. Set to 0 to build without it (routing functions then return -1).
+#define WF_API_WITH_GRAPH 1
 
 struct wf_doc_t {
     wf::Document doc;

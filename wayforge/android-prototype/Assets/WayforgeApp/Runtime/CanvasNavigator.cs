@@ -50,6 +50,7 @@ namespace WayforgeApp
         void Start()
         {
             Application.targetFrameRate = 60;
+            building = WayforgeBuilding.LoadOr(building);   // the converter's building, if the Studio sent one
             var error = building.ValidateData();
             if (error != null) { Debug.LogError(error); enabled = false; return; }
             map.Initialize(building);
