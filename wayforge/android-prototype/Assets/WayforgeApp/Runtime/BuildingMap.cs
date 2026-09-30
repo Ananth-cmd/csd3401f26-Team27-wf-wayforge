@@ -28,7 +28,6 @@ namespace WayforgeApp
             // Existing legacy scene can still use the procedural fallback below.
             if (mapCamera && previewTexture && floors != null && floors.Length > 0)
             {
-                if (!data.illustrative) UseBuildingFloors();   // the converter's floors replace the demo floors
                 Texture = previewTexture;
                 mapCamera.targetTexture = Texture;
                 SetFloor(0);
@@ -56,14 +55,6 @@ namespace WayforgeApp
             destination = Ball("Destination", "F5A35C", .7f);
             marker.SetActive(false); destination.SetActive(false);
             SetFloor(0);
-        }
-        // Swaps the demo floors placed in the scene for the building's own floor models, in the same place
-        void UseBuildingFloors()
-        {
-            var parent = floors[0].transform.parent;
-            foreach (var old in floors) Destroy(old);
-            floors = new GameObject[data.floors.Length];
-            for (int i = 0; i < floors.Length; i++) floors[i] = Instantiate(data.floors[i].model, parent, false);
         }
         public static Color Hex(string s) { ColorUtility.TryParseHtmlString("#" + s, out var c); return c; }
         Material MakeMaterial(string colour)

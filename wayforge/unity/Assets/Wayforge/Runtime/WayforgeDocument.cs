@@ -109,36 +109,6 @@ namespace Wayforge
             return doc;
         }
 
-        // Saves the building as a .wfb for the phone app: the converter's walls, doors and rooms,
-        // the room codes/names/types edited in the Studio, and the navigation graph for routing.
-        // The core no longer holds the plan, so it is converted again from the same file (same result every time).
-        public void SaveForApp(string outputPath)
-        {
-            bool isWfb = Path.EndsWith(".wfb", StringComparison.OrdinalIgnoreCase);
-            IntPtr handle = isWfb ? NativeBridge.wf_open_plan(Path) : NativeBridge.wf_convert_image(Path, 0f);
-            if (handle == IntPtr.Zero)
-                throw new IOException("Could not open " + System.IO.Path.GetFileName(Path) + ": " + NativeBridge.LastError());
-            try
-            {
-                int count = NativeBridge.wf_room_count(handle, 0);
-                for (int i = 0; i < count; i++)
-                {
-                    var id = new StringBuilder(64);
-                    NativeBridge.wf_get_room_id(handle, 0, i, id, 64);
-                    RoomData room = Rooms.Find(r => r.id == id.ToString());
-                    if (room == null) continue;   // rooms drawn by hand in the Studio are not saved yet
-                    NativeBridge.wf_set_room_code(handle, 0, i, room.code, room.name);
-                    NativeBridge.wf_set_room_kind(handle, 0, i, room.kind);
-                }
-                if (NativeBridge.wf_build_graph(handle) != 0 || NativeBridge.wf_save(handle, outputPath) != 0)
-                    throw new IOException("Could not save " + System.IO.Path.GetFileName(outputPath) + ": " + NativeBridge.LastError());
-            }
-            finally
-            {
-                NativeBridge.wf_close(handle);
-            }
-        }
-
         // Adds a rectangle room (and its 4 walls) from two opposite corners
         public RoomData AddRectangle(Vector2 cornerA, Vector2 cornerB)
         {
