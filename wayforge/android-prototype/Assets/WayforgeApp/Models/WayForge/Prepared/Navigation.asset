@@ -1,0 +1,606 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e161d5ea117b4342a63a9639c6a95d5c, type: 3}
+  m_Name: Navigation
+  m_EditorClassIdentifier: 
+  buildingName: SIT - supplied models
+  illustrative: 1
+  floors:
+  - name: Level 1
+    model: {fileID: 250989915858286178, guid: c98cb5185d174b2459a7141f638e3712, type: 3}
+  - name: Level 2
+    model: {fileID: 630308395521384487, guid: b375bb9ea1d96704ea4c08120bc43005, type: 3}
+  - name: Level 3
+    model: {fileID: 1451727371751313222, guid: 457a36bcfd79d014b98ed50600b2309c, type: 3}
+  waypoints:
+  - id: L1-01
+    label: Demo room A (Level 1)
+    floor: 0
+    position: {x: -11, y: 0.16, z: -12}
+  - id: L1-02
+    label: Demo room B (Level 1)
+    floor: 0
+    position: {x: 11, y: 0.16, z: -12}
+  - id: L1-03
+    label: Demo room C (Level 1)
+    floor: 0
+    position: {x: 0, y: 0.16, z: 3}
+  - id: L1-stairs
+    label: Demo stairs
+    floor: 0
+    position: {x: -12, y: 0.16, z: 10}
+  - id: L1-lift
+    label: Demo lift
+    floor: 0
+    position: {x: 12, y: 0.16, z: 10}
+  - id: L1-turn-5
+    label: Corridor checkpoint 1
+    floor: 0
+    position: {x: -11, y: 0.16, z: -8.5}
+  - id: L1-turn-6
+    label: Corridor checkpoint 2
+    floor: 0
+    position: {x: -7, y: 0.16, z: -8.5}
+  - id: L1-turn-7
+    label: Corridor checkpoint 3
+    floor: 0
+    position: {x: -7, y: 0.16, z: 10}
+  - id: L1-turn-8
+    label: Corridor checkpoint 4
+    floor: 0
+    position: {x: 11, y: 0.16, z: -11}
+  - id: L1-turn-9
+    label: Corridor checkpoint 5
+    floor: 0
+    position: {x: 7, y: 0.16, z: -11}
+  - id: L1-turn-10
+    label: Corridor checkpoint 6
+    floor: 0
+    position: {x: 7, y: 0.16, z: 10}
+  - id: L1-turn-11
+    label: Corridor checkpoint 7
+    floor: 0
+    position: {x: 0, y: 0.16, z: 4.5}
+  - id: L1-turn-12
+    label: Corridor checkpoint 8
+    floor: 0
+    position: {x: 5, y: 0.16, z: 4.5}
+  - id: L1-turn-13
+    label: Corridor checkpoint 9
+    floor: 0
+    position: {x: 5, y: 0.16, z: 10}
+  - id: L2-01
+    label: Demo room A (Level 2)
+    floor: 1
+    position: {x: -11, y: 0.16, z: -12}
+  - id: L2-02
+    label: Demo room B (Level 2)
+    floor: 1
+    position: {x: 11, y: 0.16, z: -12}
+  - id: L2-03
+    label: Demo room C (Level 2)
+    floor: 1
+    position: {x: 0, y: 0.16, z: 3}
+  - id: L2-stairs
+    label: Demo stairs
+    floor: 1
+    position: {x: -12, y: 0.16, z: 10}
+  - id: L2-lift
+    label: Demo lift
+    floor: 1
+    position: {x: 12, y: 0.16, z: 10}
+  - id: L2-turn-5
+    label: Corridor checkpoint 1
+    floor: 1
+    position: {x: -11, y: 0.16, z: -11.5}
+  - id: L2-turn-6
+    label: Corridor checkpoint 2
+    floor: 1
+    position: {x: -7, y: 0.16, z: -11.5}
+  - id: L2-turn-7
+    label: Corridor checkpoint 3
+    floor: 1
+    position: {x: -7, y: 0.16, z: 10}
+  - id: L2-turn-8
+    label: Corridor checkpoint 4
+    floor: 1
+    position: {x: -7, y: 0.16, z: 5.5}
+  - id: L2-turn-9
+    label: Corridor checkpoint 5
+    floor: 1
+    position: {x: 8.5, y: 0.16, z: 5.5}
+  - id: L2-turn-10
+    label: Corridor checkpoint 6
+    floor: 1
+    position: {x: 8.5, y: 0.16, z: 10}
+  - id: L2-turn-11
+    label: Corridor checkpoint 7
+    floor: 1
+    position: {x: 11, y: 0.16, z: -14.5}
+  - id: L2-turn-12
+    label: Corridor checkpoint 8
+    floor: 1
+    position: {x: 7, y: 0.16, z: -14.5}
+  - id: L2-turn-13
+    label: Corridor checkpoint 9
+    floor: 1
+    position: {x: 7, y: 0.16, z: 10}
+  - id: L2-turn-14
+    label: Corridor checkpoint 10
+    floor: 1
+    position: {x: 7, y: 0.16, z: 5.5}
+  - id: L2-turn-15
+    label: Corridor checkpoint 11
+    floor: 1
+    position: {x: 0, y: 0.16, z: 10}
+  - id: L2-turn-16
+    label: Corridor checkpoint 12
+    floor: 1
+    position: {x: 0, y: 0.16, z: 5.5}
+  - id: L3-01
+    label: Demo room A (Level 3)
+    floor: 2
+    position: {x: -11, y: 0.16, z: -12}
+  - id: L3-02
+    label: Demo room B (Level 3)
+    floor: 2
+    position: {x: 11, y: 0.16, z: -12}
+  - id: L3-03
+    label: Demo room C (Level 3)
+    floor: 2
+    position: {x: 0, y: 0.16, z: 3}
+  - id: L3-stairs
+    label: Demo stairs
+    floor: 2
+    position: {x: -12, y: 0.16, z: 10}
+  - id: L3-lift
+    label: Demo lift
+    floor: 2
+    position: {x: 12, y: 0.16, z: 10}
+  - id: L3-turn-5
+    label: Corridor checkpoint 1
+    floor: 2
+    position: {x: -11, y: 0.16, z: -1.5}
+  - id: L3-turn-6
+    label: Corridor checkpoint 2
+    floor: 2
+    position: {x: -4.5, y: 0.16, z: -1.5}
+  - id: L3-turn-7
+    label: Corridor checkpoint 3
+    floor: 2
+    position: {x: -4.5, y: 0.16, z: 10}
+  - id: L3-turn-8
+    label: Corridor checkpoint 4
+    floor: 2
+    position: {x: 11, y: 0.16, z: -11.5}
+  - id: L3-turn-9
+    label: Corridor checkpoint 5
+    floor: 2
+    position: {x: 9.5, y: 0.16, z: -11.5}
+  - id: L3-turn-10
+    label: Corridor checkpoint 6
+    floor: 2
+    position: {x: 9.5, y: 0.16, z: -1.5}
+  - id: L3-turn-11
+    label: Corridor checkpoint 7
+    floor: 2
+    position: {x: -3, y: 0.16, z: -1.5}
+  - id: L3-turn-12
+    label: Corridor checkpoint 8
+    floor: 2
+    position: {x: -3, y: 0.16, z: 10}
+  - id: L3-turn-13
+    label: Corridor checkpoint 9
+    floor: 2
+    position: {x: 4, y: 0.16, z: 3}
+  - id: L3-turn-14
+    label: Corridor checkpoint 10
+    floor: 2
+    position: {x: 4, y: 0.16, z: -1.5}
+  connections:
+  - from: L1-01
+    to: L1-turn-5
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-5
+    to: L1-turn-6
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-6
+    to: L1-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-7
+    to: L1-stairs
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-7
+    to: L1-lift
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-02
+    to: L1-turn-8
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-8
+    to: L1-turn-9
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-9
+    to: L1-turn-10
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-10
+    to: L1-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-10
+    to: L1-lift
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-03
+    to: L1-turn-11
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-11
+    to: L1-turn-12
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-12
+    to: L1-turn-13
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-13
+    to: L1-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-turn-13
+    to: L1-turn-10
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-01
+    to: L2-turn-5
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-5
+    to: L2-turn-6
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-6
+    to: L2-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-7
+    to: L2-stairs
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-6
+    to: L2-turn-8
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-8
+    to: L2-turn-9
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-9
+    to: L2-turn-10
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-10
+    to: L2-lift
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-02
+    to: L2-turn-11
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-11
+    to: L2-turn-12
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-12
+    to: L2-turn-13
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-13
+    to: L2-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-12
+    to: L2-turn-14
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-14
+    to: L2-turn-9
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-03
+    to: L2-turn-15
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-15
+    to: L2-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-03
+    to: L2-turn-16
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-16
+    to: L2-turn-14
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-15
+    to: L2-turn-13
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-turn-13
+    to: L2-turn-14
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-stairs
+    to: L2-stairs
+    passage: 1
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L1-lift
+    to: L2-lift
+    passage: 2
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 50
+  - from: L3-01
+    to: L3-turn-5
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-5
+    to: L3-turn-6
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-6
+    to: L3-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-7
+    to: L3-stairs
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-7
+    to: L3-lift
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-02
+    to: L3-turn-8
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-8
+    to: L3-turn-9
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-9
+    to: L3-turn-10
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-10
+    to: L3-turn-11
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-11
+    to: L3-turn-12
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-12
+    to: L3-turn-7
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-12
+    to: L3-lift
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-03
+    to: L3-turn-13
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-13
+    to: L3-turn-14
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L3-turn-14
+    to: L3-turn-11
+    passage: 0
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-stairs
+    to: L3-stairs
+    passage: 1
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 0
+  - from: L2-lift
+    to: L3-lift
+    passage: 2
+    bidirectional: 1
+    blocked: 0
+    extraMetres: 50
+  places:
+  - id: L1-01
+    name: Demo room A (Level 1)
+    code: L1-01
+    waypointId: L1-01
+    category: Rooms
+    description: Demo destination on your supplied Level 1 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L1-02
+    name: Demo room B (Level 1)
+    code: L1-02
+    waypointId: L1-02
+    category: Rooms
+    description: Demo destination on your supplied Level 1 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L1-03
+    name: Demo room C (Level 1)
+    code: L1-03
+    waypointId: L1-03
+    category: Rooms
+    description: Demo destination on your supplied Level 1 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L2-01
+    name: Demo room A (Level 2)
+    code: L2-01
+    waypointId: L2-01
+    category: Rooms
+    description: Demo destination on your supplied Level 2 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L2-02
+    name: Demo room B (Level 2)
+    code: L2-02
+    waypointId: L2-02
+    category: Rooms
+    description: Demo destination on your supplied Level 2 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L2-03
+    name: Demo room C (Level 2)
+    code: L2-03
+    waypointId: L2-03
+    category: Rooms
+    description: Demo destination on your supplied Level 2 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L3-01
+    name: Demo room A (Level 3)
+    code: L3-01
+    waypointId: L3-01
+    category: Rooms
+    description: Demo destination on your supplied Level 3 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L3-02
+    name: Demo room B (Level 3)
+    code: L3-02
+    waypointId: L3-02
+    category: Rooms
+    description: Demo destination on your supplied Level 3 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1
+  - id: L3-03
+    name: Demo room C (Level 3)
+    code: L3-03
+    waypointId: L3-03
+    category: Rooms
+    description: Demo destination on your supplied Level 3 model. Room names, scale
+      and floor transfers are illustrative.
+    startingPoint: 1

@@ -6,7 +6,7 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/WayforgeApp/Designer/Scenes/SIT-Editable.unity
-    guid: 00000000000000000000000000000000
+    path: Assets/WayforgeApp/Scenes/Main.unity
+    guid: bc1c1a2f1485ba74284404b6567a79e2
   m_configObjects: {}
   m_UseUCBPForAssetBundles: 0

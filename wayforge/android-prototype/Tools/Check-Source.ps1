@@ -17,7 +17,7 @@ $dotnetRoot = Split-Path (Get-Command dotnet).Source -Parent
 $refVersion = Get-ChildItem "$dotnetRoot/packs/Microsoft.NETCore.App.Ref" -Directory | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
 $refDir = Get-ChildItem "$($refVersion.FullName)/ref" -Directory | Select-Object -First 1
 $coreRefs = Get-ChildItem $refDir.FullName -Filter '*.dll'
-$arguments = @('-nologo','-target:exe','-nostdlib+', ('-out:"' + $output + '/RouteChecks.dll"')) + @($coreRefs | ForEach-Object { '-r:"' + $_.FullName + '"' }) + @('-r:"' + $UnityData + '/Managed/UnityEngine/UnityEngine.CoreModule.dll"', '"' + $project + '/Assets/WayforgeApp/Runtime/BuildingDefinition.cs"', '"' + $PSScriptRoot + '/RouteChecks.cs"')
+$arguments = @('-nologo','-target:exe','-nostdlib+', ('-out:"' + $output + '/RouteChecks.dll"')) + @($coreRefs | ForEach-Object { '-r:"' + $_.FullName + '"' }) + @('-r:"' + $UnityData + '/Managed/UnityEngine/UnityEngine.CoreModule.dll"', '"' + $project + '/Assets/WayforgeApp/Scripts/BuildingDefinition.cs"', '"' + $PSScriptRoot + '/RouteChecks.cs"')
 $arguments | Set-Content "$output/routes.rsp"
 & "$UnityData/NetCoreRuntime/dotnet.exe" "$UnityData/DotNetSdkRoslyn/csc.dll" "@$output/routes.rsp"
 if ($LASTEXITCODE -ne 0) { throw 'Route check compilation failed.' }
@@ -26,4 +26,5 @@ $major = ([version]$refVersion.Name).Major
 @{runtimeOptions=@{tfm="net$major.0";framework=@{name='Microsoft.NETCore.App';version="$major.0.0"}}} | ConvertTo-Json -Depth 4 | Set-Content "$output/RouteChecks.runtimeconfig.json"
 & dotnet "$output/RouteChecks.dll"
 if ($LASTEXITCODE -ne 0) { throw 'Route checks failed.' }
+
 

@@ -1,5 +1,23 @@
 # Validation record
 
+## Unity project cleanup
+
+The current scene is **Assets/WayforgeApp/Scenes/Main.unity**. Script and asset moves retained their Unity metadata. The active project has seven runtime scripts and five editor/check scripts, totalling 856 lines of C# compared with 2,185 before cleanup. Earlier generators, the UI Toolkit implementation, sample assets and obsolete styles are retained outside Assets in **Archive/PreviousPrototype**.
+
+BuildingMap now uses the saved camera, floors and markers directly; its unused procedural building fallback was removed. The scene's layout and navigation behaviour were preserved. All 48 Play-mode flow checks and 14 route-planner checks passed. The standalone compiler reports expected warnings for Inspector-assigned fields.
+
+No APK was rebuilt. The existing v0.4 APK retained SHA-256 **3836339AE83047188AFED1FEA20864D7BC65DB05CAF312CA614C65663C0DD0E9** before and after cleanup. Original converter source is unchanged. Paths in older records below describe the project at those earlier stages.
+
+## Supplied models update (v0.4)
+
+Imported all three OBJ/MTL pairs from Way Forge Models.zip, mapped in filename order to Levels 1–3. SHA-256 comparisons confirm all six original source files are unchanged. The editable scene now references the three prepared imported prefabs and `ImportedModels/WayForge/Prepared/Navigation.asset`; original converter files are unchanged.
+
+The user requested demo navigation because the models contain no semantic room or floor-transfer information. Nine demo places and 46 saved waypoints provide illustrative routes. All 162 place-pair/route-option combinations are reachable. At 0.1-unit intervals, 4,195 sampled corridor positions stayed over model floor bounds and outside expanded wall bounds. These are geometric demo checks, not a surveyed accessibility certification.
+
+The updated Unity Play-mode walkthrough passed 48 assertions, including search, start confirmation, shortest/step-free planning, recovery, inter-floor progression and arrival. Source compilation and 14 route-planner checks passed. Captured and inspected the imported floors and in-app guidance/arrival screens. The supplied models use an assumed scale, as documented in [IMPORTED-MODELS.md](IMPORTED-MODELS.md).
+
+Android build succeeded: **Builds/Wayforge-SIT-Models-v0.4.apk**, 40,791,968 bytes, version 0.4.0 / code 5, ARM64. Both required UI shaders are present in the packaged shader asset. Physical-phone testing remains outstanding.
+
 ## Android pink-screen correction (v0.3.1)
 
 The v0.3 Editor walkthrough did not catch an Android shader-packaging defect. Its Graphics Settings had an empty Always Included Shaders list, and inspecting the shipped APK confirmed that `UI/Default` was absent from `assets/bin/Data/Resources/unity_builtin_extra`. Default Canvas materials were not sufficient to retain that shader automatically.

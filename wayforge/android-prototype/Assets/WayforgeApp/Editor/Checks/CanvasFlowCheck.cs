@@ -30,7 +30,7 @@ namespace WayforgeApp.Editor
         public static void Run()
         {
             PrototypeSetup.Setup(); PrototypeSetup.Validate();
-            EditorSceneManager.OpenScene(CanvasDesigner.Scene);
+            EditorSceneManager.OpenScene(PrototypeSetup.ScenePath);
             SessionState.SetBool(Flag, true); EditorApplication.isPlaying = true;
         }
         static void Require(bool condition, string message)
@@ -69,13 +69,13 @@ namespace WayforgeApp.Editor
                 if (!app)
                 {
                     app = UnityEngine.Object.FindFirstObjectByType<CanvasNavigator>();
-                    Require(app && !UnityEngine.Object.FindFirstObjectByType<NavigationApp>(), "Saved Canvas app starts without legacy UI");
+                    Require(app && UnityEngine.Object.FindObjectsByType<CanvasNavigator>(FindObjectsSortMode.None).Length == 1, "Scene starts with one app controller");
                     target = new RenderTexture(390, 844, 24); target.Create();
                     camera = new GameObject("Screenshot camera").AddComponent<Camera>();
                     camera.targetTexture = target; camera.cullingMask = 1 << 5; camera.clearFlags = CameraClearFlags.SolidColor; camera.backgroundColor = Color.white;
                     var canvas = UnityEngine.Object.FindFirstObjectByType<Canvas>();
                     canvas.renderMode = RenderMode.ScreenSpaceCamera; canvas.worldCamera = camera; canvas.planeDistance = 1;
-                    var mapCamera = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsSortMode.None).First(c => c.name.StartsWith("Building preview")); mapCamera.cullingMask = 1;
+                    var mapCamera = UnityEngine.Object.FindObjectsByType<Camera>(FindObjectsSortMode.None).First(c => c.targetTexture == app.map.Texture); mapCamera.cullingMask = 1;
                     ready = EditorApplication.timeSinceStartup + 2; return;
                 }
                 switch (phase++)
@@ -91,7 +91,7 @@ namespace WayforgeApp.Editor
                         Capture("01-home"); Click("From card"); Select("L1-01");
                         Require(app.CurrentScreen == AppScreen.Confirm && app.StartPlace == null, "Location requires explicit confirmation"); break;
                     case 1:
-                        Capture("02-confirm"); Click("Confirm location"); Click("To card"); Select("board");
+                        Capture("02-confirm"); Click("Confirm location"); Click("To card"); Select("L3-02");
                         Require(app.findRouteButton.interactable, "Both inputs enable route planning"); Click("Find route");
                         app.stepFreeToggle.isOn = false;
                         Require(app.CurrentRoute != null && app.CurrentRoute.passages.Contains(Passage.Stairs), "Shortest route uses stairs"); break;
@@ -116,7 +116,7 @@ namespace WayforgeApp.Editor
                         Click("Back"); Click("Settings"); break;
                     case 5:
                         Capture("06-settings"); app.Home();
-                        var headline = app.screens[0].GetComponentsInChildren<Text>().First(t => t.name == "Headline - edit me");
+                        var headline = app.screens[0].GetComponentsInChildren<Text>().First(t => t.name == "Headline");
                         headline.text = "Designer edited title"; app.Settings(); app.Home();
                         Require(headline.text == "Designer edited title", "Behaviour preserves manually edited static text");
                         Require(!failed, "No runtime errors");
@@ -132,4 +132,5 @@ namespace WayforgeApp.Editor
         }
     }
 }
+
 
