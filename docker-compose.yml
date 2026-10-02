@@ -1,21 +1,40 @@
+# \file docker-compose.yml
+# \brief One-command Linux build/test and dev shell for Wayforge
+#
 # Usage (from the repo root):
 #   docker compose build            build the Ubuntu 24.04 image (first time / after Dockerfile changes)
 #   docker compose run --rm test    configure, build, run all tests, smoke-run wf_cli
 #   docker compose run --rm dev     open a bash shell inside the container
 #
 # Builds go to wayforge/build/docker so they never clash with the Windows build in build/desktop.
+#
+# Links: uses the image from Dockerfile; the "docker" job in .github/workflows/build.yml
+# runs `docker compose run --rm -T test` so CI and local builds match.
+#
+# \author Joel Chua (c.jialiang@digipen.edu)
+#
+# Contribution: Joel Chua 100%
+#   - dev (interactive shell) and test (full build + tests) services sharing one image
+#
+# AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
+#
+# \date 2026-09-18
+# \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
 services:
+  # Interactive shell for building and debugging by hand.
   dev:
-    build: .
-    image: wayforge-dev
+    build: .                           # build the image from the Dockerfile in this folder
+    image: wayforge-dev                # name it so the test service can reuse it
     volumes:
-      - .:/workspace
+      - .:/workspace                   # mount the repo instead of copying it, so edits are live
     working_dir: /workspace/wayforge
-    stdin_open: true
+    stdin_open: true                   # stdin_open + tty = a usable interactive terminal
     tty: true
 
+  # Full configure -> build -> unit tests -> wf_cli smoke run; exits non-zero on any failure.
+  # (No comments inside the command below: they would become part of the bash script.)
   test:
-    image: wayforge-dev
+    image: wayforge-dev                # same image as dev (run `docker compose build` first)
     volumes:
       - .:/workspace
     working_dir: /workspace/wayforge

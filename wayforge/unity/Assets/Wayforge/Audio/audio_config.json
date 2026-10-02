@@ -1,0 +1,48 @@
+{
+  "bgm": {
+    "file": "bgm.ogg",
+    "volume": 0.1
+  },
+  "sfx": [
+    {
+      "id": "click",
+      "file": "select_003.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "import_done",
+      "file": "confirmation_002.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "open_done",
+      "file": "confirmation_004.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "error",
+      "file": "error_005.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "select",
+      "file": "select_005.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "draw_room",
+      "file": "maximize_005.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "make_3d",
+      "file": "glass_004.wav",
+      "volume": 0.5
+    },
+    {
+      "id": "clear",
+      "file": "minimize_005.wav",
+      "volume": 0.5
+    }
+  ]
+}

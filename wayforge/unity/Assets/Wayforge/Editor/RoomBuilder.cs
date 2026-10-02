@@ -1,3 +1,25 @@
+/*!
+ * \file RoomBuilder.cs
+ * \brief Builds the floor plan as a 3D model in the Unity scene
+ *
+ * Called by the Make 3D button in the Studio. Every room gets a coloured
+ * floor in its real shape with its name on it, every wall becomes a 3 m
+ * tall box, and every door gets a beam above the gap. 1 Unity unit = 1 m.
+ * Ctrl+Z removes the model again.
+ *
+ * Used by: StudioWindow (Make 3D button).
+ *
+ * \author Katie Lim
+ *
+ * Contribution: Katie Lim 100%
+ *   - Room floors, walls, door beams and room labels in 3D
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-30
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
@@ -20,6 +42,7 @@ namespace Wayforge.Editor
         const float LabelHeight = 0.05f;
         const string RootName = "Wayforge 3D";
 
+        // Makes the whole 3D model from the plan
         public static void Build(WayforgeDocument doc)
         {
             // Remove the model from last time so it doesn't pile up
@@ -69,6 +92,7 @@ namespace Wayforge.Editor
             if (SceneView.lastActiveSceneView != null) SceneView.lastActiveSceneView.FrameSelected();
         }
 
+        // An empty object to keep the scene tidy (Rooms, Walls, Doors)
         static GameObject MakeGroup(GameObject parent, string name)
         {
             var group = new GameObject(name);
@@ -131,6 +155,7 @@ namespace Wayforge.Editor
                     new Vector3(length + WallThickness, top - bottom, WallThickness), angle, colour);
         }
 
+        // One Unity cube, moved, turned and stretched to the given size
         static void MakeBox(GameObject parent, string name, Vector3 position, Vector3 size, float angle, Material colour)
         {
             var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -142,6 +167,7 @@ namespace Wayforge.Editor
             box.GetComponent<MeshRenderer>().sharedMaterial = colour;
         }
 
+        // A plain coloured material
         static Material MakeMaterial(Color colour)
         {
             return new Material(Shader.Find("Standard")) { color = colour };
