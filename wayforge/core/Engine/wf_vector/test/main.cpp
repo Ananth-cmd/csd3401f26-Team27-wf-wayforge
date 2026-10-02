@@ -1,8 +1,31 @@
+/*!
+ * \file main.cpp (wf_vector test)
+ * \brief Console test for wf_vector, run automatically by CTest and CI
+ *
+ * Checks every stage of wf_vector on small inputs where we know the right
+ * answer: an SVG with two rooms (and a transform, a path, text to ignore),
+ * finding exactly two rooms in it, face-finding on a 2x1 grid with a stray
+ * line, merging/snapping/straightening noisy lines, Douglas-Peucker, and
+ * the full picture path (thin -> trace -> fit -> clean -> faces) on a drawn
+ * rectangle. Returns 0 if everything passed, 1 otherwise.
+ *
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Ananthan Elangovan 100%
+ *   - Test cases covering SVG import, clean-up, planar graph and the raster path
+ *
+ * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
+ *
+ * \date 2026-09-16
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 // wf_vector console test: SVG import, thinning, tracing, DP, clean-up, planar faces.
-#include "wf_vector/wf_vector.hpp"
+#include "wf_vector/wf_vector.hpp"   // Everything being tested.
 #include <iostream>
 
-static int g_failures = 0;
+static int g_failures = 0;   // Number of failed checks; non-zero means the test fails.
+// CHECK prints which line failed and keeps going, so one run shows every problem.
 #define CHECK(cond) do { if (!(cond)) { std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " #cond "\n"; ++g_failures; } } while (0)
 
 int main() {
@@ -24,8 +47,9 @@ int main() {
         CHECK(imp->segments.size() == 4 + 3 + 2);        // rect 4, polyline 3, path 2, zero-length line dropped
         CHECK(imp->ignoredElements == 1);                // <text>
     }
-    CHECK(!importSvgText("<html/>").ok());
-    CHECK(!importSvgText("<svg>").ok());
+    CHECK(!importSvgText("<html/>").ok());   // Valid XML but not an SVG: must be rejected.
+    CHECK(!importSvgText("<svg>").ok());     // Broken XML: must be rejected.
+    // translate(10,20) scale(2): a line from x=0 to x=5 should end up from x=10 to x=20, at y=20.
     auto tr = importSvgText(R"svg(<svg><g transform="translate(10,20) scale(2)"><line x1="0" y1="0" x2="5" y2="0"/></g></svg>)svg");
     CHECK(tr.ok() && tr->segments.size() == 1);
     if (tr) { CHECK(std::abs(tr->segments[0].a.x - 10) < 1e-4f && std::abs(tr->segments[0].b.x - 20) < 1e-4f && std::abs(tr->segments[0].a.y - 20) < 1e-4f); }
@@ -40,7 +64,7 @@ int main() {
         // and the gap segments close it because 100,0-100,40 and 100,60-100,100 plus the rect edge 100,0-100,100 overlap
         CHECK(faces.size() == 2);
         float total = 0.f; for (auto& f : faces) total += f.area;
-        CHECK(std::abs(total - 20000.f) < 1.f);
+        CHECK(std::abs(total - 20000.f) < 1.f);   // The two rooms together cover the whole 200 x 100 drawing.
     }
 
     //pure face finding on a 2x1 grid of squares drawn as 7 segments
@@ -51,22 +75,23 @@ int main() {
     PlanarGraph pg = buildPlanarGraph(grid, 0.01f);
     CHECK(pg.edgeCount() == 8);                          // the two long lines are split at x=1, plus the stray
     auto faces = findFaces(pg);
-    CHECK(faces.size() == 2);
+    CHECK(faces.size() == 2);                            // Two 1x1 squares.
     for (auto& f : faces) CHECK(std::abs(f.area - 1.f) < 1e-4f);
     PlanarGraph pruned = pruneDanglingEdges(pg);
-    CHECK(pruned.edgeCount() == 7);
+    CHECK(pruned.edgeCount() == 7);                      // The stray line is gone; the squares are untouched.
 
     //merge / snap / straighten
+    // Two slightly wobbly halves of one horizontal wall, plus a vertical wall that nearly touches it.
     std::vector<Segment> noisy = { {{0,0},{4.95f,0.02f}}, {{5.05f,-0.01f},{10,0}}, {{10.03f,0.02f},{10,5}} };
     auto merged = mergeCollinear(noisy, 3.f, 0.15f);
-    CHECK(merged.size() == 2);
+    CHECK(merged.size() == 2);                                          // The two halves became one wall.
     auto snapped = snapEndpoints(merged, 0.1f);
-    CHECK(snapped.size() == 2 && snapped[0].b == snapped[1].a);
+    CHECK(snapped.size() == 2 && snapped[0].b == snapped[1].a);         // The corner now shares exactly one point.
     float axis = dominantAngle(snapped);
-    CHECK(std::abs(radToDeg(axis)) < 1.f || std::abs(radToDeg(axis) - 90.f) < 1.f);
+    CHECK(std::abs(radToDeg(axis)) < 1.f || std::abs(radToDeg(axis) - 90.f) < 1.f);   // The grid is (about) 0/90 degrees.
     auto straight = straighten(snapped, 0.f, 8.f);
-    CHECK(std::abs(straight[0].a.y - straight[0].b.y) < 1e-4f);
-    CHECK(std::abs(straight[1].a.x - straight[1].b.x) < 1e-4f);
+    CHECK(std::abs(straight[0].a.y - straight[0].b.y) < 1e-4f);         // Now exactly horizontal...
+    CHECK(std::abs(straight[1].a.x - straight[1].b.x) < 1e-4f);         // ...and exactly vertical.
 
     //Douglas-Peucker: a noisy straight line becomes 2 points; an L stays 3
     Polyline line; for (int i = 0; i <= 100; ++i) line.push_back({ static_cast<float>(i), (i % 2) * 0.3f });
@@ -80,18 +105,18 @@ int main() {
         if (x < 9 || x >= 51 || y < 9 || y >= 31) bin.at(x, y) = 0;    // 4px thick outline
     img::Image8 sk = thin(bin);
     size_t inkBefore = img::countInk(bin), inkAfter = img::countInk(sk);
-    CHECK(inkAfter < inkBefore / 2);
+    CHECK(inkAfter < inkBefore / 2);                                    // Thinning removed most of the ink...
     CHECK(inkAfter >= 100 && inkAfter <= 200);                          // roughly the perimeter ~ 2*(46+26)
     auto runs = traceSkeleton(sk);
     CHECK(!runs.empty());
     size_t tracedPixels = 0; for (auto& r : runs) tracedPixels += r.size();
-    CHECK(tracedPixels >= inkAfter * 0.9);
+    CHECK(tracedPixels >= inkAfter * 0.9);                              // Tracing followed (almost) every skeleton pixel.
     auto fitted = fitPolylines(runs, 1.5f, 2.f);
-    CHECK(fitted.size() >= 4 && fitted.size() <= 8);
+    CHECK(fitted.size() >= 4 && fitted.size() <= 8);                    // A rectangle: about 4 straight sides.
     auto cleaned = clean(fitted, { 3.f, 2.f, 2.f, 5.f, true, 8.f, 2.f });
     PlanarGraph rg = buildPlanarGraph(cleaned, 2.f);
     auto rfaces = findFaces(rg);
-    CHECK(rfaces.size() == 1);
+    CHECK(rfaces.size() == 1);                                          // One closed room.
     if (!rfaces.empty()) CHECK(rfaces[0].area > 40 * 20 && rfaces[0].area < 50 * 30);
 
     if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }
