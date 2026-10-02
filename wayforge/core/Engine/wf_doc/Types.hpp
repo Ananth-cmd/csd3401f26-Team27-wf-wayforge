@@ -2,6 +2,8 @@
 // The data model of a building.wfb. Plain structs, all fields reflected.
 // A wall is a line plus numbers, not a mesh. An opening is an offset along its
 // wall, never a world position. stepFree lives on every edge and link.
+//// AI disclosure: Created with help from Claude Sonnet 5.5
+
 #pragma once
 #include <string>
 #include <vector>
