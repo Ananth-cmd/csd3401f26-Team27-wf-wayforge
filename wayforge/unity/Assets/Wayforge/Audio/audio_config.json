@@ -1,48 +1,48 @@
 {
   "bgm": {
     "file": "bgm.wav",
-    "volume": 0.3
+    "volume": 0.1
   },
   "sfx": [
     {
       "id": "click",
       "file": "click.wav",
-      "volume": 1.0
+      "volume": 0.5
     },
     {
-      "id": "import_done",
-      "file": "import_done.wav",
-      "volume": 1.0
+        "id": "import_done",
+        "file": "import_done.wav",
+        "volume": 0.5
     },
     {
-      "id": "open_done",
-      "file": "open_done.wav",
-      "volume": 1.0
+        "id": "open_done",
+        "file": "open_done.wav",
+        "volume": 0.5
     },
     {
-      "id": "error",
-      "file": "error.wav",
-      "volume": 1.0
+        "id": "error",
+        "file": "error.wav",
+        "volume": 0.5
     },
     {
-      "id": "select",
-      "file": "select.wav",
-      "volume": 1.0
+        "id": "select",
+        "file": "select.wav",
+        "volume": 0.5
     },
     {
-      "id": "draw_room",
-      "file": "draw_room.wav",
-      "volume": 1.0
+        "id": "draw_room",
+        "file": "draw_room.wav",
+        "volume": 0.5
     },
     {
-      "id": "make_3d",
-      "file": "make_3d.wav",
-      "volume": 1.0
+        "id": "make_3d",
+        "file": "make_3d.wav",
+        "volume": 0.5
     },
     {
-      "id": "clear",
-      "file": "clear.wav",
-      "volume": 1.0
+        "id": "clear",
+        "file": "clear.wav",
+        "volume": 0.5
     }
   ]
 }
