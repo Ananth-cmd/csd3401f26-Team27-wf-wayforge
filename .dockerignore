@@ -1,3 +1,13 @@
+# \file .dockerignore
+# \brief Keep the Docker build context empty
+#
 # The Dockerfile copies nothing from the repo (compose mounts it instead), so send Docker
 # an empty build context. Without this it would upload the whole Unity Library/ folder (GBs).
+#
+# \author Joel Chua (c.jialiang@digipen.edu)
+# AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
+# \date 2026-09-18
+# \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+
+# "*" matches every file and folder, so nothing is sent.
 *
