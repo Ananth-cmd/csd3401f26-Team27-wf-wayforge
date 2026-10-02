@@ -17,11 +17,31 @@ sources in `Implementation/`, a console test in `test/`; `core/Sandbox/` holds t
 
 | Role | Owns |
 |---|---|
-| RTIS 1 | build system, `wf_image`, `wf_vector`, `wf_read`, Android build |
-| RTIS 2 | `wf_api` C bridge, `NativeBridge.cs`, plugin placement |
-| IMGD 1 | `wf_doc` (format, properties, undo, serialisation), `wf_cli` |
-| IMGD 2 | Unity Studio window (`StudioWindow`, `PlanCanvas`, `RoomTagger`) |
-| IMGD 3 | `wf_graph`, test corpus, golden tests, CI |
+| Ananthan Elangovan | build system, `wf_image`, `wf_vector`, `wf_read`, Android build |
+| Kervin Ong | `wf_api` C bridge, `NativeBridge.cs`, plugin placement |
+| Kannan Shrinivasan | `wf_doc` (format, properties, undo, serialisation), `wf_cli` |
+| Katie Lim | Unity Studio window (`StudioWindow`, `PlanCanvas`, `RoomTagger`) |
+| Joel Chua | `wf_graph`, test corpus, golden tests, CI |
 
 
-Status: week 1 - project skeleton only. Every library is an empty stub; the build, tests, CI and Unity plugin check all run.
+## Status
+
+The core pipeline works end to end: a floor plan picture is turned into walls, doors and rooms by the C++ engine and shown in the Wayforge Studio inside Unity.
+
+| Area | Status |
+|---|---|
+| `wf_core` (errors, logging, maths, file IO, ids) | Done |
+| `wf_image` (load, adaptive threshold, perspective fix) | Done |
+| `wf_vector` (SVG import, thinning, tracing, line fitting, clean-up, room loops) | Done |
+| `wf_read` (walls, doors, rooms, corridors, confidence) | Done |
+| `wf_doc` (building model, undo, `.wfb` save/load) | Done |
+| `wf_api` + `NativeBridge.cs` (C++ ↔ Unity bridge) | Done |
+| Wayforge Studio (import, 2D blueprint, rename rooms, 3D model, open `.wfb`) | Done |
+| Tests (7 CTest suites) and CI (Windows, Ubuntu, Docker) | Done |
+| Save from Studio to `.wfb` | In progress |
+| CI build of the DLL and Android library | In progress (temporarily switched off) |
+| `wf_graph` (navigation graph, A* routing) | Written, not switched on yet |
+| Android app prototype | In progress (runs with demo data, not yet connected to the engine) |
+| Multiple floors, QR check-in points | Planned |
+
+AI tools (Claude Opus) were used here and there as a development aid, mainly for debugging, build setup and documentation comments. See [docs/ai-disclosure.md](docs/ai-disclosure.md).
