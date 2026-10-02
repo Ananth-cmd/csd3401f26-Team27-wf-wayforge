@@ -1,6 +1,7 @@
 // wf_doc - public header.
 // The document model (walls, openings, rooms, graph), the property system,
 // the undo/redo command stack and JSON save/load of the .wfb file.
+// Every other file reads from this header.
 
 #pragma once
 #include "Types.hpp"
