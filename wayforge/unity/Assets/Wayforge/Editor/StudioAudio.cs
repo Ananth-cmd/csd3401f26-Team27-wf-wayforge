@@ -56,35 +56,34 @@ namespace Wayforge.Editor
         // ---------- Playing ----------
 
         // Plays the sound for an action, e.g. Play("make_3d"). Does nothing if it is not in the config.
-        public static void Play(string id)
+        public static void Play(string id) => Play(id, 0f, null);
+
+        // Same, but starts after `delay` seconds (timed by the audio clock, so it is exact).
+        // `taken` lists channels already given out, so a waiting sound never loses its channel.
+        static void Play(string id, float delay, List<AudioSource> taken)
         {
             ReloadIfChanged();
             if (!sounds.TryGetValue(id, out var sound)) return;
             var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(Folder + "/" + sound.file);
             if (clip == null) { Debug.LogWarning("Wayforge audio: can't find " + sound.file); return; }
 
-            var channel = FreeChannel();
+            var channel = FreeChannel(taken);
+            taken?.Add(channel);
             channel.clip = clip;
             channel.volume = sound.volume;
-            channel.Play();
+            channel.PlayDelayed(delay);
             LastSound = id + " → " + sound.file;
         }
 
-        // Plays all 8 sounds one after another, 0.15 s apart. Each one plays to the end.
+        // Plays all 8 sounds 0.03 s apart, so all 8 are playing together. Each one plays to the end.
         public static void PlayAll()
         {
             ReloadIfChanged();
             if (config == null) return;
-            double start = EditorApplication.timeSinceStartup;
-            int next = 0;
-            EditorApplication.CallbackFunction tick = null;
-            tick = () =>
-            {
-                if (EditorApplication.timeSinceStartup - start < next * 0.15) return;
-                Play(config.sfx[next].id);
-                if (++next >= config.sfx.Length) EditorApplication.update -= tick;
-            };
-            EditorApplication.update += tick;
+            var taken = new List<AudioSource>();
+            for (int i = 0; i < config.sfx.Length; i++)
+                Play(config.sfx[i].id, i * 0.03f, taken);
+            LastSound = "all " + config.sfx.Length + " sounds";
         }
 
         public static void StartMusic()
@@ -148,10 +147,11 @@ namespace Wayforge.Editor
         }
 
         // A channel that is free. If all are busy, add another one, so nothing gets cut off.
-        static AudioSource FreeChannel()
+        static AudioSource FreeChannel(List<AudioSource> taken)
         {
             Setup();
-            foreach (var c in channels) if (!c.isPlaying) return c;
+            foreach (var c in channels)
+                if (!c.isPlaying && (taken == null || !taken.Contains(c))) return c;
             return AddChannel();
         }
 
