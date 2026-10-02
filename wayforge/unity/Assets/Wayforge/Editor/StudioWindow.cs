@@ -8,13 +8,14 @@
  * draw a new room, then click Make 3D to build the model in the scene.
  *
  * Uses: WayforgeDocument (the plan data), RoomBuilder (the 3D model),
- * NativeBridge (to check the dll is loaded).
+ * NativeBridge (to check the dll is loaded), StudioAudio (sounds).
  *
  * \author Katie Lim
  *
  * Contribution: Katie Lim 100%
  *   - Toolbar, 2D plan drawing, mouse controls and room sidebar
  *   - Import image and Open .wfb through the C++ core
+ *   - Sound feedback for every action (through StudioAudio)
  *
  * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
  *
@@ -53,10 +54,23 @@ namespace Wayforge.Editor
         [MenuItem("Wayforge/Studio")]
         public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
 
-        // Free the picture when the window closes
+        // Start the background music when the window opens
+        void OnEnable()
+        {
+            StudioAudio.StartMusic();
+        }
+
+        // Redraw 10 times a second so the sound info in the sidebar stays up to date
+        void OnInspectorUpdate()
+        {
+            Repaint();
+        }
+
+        // Free the picture and stop the sounds when the window closes
         void OnDisable()
         {
             if (image != null) DestroyImmediate(image);
+            StudioAudio.Shutdown();
         }
 
         // Unity calls this to draw the window and handle clicks
@@ -69,6 +83,8 @@ namespace Wayforge.Editor
                 EditorGUILayout.HelpBox("Import image: pick a floor plan picture.\n" +
                                         "Open .wfb: load a saved plan (try Assets/Wayforge/Samples/square.wfb).",
                                         MessageType.Info);
+                GUILayout.Label("Sound: " + StudioAudio.LastSound, EditorStyles.miniLabel);
+                GUILayout.Label("Sounds playing: " + StudioAudio.PlayingCount(), EditorStyles.miniLabel);
                 return;
             }
 
@@ -81,7 +97,7 @@ namespace Wayforge.Editor
 
         // ---------- Toolbar ----------
 
-        // The buttons along the top: Import image, Open .wfb, Make 3D, Clear rooms
+        // The buttons along the top: Import image, Open .wfb, Make 3D, Clear rooms, Audio
         void DrawToolbar()
         {
             GUILayout.BeginHorizontal(EditorStyles.toolbar);
@@ -90,9 +106,15 @@ namespace Wayforge.Editor
             using (new EditorGUI.DisabledScope(!NativeBridge.PluginLoads()))
             {
                 if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
+                {
+                    StudioAudio.Play("click");
                     ImportImage();
+                }
                 if (GUILayout.Button("Open .wfb", EditorStyles.toolbarButton, GUILayout.Width(70)))
+                {
+                    StudioAudio.Play("click");
                     OpenFile();
+                }
             }
 
             using (new EditorGUI.DisabledScope(doc == null))
@@ -100,6 +122,7 @@ namespace Wayforge.Editor
                 if (GUILayout.Button("Make 3D", EditorStyles.toolbarButton, GUILayout.Width(70)))
                 {
                     RoomBuilder.Build(doc);
+                    StudioAudio.Play("make_3d");
                     status = "3D room made, see the Scene view";
                 }
 
@@ -109,12 +132,33 @@ namespace Wayforge.Editor
                     doc.Rooms.Clear();
                     doc.Doors.Clear();
                     selected = null;
+                    StudioAudio.Play("clear");
                 }
             }
+
+            // Sound settings and the sound test
+            if (GUILayout.Button("Audio", EditorStyles.toolbarDropDown, GUILayout.Width(60)))
+                ShowAudioMenu();
 
             GUILayout.FlexibleSpace();
             GUILayout.Label(status, EditorStyles.miniLabel);
             GUILayout.EndHorizontal();
+        }
+
+        // The Audio menu: music on/off, test every sound, open the config
+        void ShowAudioMenu()
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Music"), StudioAudio.MusicOn, StudioAudio.ToggleMusic);
+            menu.AddItem(new GUIContent("Play all 8 sounds"), false, StudioAudio.PlayAll);
+            foreach (var id in StudioAudio.SoundIds())
+            {
+                string sound = id;
+                menu.AddItem(new GUIContent("Play one/" + sound), false, () => StudioAudio.Play(sound));
+            }
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Open audio config"), false, StudioAudio.OpenConfig);
+            menu.ShowAsContext();
         }
 
         // Sends a picture to the C++ core, which finds the walls, doors and rooms. The picture is shown underneath.
@@ -129,9 +173,11 @@ namespace Wayforge.Editor
             }
             catch (System.Exception e)
             {
+                StudioAudio.Play("error");
                 EditorUtility.DisplayDialog("Wayforge", e.Message, "OK");
                 return;
             }
+            StudioAudio.Play("import_done");
 
             // Load the same picture for display
             if (image != null) DestroyImmediate(image);
@@ -155,10 +201,12 @@ namespace Wayforge.Editor
                 if (image != null) { DestroyImmediate(image); image = null; }
                 selected = null;
                 FitToWalls();
+                StudioAudio.Play("open_done");
                 status = $"{Path.GetFileName(path)}: {doc.Walls.Count} walls, {doc.Rooms.Count} rooms";
             }
             catch (System.Exception e)
             {
+                StudioAudio.Play("error");
                 EditorUtility.DisplayDialog("Wayforge", e.Message, "OK");
             }
         }
@@ -320,6 +368,7 @@ namespace Wayforge.Editor
                 {
                     // A drag: add a new room
                     selected = doc.AddRectangle(dragStart, dragEnd);
+                    StudioAudio.Play("draw_room");
                     status = $"{selected.code} added ({selected.Area:F1} m²)";
                 }
                 else
@@ -328,6 +377,7 @@ namespace Wayforge.Editor
                     selected = null;
                     foreach (var room in doc.Rooms)
                         if (IsInside(dragStart, room.corners)) { selected = room; break; }
+                    if (selected != null) StudioAudio.Play("select");
                 }
                 e.Use();
                 Repaint();
@@ -385,6 +435,7 @@ namespace Wayforge.Editor
                 if (Event.current.type == EventType.MouseDown && row.Contains(Event.current.mousePosition))
                 {
                     selected = room;
+                    StudioAudio.Play("select");
                     Event.current.Use();
                     Repaint();
                 }
@@ -392,6 +443,8 @@ namespace Wayforge.Editor
             GUILayout.EndScrollView();
 
             GUILayout.FlexibleSpace();
+            GUILayout.Label("Sound: " + StudioAudio.LastSound, EditorStyles.miniLabel);
+            GUILayout.Label("Sounds playing: " + StudioAudio.PlayingCount(), EditorStyles.miniLabel);
             GUILayout.Label(NativeBridge.PluginLoads() ? "core " + NativeBridge.Version() : "wayforge.dll not loaded", EditorStyles.miniLabel);
             GUILayout.EndArea();
         }
