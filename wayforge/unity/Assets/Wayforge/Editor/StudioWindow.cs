@@ -1,3 +1,27 @@
+/*!
+ * \file StudioWindow.cs
+ * \brief The Wayforge Studio window in Unity (Wayforge > Studio)
+ *
+ * Import a floor plan picture or open a .wfb file. The C++ core finds the
+ * walls, doors and rooms, and this window draws them in 2D on top of the
+ * picture. You can zoom, pan, click a room to see and rename it, drag to
+ * draw a new room, then click Make 3D to build the model in the scene.
+ *
+ * Uses: WayforgeDocument (the plan data), RoomBuilder (the 3D model),
+ * NativeBridge (to check the dll is loaded).
+ *
+ * \author Katie Lim
+ *
+ * Contribution: Katie Lim 100%
+ *   - Toolbar, 2D plan drawing, mouse controls and room sidebar
+ *   - Import image and Open .wfb through the C++ core
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-26
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -25,14 +49,17 @@ namespace Wayforge.Editor
         string status = "";
         Vector2 roomListScroll;        // sidebar room list
 
+        // Adds Wayforge > Studio to Unity's menu bar
         [MenuItem("Wayforge/Studio")]
         public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
 
+        // Free the picture when the window closes
         void OnDisable()
         {
             if (image != null) DestroyImmediate(image);
         }
 
+        // Unity calls this to draw the window and handle clicks
         void OnGUI()
         {
             DrawToolbar();
@@ -54,6 +81,7 @@ namespace Wayforge.Editor
 
         // ---------- Toolbar ----------
 
+        // The buttons along the top: Import image, Open .wfb, Make 3D, Clear rooms
         void DrawToolbar()
         {
             GUILayout.BeginHorizontal(EditorStyles.toolbar);
@@ -135,6 +163,7 @@ namespace Wayforge.Editor
             }
         }
 
+        // Size of the picture in metres
         float ImageWidthMetres => image == null ? 0 : image.width * MetresPerPixel;
         float ImageHeightMetres => image == null ? 0 : image.height * MetresPerPixel;
 
@@ -158,6 +187,7 @@ namespace Wayforge.Editor
             offset = new Vector2(30 - min.x * pixelsPerMetre, 30 - min.y * pixelsPerMetre);
         }
 
+        // Zooms so every wall fits in the window
         void FitToWalls()
         {
             if (doc.Walls.Count == 0) return;
@@ -170,6 +200,7 @@ namespace Wayforge.Editor
             FitTo(min, max);
         }
 
+        // Draws the picture, rooms, walls, doors and room names
         void DrawPlan(Rect canvas)
         {
             if (Event.current.type != EventType.Repaint) return;
@@ -318,6 +349,7 @@ namespace Wayforge.Editor
 
         // ---------- Sidebar ----------
 
+        // The panel on the right: the selected room's details and a list of all rooms
         void DrawSidebar(Rect area)
         {
             GUILayout.BeginArea(new Rect(area.x + 8, area.y + 8, area.width - 16, area.height - 16));
