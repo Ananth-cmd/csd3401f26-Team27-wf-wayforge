@@ -1,3 +1,54 @@
+/*!
+
+\file Api.cpp
+
+\brief Implementation of the public Wayforge C API
+Implements the flat C interface declared in wf_api.h and connects external
+host applications, such as Unity, to Wayforge's internal C++ systems.
+This file translates C-style handles, pointers, primitive values, and caller
+supplied buffers into operations on Wayforge documents, images, vectors,
+floor plan elements, properties, and navigation data. It also handles
+conversion from SVG and floor plan images into Wayforge building documents.
+
+Errors are stored in a thread-local string and exposed through
+wf_last_error(). API functions use try/catch wrappers so C++ exceptions do
+not escape across the C boundary. Helper functions are provided for safe
+string copying, level and room lookup, property conversion, and route output.
+
+Routing support can be enabled through WF_API_WITH_GRAPH. When graph support
+is disabled, routing-related functions return an error explaining that the
+graph module is unavailable.
+
+
+
+Links: Implements the functions declared in wf_api.h and connects them to
+wf_doc, wf_image, wf_vector, wf_read, and wf_graph. This is the main bridge
+between the Wayforge C++ core and Unity's P/Invoke layer.
+
+
+\author Kervin Ong Guan Cheng (Kervinguancheng.ong@digipen.edu)
+
+
+Contribution: Kervin Ong Guan Cheng 100%
+C API implementation and shared-library boundary handling
+Document loading, saving, creation, and floor plan conversion
+Level, wall, opening, room, and property access
+Error handling and thread-local error reporting
+Undo and redo integration
+Navigation graph, routing, and route helper functions
+Room search, POI, level, and building metadata helpers
+
+
+
+AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
+
+
+
+\date 2026-10-02
+
+\copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+*/
+
 #define WF_API_BUILDING 1
 #include "wf_api/wf_api.h"
 #include "wf_doc/wf_doc.hpp"
@@ -533,4 +584,4 @@ WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float*
 }
 WF_API int wf_building_name(wf_doc d, char* out, int cap) {
     WF_TRY if (!d) { setError("null document"); return -1; } return copyOut(d->doc.building().building.name, out, cap); WF_CATCH(-1)
-}
+}

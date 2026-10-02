@@ -1,5 +1,43 @@
-// Platform detection. __ANDROID__ MUST be tested before __linux__ because
-// Android also defines __linux__ (the most common cross-platform mistake).
+/*!
+\file Platform.hpp
+
+\brief Compile-time platform detection for Wayforge
+Detects the operating system being targeted during compilation and defines
+a matching Wayforge platform macro and readable platform name. Supported
+platforms include Android, Windows, macOS, and Linux, with an Unknown
+fallback for unsupported or unrecognized systems.
+
+Android is checked before Linux because Android toolchains also define
+linux. Checking Linux first would therefore incorrectly identify an
+Android build as a normal Linux build.
+
+Helper functions are provided through the wf namespace so other parts of
+Wayforge can retrieve the current platform name or check whether the build
+is targeting Android without repeating preprocessor checks.
+
+
+Links: Used by platform-specific Wayforge code and APIs that need to select
+behaviour depending on the current operating system.
+
+
+\author Kervin Ong Guan Cheng (Kervinguancheng.ong@digipen.edu)
+
+
+
+Contribution: Kervin Ong Guan Cheng 100%
+Compile-time detection for Android, Windows, macOS, and Linux
+Platform name macros and unknown-platform fallback
+platformName() and isAndroid() helper functions
+
+
+AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
+
+
+
+\date 2026-10-02
+
+\copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+*/
 #pragma once
 
 #if defined(__ANDROID__)

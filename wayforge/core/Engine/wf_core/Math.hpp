@@ -1,5 +1,45 @@
-// Small 2D maths. Floor plans are 2D; a level's elevation is a single number.
-// We deliberately hand-roll this instead of pulling glm/xmath for one struct.
+/*!
+
+\file Math.hpp
+
+\brief Small 2D maths utilities used for floor plan geometry
+Provides the basic 2D maths needed when working with floor plans, including
+vectors, distances, angles, line and segment calculations, intersections,
+and bounding rectangles. Since floor plans are represented in 2D and a
+level's elevation is stored separately as a single value, a lightweight
+Vec2 type is sufficient for these operations.
+
+The maths is implemented directly here instead of depending on a larger
+maths library such as GLM. Helper functions are provided for common geometry
+operations such as dot and cross products, normalization, angle comparison,
+point-to-line and point-to-segment distances, segment intersection tests,
+and rectangular bounds.
+
+
+
+Links: Used throughout Wayforge wherever 2D floor plan geometry needs to be
+measured, compared, or processed before being converted into building data.
+
+\author Kervin Ong Guan Cheng (Kervinguancheng.ong@digipen.edu)
+
+
+Contribution: Kervin Ong Guan Cheng 100%
+
+Vec2 structure and basic vector arithmetic
+Distance, angle, and line geometry helper functions
+Segment intersection and closest-point calculations
+Rect bounding-box structure and helper functions
+
+
+
+AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
+
+
+
+\date 2026-10-02
+
+\copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+*/
 #pragma once
 #include <cmath>
 #include <algorithm>

@@ -1,14 +1,54 @@
-/* wf_api - the flat C interface used by Unity (P/Invoke) and any other host.
- *
- *   - only primitives and pointers cross the boundary; no std::string, no std::vector
- *   - no exception may escape: every function body is wrapped in try/catch
- *   - every function returns an int status: 0 = success, <0 = failure, and
- *     wf_last_error() explains; count/getter functions return the count or -1
- *   - the caller allocates buffers: call wf_wall_count, allocate, then wf_get_walls
- *
- * Built as the shared library "wayforge": wayforge.dll on Windows, libwayforge.so
- * on Linux/Android, libwayforge.dylib on macOS. Same source for all three.
- */
+/*!
+\file wf_api.h
+
+\brief Flat C interface used by Unity and other Wayforge host applications
+Defines the public C API exposed by the Wayforge shared library. The interface
+is designed to work across language and library boundaries, including Unity
+through P/Invoke, so only primitive values, pointers, buffers, and opaque
+document handles are passed across the boundary.
+
+The API provides access to document loading and saving, floor plan conversion,
+levels, walls, openings, rooms, reflected properties, undo and redo, routing,
+navigation graphs, room search, points of interest, and building metadata.
+
+No C++ exceptions or STL types are allowed to cross this boundary. Functions
+report failures using integer return codes, while wf_last_error() provides
+additional information about the most recent failed call. Where arrays or
+strings are returned, the caller supplies the destination buffer and its
+capacity.
+
+The same interface is compiled into the Wayforge shared library on all
+supported platforms: wayforge.dll on Windows, libwayforge.so on Linux and
+Android, and libwayforge.dylib on macOS.
+
+
+Links: Used by the Unity NativeBridge through P/Invoke and by other host
+applications that need to access Wayforge functionality without depending
+directly on the internal C++ implementation.
+
+
+
+\author Kervin Ong Guan Cheng (Kervinguancheng.ong@digipen.edu)
+
+
+
+Contribution: Kervin Ong Guan Cheng 100%
+Public C API declarations and shared-library export macros
+Document lifecycle, loading, conversion, and saving functions
+Level, wall, opening, and room access and editing functions
+Generic property access and undo/redo interface
+Navigation graph, routing, and instruction functions
+Room search, POI, and building metadata helpers
+
+
+
+AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
+
+
+\date 2026-10-02
+
+\copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+*/
 #ifndef WAYFORGE_API_H
 #define WAYFORGE_API_H
 
