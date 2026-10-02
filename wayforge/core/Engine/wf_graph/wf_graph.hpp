@@ -1,25 +1,55 @@
+/*!
+ * \file wf_graph.hpp
+ * \brief Navigation graph and routing: public header
+ *
+ * Builds the navigation graph from rooms and doors, and answers routing
+ * questions on it: A* between two nodes, step-free filtering, and egress
+ * (cheapest path to any exit). Multi-level routing walks the building's links.
+ * Also turns a route into turn-by-turn text and searches rooms by code/name.
+ *
+ * Nodes are referred to across the whole building as "LEVEL:NODE", e.g. "L5:n3",
+ * because node ids are only unique inside one level's list.
+ *
+ * Links: wf_read produces the rooms/walls/openings this graph is built from;
+ * wf_api (wf_build_graph, wf_route, wf_egress, wf_instructions, wf_search_rooms)
+ * calls the functions here for the Unity app.
+ *
+ * \author Joel Chua (c.jialiang@digipen.edu)
+ *
+ * Contribution: Joel Chua 100%
+ *   - Graph parameters, route / instruction data types and the public API
+ *   - "LEVEL:NODE" reference scheme for routing across levels
+ *
+ * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 // wf_graph - public header.
 // Builds the navigation graph from rooms and doors, and answers routing
 // questions on it: A* between two nodes, step-free filtering, and egress
 // (cheapest path to any exit). Multi-level routing walks the building's links.
 #pragma once
-#include <vector>
-#include <string>
-#include <optional>
-#include "wf_core/wf_core.hpp"
-#include "wf_doc/wf_doc.hpp"
+#include <vector>              // Route steps, instruction lists, search results.
+#include <string>              // Level / node ids and instruction text.
+#include <optional>            // nodeForRoom / nearestNode may find nothing.
+#include "wf_core/wf_core.hpp" // Vec2, Result<T>, IdGenerator.
+#include "wf_doc/wf_doc.hpp"   // Building, Level, Node, Edge, Link, Room.
 
 namespace wf::graph {
 
+// Tuning values for buildLevelGraph / buildGraph. All distances are in metres.
 struct GraphParams {
     float corridorSpacing = 2.f;      // metres between corridor sample nodes
     float wallClearance   = 0.15f;    // a walk line closer than this to a wall counts as blocked
     float maxEdgeLength   = 12.f;     // do not connect nodes further apart than this (keeps the graph sparse)
     float stairPenalty    = 12.f;     // extra cost for a stair link
     float liftPenalty     = 25.f;     // extra cost for a lift link (waiting)
-    bool  connectRoomsThroughDoors = true;
+    bool  connectRoomsThroughDoors = true;   // room nodes only connect to the doors on their outline
 };
 
+// Summary returned after building; isolatedNodes > 0 usually means a room has no reachable door.
 struct GraphStats { int nodes = 0; int edges = 0; int isolatedNodes = 0; };
 
 // Replaces level.nodes and level.edges. Room nodes at room centroids, door nodes
@@ -33,13 +63,15 @@ GraphStats buildGraph(Building& building, IdGenerator& ids, const GraphParams& p
 bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearance = 0.15f);
 
 // A route across the building. Node refs are "L5:n3".
+// One step of a route: the node walked through and the total cost to reach it.
 struct RouteStep {
-    std::string level;
-    std::string node;
-    Vec2        pos;
-    NodeKind    kind = NodeKind::Corridor;
-    float       cumulativeCost = 0.f;
+    std::string level;                         // level id, e.g. "L5"
+    std::string node;                          // node id inside that level, e.g. "n3"
+    Vec2        pos;                           // node position on its level
+    NodeKind    kind = NodeKind::Corridor;     // room / door / corridor / stair / lift / exit
+    float       cumulativeCost = 0.f;          // cost from the start up to this step
 };
+// The full path from start to goal, in walking order.
 struct Route {
     std::vector<RouteStep> steps;
     float totalCost = 0.f;
@@ -57,6 +89,7 @@ Result<Route> findRoute(const Building& b, std::string_view fromRef, std::string
 Result<Route> findEgress(const Building& b, std::string_view fromRef, const RouteOptions& opt = {});
 // Helper: node ref of a room's node, e.g. roomNode(b, "E2-05-12") -> "L5:n1"
 std::optional<std::string> nodeForRoom(const Building& b, std::string_view roomCodeOrId);
+// Helper: ref of the node closest to a point on a level (e.g. where the user tapped).
 std::optional<std::string> nearestNode(const Building& b, std::string_view levelId, const Vec2& pos);
 
 // Turn-by-turn text for a route: "Leave E2-05-12 through the door", "Turn left and walk 12 m",
