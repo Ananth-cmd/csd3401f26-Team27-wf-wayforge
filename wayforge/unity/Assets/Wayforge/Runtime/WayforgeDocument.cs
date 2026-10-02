@@ -1,3 +1,27 @@
+/*!
+ * \file WayforgeDocument.cs
+ * \brief Holds the walls, doors and rooms of one floor plan in Unity
+ *
+ * Asks the C++ core (through NativeBridge) to open a .wfb file or read a
+ * floor plan picture, then copies the walls, doors and rooms into plain C#
+ * lists that the Studio window and RoomBuilder can use. Rooms can also be
+ * added by hand with AddRectangle.
+ *
+ * Used by: StudioWindow (shows the plan in 2D), RoomBuilder (makes it 3D).
+ *
+ * \author Katie Lim
+ *
+ * Contribution: Katie Lim 100%
+ *   - WallData, DoorData, RoomData and WayforgeDocument
+ *   - Reading walls, rooms and doors out of the core
+ *   - Splitting a wall around each door so the 3D model has a gap
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-18
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -33,6 +57,7 @@ namespace Wayforge
 
         Vector2[] _corners;
         int[] _triangles;
+        // Setting new corners clears the saved triangles so they are worked out again
         public Vector2[] corners
         {
             get => _corners;
@@ -59,7 +84,7 @@ namespace Wayforge
                     case "lift":     return new Color(0.95f, 0.6f, 0.25f);
                     case "toilet":   return new Color(0.4f, 0.8f, 0.85f);
                     case "exit":     return new Color(0.35f, 0.8f, 0.4f);
-                    default:         return Color.HSVToRGB((colourIndex * 0.618034f) % 1f, 0.45f, 0.95f);
+                    default:         return Color.HSVToRGB((colourIndex * 0.618034f) % 1f, 0.45f, 0.95f);   // spreads the colours out
                 }
             }
         }
@@ -100,7 +125,7 @@ namespace Wayforge
             {
                 doc.ReadWalls(handle);
                 doc.ReadRooms(handle);
-                doc.ReadDoors(handle);
+                doc.ReadDoors(handle);   // after the walls, because each door cuts a wall
             }
             finally
             {
@@ -124,6 +149,7 @@ namespace Wayforge
             return room;
         }
 
+        // Copies every wall on level 0 out of the core
         void ReadWalls(IntPtr handle)
         {
             int count = NativeBridge.wf_wall_count(handle, 0);
@@ -143,10 +169,11 @@ namespace Wayforge
             }
         }
 
+        // Copies every room on level 0 out of the core: id, code, name, type and outline
         void ReadRooms(IntPtr handle)
         {
             int count = NativeBridge.wf_room_count(handle, 0);
-            var outline = new float[512];
+            var outline = new float[512];   // room for 256 corners
             var centre = new float[2];
 
             for (int i = 0; i < count; i++)
@@ -165,7 +192,7 @@ namespace Wayforge
                     corners.RemoveAt(corners.Count - 1);   // outline repeats its first corner at the end
 
                 var name = new StringBuilder(128);
-                NativeBridge.wf_get_property(handle, 0, 2, id.ToString(), "name", name, 128);
+                NativeBridge.wf_get_property(handle, 0, 2, id.ToString(), "name", name, 128);   // 2 = room
 
                 int kind = NativeBridge.wf_get_room_kind(handle, 0, i);
 
@@ -182,6 +209,7 @@ namespace Wayforge
             }
         }
 
+        // Copies every door on level 0 out of the core and cuts it into its wall
         void ReadDoors(IntPtr handle)
         {
             int count = NativeBridge.wf_opening_count(handle, 0);
@@ -217,7 +245,7 @@ namespace Wayforge
             }
         }
 
-        // True if point p lies on the wall line
+        // True if point p lies on the wall line (within 5 cm)
         static bool IsOnWall(Vector2 p, WallData wall)
         {
             float length = Vector2.Distance(wall.a, wall.b);
