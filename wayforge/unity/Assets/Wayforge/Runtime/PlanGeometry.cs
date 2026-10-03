@@ -1,20 +1,16 @@
 /*!
  * \file PlanGeometry.cs
- * \brief Maths for room outlines: area, centre and triangles
+ * \brief maths for room outlines: area, centre and triangles
  *
- * Room outlines are lists of corners in metres (x right, y up).
- * SignedArea gives the floor area, Centroid gives the middle of the room
- * (for the label), and Triangulate cuts the outline into triangles so
- * L-shaped rooms can be filled in 2D and turned into a 3D floor.
- *
- * Used by: RoomData (Area, Centre, Triangles), StudioWindow, RoomBuilder.
+ * outlines are lists of corners in metres (x right, y up).
+ * need the triangles so L shaped rooms fill properly in 2D and 3D.
  *
  * \author Katie Lim
  *
  * Contribution: Katie Lim 100%
- *   - Area, centre and triangle splitting for any room shape
+ *   - area, centre and triangle splitting for any room shape
  *
- * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ * AI declaration: used Claude to help write and debug the code and comments.
  *
  * \date 2026-09-22
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
@@ -25,10 +21,10 @@ using UnityEngine;
 
 namespace Wayforge
 {
-    // Maths helpers for room outlines (plan coordinates, metres, y up).
+    // maths for room outlines (metres, y up)
     public static class PlanGeometry
     {
-        // Area of the outline. Positive when the corners go counter-clockwise, negative when clockwise.
+        // area of the outline. + if the corners go anticlockwise, - if clockwise
         public static float SignedArea(Vector2[] p)
         {
             float sum = 0;
@@ -40,14 +36,14 @@ namespace Wayforge
             return sum * 0.5f;
         }
 
-        // The middle of the room (the plain average of the corners is wrong for L-shaped rooms)
+        // middle of the room. just averaging the corners is off for L shaped rooms
         public static Vector2 Centroid(Vector2[] p)
         {
             if (p.Length == 0) return Vector2.zero;
             float area = SignedArea(p);
             if (Mathf.Abs(area) < 1e-6f)
             {
-                // No area (all corners in a line): just use the average
+                // no area (corners all in a line) so just average them
                 Vector2 avg = Vector2.zero;
                 foreach (var c in p) avg += c;
                 return avg / p.Length;
@@ -63,30 +59,30 @@ namespace Wayforge
             return new Vector2(cx, cy) / (6f * area);
         }
 
-        // Cuts any room outline (even L or U shapes) into triangles.
-        // It keeps cutting off one corner triangle ("ear") at a time until only one triangle is left.
-        // Returns corner indices, three per triangle, each triangle counter-clockwise.
+        // cuts any room outline into triangles, works for L / U shapes too.
+        // keeps cutting off 1 corner triangle (the "ear") at a time till 1 is left.
+        // returns corner indices, 3 per triangle, all anticlockwise
         public static int[] Triangulate(Vector2[] p)
         {
             var tris = new List<int>();
             int n = p.Length;
             if (n < 3) return tris.ToArray();
 
-            // Work counter-clockwise whatever order the corners came in
+            // make it anticlockwise no matter what order the corners came in
             var left = new List<int>(n);   // corners not cut off yet
             if (SignedArea(p) >= 0) for (int i = 0; i < n; i++) left.Add(i);
             else for (int i = n - 1; i >= 0; i--) left.Add(i);
 
-            int guard = 0;   // stops the loop if something goes wrong
+            int guard = 0;   // just in case it loops forever
             while (left.Count > 3 && guard++ < 10000)
             {
                 bool clipped = false;
                 for (int i = 0; i < left.Count; i++)
                 {
                     int a = left[(i + left.Count - 1) % left.Count], b = left[i], c = left[(i + 1) % left.Count];
-                    if (Cross(p[b] - p[a], p[c] - p[b]) <= 1e-6f) continue;   // inward or flat corner: can't cut here
+                    if (Cross(p[b] - p[a], p[c] - p[b]) <= 1e-6f) continue;   // inward or flat corner, cant cut here
 
-                    // The triangle can only be cut off if no other corner is inside it
+                    // can only cut it if no other corner is inside the triangle
                     bool empty = true;
                     foreach (int k in left)
                     {
@@ -103,7 +99,7 @@ namespace Wayforge
 
                 if (!clipped)
                 {
-                    // Nothing could be cut: usually a corner sitting in the middle of a straight edge. Drop the flattest one.
+                    // nothing cut, usually a corner in the middle of a straight edge. drop the flattest one
                     int flattest = 0;
                     float best = float.MaxValue;
                     for (int i = 0; i < left.Count; i++)
@@ -112,12 +108,12 @@ namespace Wayforge
                         float cross = Mathf.Abs(Cross(p[b] - p[a], p[c] - p[b]));
                         if (cross < best) { best = cross; flattest = i; }
                     }
-                    if (best > 1e-4f) break;   // badly shaped outline: fill what is left below
+                    if (best > 1e-4f) break;   // bad outline, just fill whats left below
                     left.RemoveAt(flattest);
                 }
             }
 
-            // Fill whatever is left with triangles from the first corner
+            // fill whats left with triangles from the first corner
             for (int i = 1; i + 1 < left.Count; i++)
             {
                 tris.Add(left[0]); tris.Add(left[i]); tris.Add(left[i + 1]);
@@ -125,10 +121,10 @@ namespace Wayforge
             return tris.ToArray();
         }
 
-        // Positive if v turns left from u, negative if it turns right
+        // + if v turns left from u, - if right
         static float Cross(Vector2 u, Vector2 v) => u.x * v.y - u.y * v.x;
 
-        // True if p is inside triangle abc (not on its edges)
+        // true if p is inside triangle abc (not on the edge)
         static bool StrictlyInside(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
         {
             const float eps = 1e-6f;

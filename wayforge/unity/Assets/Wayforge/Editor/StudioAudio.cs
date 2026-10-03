@@ -1,25 +1,19 @@
 /*!
  * \file StudioAudio.cs
- * \brief Sound feedback for Wayforge Studio: 1 background music + 8 sound effects
+ * \brief sounds for Studio: 1 bgm + 8 sfx
  *
- * Which sound plays for which action is read from
- * Assets/Wayforge/Audio/audio_config.json, not written in the code.
- * To change a sound, drop a new file into that folder and/or edit the
- * config. Studio notices the change and reloads by itself, with no
- * recompiling.
- *
- * The music and every sound effect have their own channel (AudioSource),
- * so a new sound never cuts off one that is still playing.
- *
- * Used by: StudioWindow (plays a sound on import, Make 3D, select, ...).
+ * which sound plays for which action comes from
+ * Assets/Wayforge/Audio/audio_config.json, not the code. to change a
+ * sound just swap the file or edit the config, no recompile needed.
+ * music and each sfx get their own AudioSource so nothing gets cut off.
  *
  * \author Katie Lim
  *
  * Contribution: Katie Lim 100%
- *   - Reading sounds from the config, reloading when files change
- *   - Playing music and up to 8+ sounds at the same time in the Editor
+ *   - reading the sounds from the config + reloading when it changes
+ *   - playing music and 8+ sounds at the same time in the editor
  *
- * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ * AI declaration: used Claude to help write and debug the code and comments.
  *
  * \date 2026-10-02
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
@@ -35,7 +29,7 @@ namespace Wayforge.Editor
 {
     public static class StudioAudio
     {
-        // What audio_config.json looks like
+        // what audio_config.json looks like
         [Serializable] class Sound { public string id; public string file; public float volume = 1f; }
         [Serializable] class Music { public string file; public float volume = 0.3f; }
         [Serializable] class Config { public Music bgm; public Sound[] sfx; }
@@ -46,20 +40,20 @@ namespace Wayforge.Editor
         static Config config;
         static readonly Dictionary<string, Sound> sounds = new Dictionary<string, Sound>();
         static DateTime configTime;           // when the config was last read
-        static GameObject speaker;            // hidden object that holds the channels
+        static GameObject speaker;            // hidden object holding the audio sources
         static AudioSource music;
         static readonly List<AudioSource> channels = new List<AudioSource>();
 
         public static bool MusicOn { get; private set; } = true;
-        public static string LastSound { get; private set; } = "";   // shown in the Studio sidebar
+        public static string LastSound { get; private set; } = "";   // shown in the sidebar
 
-        // ---------- Playing ----------
+        // playing
 
-        // Plays the sound for an action, e.g. Play("make_3d"). Does nothing if it is not in the config.
+        // play the sound for an action eg Play("make_3d"). does nothing if its not in the config
         public static void Play(string id) => Play(id, 0f, null);
 
-        // Same, but starts after `delay` seconds (timed by the audio clock, so it is exact).
-        // `taken` lists channels already given out, so a waiting sound never loses its channel.
+        // same but starts after delay secs (uses the audio clock so its exact).
+        // taken = channels already used so a delayed sound doesnt lose its channel
         static void Play(string id, float delay, List<AudioSource> taken)
         {
             ReloadIfChanged();
@@ -75,7 +69,7 @@ namespace Wayforge.Editor
             LastSound = id + " → " + sound.file;
         }
 
-        // Plays all 8 sounds 0.03 s apart, so all 8 are playing together. Each one plays to the end.
+        // play all 8, 0.03s apart so theyre all playing together. each plays till the end
         public static void PlayAll()
         {
             ReloadIfChanged();
@@ -110,7 +104,7 @@ namespace Wayforge.Editor
             if (MusicOn) StartMusic(); else StopMusic();
         }
 
-        // How many sound effects are playing right now
+        // how many sfx are playing now
         public static int PlayingCount()
         {
             int n = 0;
@@ -118,7 +112,7 @@ namespace Wayforge.Editor
             return n;
         }
 
-        // Called when Studio closes: stop everything and remove the hidden object
+        // when Studio closes, stop everything and delete the hidden object
         public static void Shutdown()
         {
             if (speaker != null) UnityEngine.Object.DestroyImmediate(speaker);
@@ -133,9 +127,9 @@ namespace Wayforge.Editor
             if (asset != null) AssetDatabase.OpenAsset(asset);
         }
 
-        // ---------- Channels ----------
+        // channels
 
-        // A hidden object with 1 music channel and 8 sound channels. It is never saved in the scene.
+        // hidden object with 1 music + 8 sfx sources. doesnt get saved in the scene
         static void Setup()
         {
             if (speaker != null) return;
@@ -146,7 +140,7 @@ namespace Wayforge.Editor
             for (int i = 0; i < 8; i++) AddChannel();
         }
 
-        // A channel that is free. If all are busy, add another one, so nothing gets cut off.
+        // get a free one. if all busy add another so nothing gets cut off
         static AudioSource FreeChannel(List<AudioSource> taken)
         {
             Setup();
@@ -163,9 +157,9 @@ namespace Wayforge.Editor
             return c;
         }
 
-        // ---------- Reading the config ----------
+        // reading the config
 
-        // Reads the config again if it was saved since last time. Sound files are reloaded by Unity itself.
+        // reread the config if it changed. unity reloads the sound files itself
         static void ReloadIfChanged()
         {
             string fullPath = Path.GetFullPath(ConfigPath);
@@ -179,7 +173,7 @@ namespace Wayforge.Editor
             if (config?.sfx != null)
                 foreach (var s in config.sfx) sounds[s.id] = s;
 
-            // the music file may have changed too
+            // music might have changed too
             if (music != null && music.isPlaying)
             {
                 var clip = config?.bgm == null ? null : AssetDatabase.LoadAssetAtPath<AudioClip>(Folder + "/" + config.bgm.file);
@@ -187,7 +181,7 @@ namespace Wayforge.Editor
             }
         }
 
-        // The list of sounds, for the Audio menu in Studio
+        // list of sounds for the Audio menu
         public static string[] SoundIds()
         {
             ReloadIfChanged();

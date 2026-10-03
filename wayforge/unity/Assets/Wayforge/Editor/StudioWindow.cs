@@ -1,23 +1,19 @@
 /*!
  * \file StudioWindow.cs
- * \brief The Wayforge Studio window in Unity (Wayforge > Studio)
+ * \brief the Wayforge Studio window (Wayforge > Studio)
  *
- * Import a floor plan picture or open a .wfb file. The C++ core finds the
- * walls, doors and rooms, and this window draws them in 2D on top of the
- * picture. You can zoom, pan, click a room to see and rename it, drag to
- * draw a new room, then click Make 3D to build the model in the scene.
- *
- * Uses: WayforgeDocument (the plan data), RoomBuilder (the 3D model),
- * NativeBridge (to check the dll is loaded), StudioAudio (sounds).
+ * import a floor plan pic or open a .wfb, the C++ core finds the walls,
+ * doors and rooms and i draw them in 2D on top of the pic. can zoom, pan,
+ * click a room to rename it, drag to draw a new room, then Make 3D.
  *
  * \author Katie Lim
  *
  * Contribution: Katie Lim 100%
- *   - Toolbar, 2D plan drawing, mouse controls and room sidebar
- *   - Import image and Open .wfb through the C++ core
- *   - Sound feedback for every action (through StudioAudio)
+ *   - toolbar, 2D drawing, mouse controls and the room sidebar
+ *   - import image / open .wfb through the C++ core
+ *   - sound for each action (calls StudioAudio)
  *
- * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ * AI declaration: used Claude to help write and debug the code and comments.
  *
  * \date 2026-09-26
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
@@ -29,51 +25,51 @@ using UnityEngine;
 
 namespace Wayforge.Editor
 {
-    // The Wayforge Studio window (Wayforge > Studio).
-    // Import a floor plan image or open a .wfb file, see the plan in 2D, then make it 3D.
-    // Both go through the C++ core (wayforge.dll): the core finds the walls, doors and rooms.
+    // Wayforge > Studio window.
+    // import a pic or open a .wfb, see it in 2D, then make it 3D.
+    // both go through the C++ core (wayforge.dll) which finds the walls, doors and rooms
     public class StudioWindow : EditorWindow
     {
         const float ToolbarHeight = 22f;
         const float SidebarWidth = 240f;
 
-        WayforgeDocument doc;          // the plan being shown
-        RoomData selected;             // the room clicked on
-        Texture2D image;               // the imported picture, shown under the plan
-        const float MetresPerPixel = 0.02f;   // the core reads pictures at 1 pixel = 2 cm
+        WayforgeDocument doc;          // current plan
+        RoomData selected;             // room thats clicked
+        Texture2D image;               // imported pic, drawn under the plan
+        const float MetresPerPixel = 0.02f;   // core uses 1 pixel = 2cm
 
         float pixelsPerMetre = 30f;    // zoom
         Vector2 offset;                // pan
 
-        bool dragging;                 // true while drawing a room with the mouse
-        Vector2 dragStart, dragEnd;    // drag corners, in metres
+        bool dragging;                 // true while dragging out a room
+        Vector2 dragStart, dragEnd;    // drag corners in metres
         string status = "";
-        Vector2 roomListScroll;        // sidebar room list
+        Vector2 roomListScroll;        // scroll pos of the room list
 
-        // Adds Wayforge > Studio to Unity's menu bar
+        // adds Wayforge > Studio to the menu
         [MenuItem("Wayforge/Studio")]
         public static void Open() => GetWindow<StudioWindow>("Wayforge Studio");
 
-        // Start the background music when the window opens
+        // start the bgm when the window opens
         void OnEnable()
         {
             StudioAudio.StartMusic();
         }
 
-        // Redraw 10 times a second so the sound info in the sidebar stays up to date
+        // redraw 10x a sec so the sound info in the sidebar updates
         void OnInspectorUpdate()
         {
             Repaint();
         }
 
-        // Free the picture and stop the sounds when the window closes
+        // clean up the pic and stop sounds when closing
         void OnDisable()
         {
             if (image != null) DestroyImmediate(image);
             StudioAudio.Shutdown();
         }
 
-        // Unity calls this to draw the window and handle clicks
+        // draws the window + handles clicks
         void OnGUI()
         {
             DrawToolbar();
@@ -88,21 +84,21 @@ namespace Wayforge.Editor
                 return;
             }
 
-            // Plan on the left, sidebar on the right
+            // plan on the left, sidebar on the right
             var canvas = new Rect(0, ToolbarHeight, position.width - SidebarWidth, position.height - ToolbarHeight);
             HandleMouse(canvas);
             DrawPlan(canvas);
             DrawSidebar(new Rect(canvas.xMax, ToolbarHeight, SidebarWidth, canvas.height));
         }
 
-        // ---------- Toolbar ----------
+        // toolbar
 
-        // The buttons along the top: Import image, Open .wfb, Make 3D, Clear rooms, Audio
+        // buttons at the top: Import image, Open .wfb, Make 3D, Clear rooms, Audio
         void DrawToolbar()
         {
             GUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            // Both buttons need the C++ dll
+            // these 2 need the dll
             using (new EditorGUI.DisabledScope(!NativeBridge.PluginLoads()))
             {
                 if (GUILayout.Button("Import image", EditorStyles.toolbarButton, GUILayout.Width(90)))
@@ -136,7 +132,7 @@ namespace Wayforge.Editor
                 }
             }
 
-            // Sound settings and the sound test
+            // audio settings + test
             if (GUILayout.Button("Audio", EditorStyles.toolbarDropDown, GUILayout.Width(60)))
                 ShowAudioMenu();
 
@@ -145,7 +141,7 @@ namespace Wayforge.Editor
             GUILayout.EndHorizontal();
         }
 
-        // The Audio menu: music on/off, test every sound, open the config
+        // audio menu: music on/off, test sounds, open config
         void ShowAudioMenu()
         {
             var menu = new GenericMenu();
@@ -161,7 +157,7 @@ namespace Wayforge.Editor
             menu.ShowAsContext();
         }
 
-        // Sends a picture to the C++ core, which finds the walls, doors and rooms. The picture is shown underneath.
+        // send the pic to the C++ core to find walls, doors and rooms. pic is drawn underneath
         void ImportImage()
         {
             string path = EditorUtility.OpenFilePanel("Import floor plan image", Application.dataPath + "/Wayforge/Samples", "png,jpg,jpeg");
@@ -179,7 +175,7 @@ namespace Wayforge.Editor
             }
             StudioAudio.Play("import_done");
 
-            // Load the same picture for display
+            // load the pic again to show it
             if (image != null) DestroyImmediate(image);
             image = new Texture2D(2, 2);
             image.LoadImage(File.ReadAllBytes(path));
@@ -189,7 +185,7 @@ namespace Wayforge.Editor
             status = $"{Path.GetFileName(path)}: {doc.Walls.Count} walls, {doc.Doors.Count} door(s), {doc.Rooms.Count} room(s)";
         }
 
-        // Loads a .wfb file through the C++ core
+        // load a .wfb through the C++ core
         void OpenFile()
         {
             string path = EditorUtility.OpenFilePanel("Open building", Application.dataPath + "/Wayforge/Samples", "wfb");
@@ -211,21 +207,21 @@ namespace Wayforge.Editor
             }
         }
 
-        // Size of the picture in metres
+        // pic size in metres
         float ImageWidthMetres => image == null ? 0 : image.width * MetresPerPixel;
         float ImageHeightMetres => image == null ? 0 : image.height * MetresPerPixel;
 
-        // ---------- Drawing the plan ----------
+        // drawing the plan
 
-        // Metres to pixels. The plan's y goes up but the screen's y goes down, so it's flipped here.
+        // metres to pixels. plan y goes up but screen y goes down so flip it
         Vector2 ToScreen(Vector2 m, Rect canvas) =>
             new Vector2(canvas.x + offset.x + m.x * pixelsPerMetre, canvas.yMax - offset.y - m.y * pixelsPerMetre);
 
-        // Pixels back to metres
+        // pixels back to metres
         Vector2 ToMetres(Vector2 s, Rect canvas) =>
             new Vector2((s.x - canvas.x - offset.x) / pixelsPerMetre, (canvas.yMax - offset.y - s.y) / pixelsPerMetre);
 
-        // Zooms and pans so the area from min to max fills the window
+        // zoom + pan so min to max fills the window
         void FitTo(Vector2 min, Vector2 max)
         {
             Vector2 size = Vector2.Max(max - min, Vector2.one);
@@ -235,7 +231,7 @@ namespace Wayforge.Editor
             offset = new Vector2(30 - min.x * pixelsPerMetre, 30 - min.y * pixelsPerMetre);
         }
 
-        // Zooms so every wall fits in the window
+        // zoom so all the walls fit
         void FitToWalls()
         {
             if (doc.Walls.Count == 0) return;
@@ -248,17 +244,17 @@ namespace Wayforge.Editor
             FitTo(min, max);
         }
 
-        // Draws the picture, rooms, walls, doors and room names
+        // draw the pic, rooms, walls, doors and names
         void DrawPlan(Rect canvas)
         {
             if (Event.current.type != EventType.Repaint) return;
 
-            // Keep the drawing inside the plan area
+            // clip to the plan area
             GUI.BeginClip(canvas);
             var area = new Rect(0, 0, canvas.width, canvas.height);
             EditorGUI.DrawRect(area, new Color(0.18f, 0.18f, 0.2f));
 
-            // The picture
+            // pic
             if (image != null)
             {
                 Vector2 topLeft = ToScreen(new Vector2(0, ImageHeightMetres), area);
@@ -267,7 +263,7 @@ namespace Wayforge.Editor
 
             Handles.BeginGUI();
 
-            // Rooms, each in its own colour, filled triangle by triangle so L-shaped rooms draw correctly
+            // rooms, filled triangle by triangle so L shaped rooms look right
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length < 3) continue;
@@ -282,7 +278,7 @@ namespace Wayforge.Editor
                     Handles.DrawAAConvexPolygon(points[tris[t]], points[tris[t + 1]], points[tris[t + 2]]);
             }
 
-            // Outline of the selected room
+            // outline the selected room
             if (selected != null && selected.corners.Length >= 3)
             {
                 var outline = new Vector3[selected.corners.Length + 1];
@@ -291,17 +287,17 @@ namespace Wayforge.Editor
                 Handles.DrawAAPolyLine(4f, outline);
             }
 
-            // Walls
+            // walls
             Handles.color = new Color(0.1f, 0.5f, 1f);
             foreach (var w in doc.Walls)
                 Handles.DrawAAPolyLine(3f, ToScreen(w.a, area), ToScreen(w.b, area));
 
-            // Doors
+            // doors
             Handles.color = new Color(0.3f, 0.9f, 0.4f);
             foreach (var d in doc.Doors)
                 Handles.DrawAAPolyLine(5f, ToScreen(d.a, area), ToScreen(d.b, area));
 
-            // The room being drawn with the mouse
+            // room being dragged out
             if (dragging)
             {
                 Vector2 a = ToScreen(dragStart, area), b = ToScreen(dragEnd, area);
@@ -311,7 +307,7 @@ namespace Wayforge.Editor
 
             Handles.EndGUI();
 
-            // Room code (and type) in the middle of each room
+            // room code (+ type) in the middle
             var labelStyle = new GUIStyle(EditorStyles.boldLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = Color.black } };
             var kindStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(0f, 0f, 0f, 0.75f) } };
             foreach (var room in doc.Rooms)
@@ -326,8 +322,8 @@ namespace Wayforge.Editor
             GUI.EndClip();
         }
 
-        // ---------- Mouse ----------
-        // Scroll = zoom, right-drag = pan, left-drag = draw a room, left-click = select a room
+        // mouse
+        // scroll = zoom, right drag = pan, left drag = draw room, left click = select
 
         void HandleMouse(Rect canvas)
         {
@@ -366,14 +362,14 @@ namespace Wayforge.Editor
 
                 if (Mathf.Abs(size.x) > 0.3f && Mathf.Abs(size.y) > 0.3f)
                 {
-                    // A drag: add a new room
+                    // dragged, so add a room
                     selected = doc.AddRectangle(dragStart, dragEnd);
                     StudioAudio.Play("draw_room");
                     status = $"{selected.code} added ({selected.Area:F1} m²)";
                 }
                 else
                 {
-                    // A click: select the room under the mouse
+                    // just a click, select the room under the mouse
                     selected = null;
                     foreach (var room in doc.Rooms)
                         if (IsInside(dragStart, room.corners)) { selected = room; break; }
@@ -384,7 +380,7 @@ namespace Wayforge.Editor
             }
         }
 
-        // True if point p is inside the outline
+        // true if p is inside the outline
         static bool IsInside(Vector2 p, Vector2[] outline)
         {
             bool inside = false;
@@ -397,14 +393,14 @@ namespace Wayforge.Editor
             return inside;
         }
 
-        // ---------- Sidebar ----------
+        // sidebar
 
-        // The panel on the right: the selected room's details and a list of all rooms
+        // right panel: selected room details + list of all rooms
         void DrawSidebar(Rect area)
         {
             GUILayout.BeginArea(new Rect(area.x + 8, area.y + 8, area.width - 16, area.height - 16));
 
-            // Selected room: code, name and type can be changed here
+            // selected room, can change code, name and type here
             GUILayout.Label("Room", EditorStyles.boldLabel);
             if (selected == null)
             {
@@ -422,7 +418,7 @@ namespace Wayforge.Editor
                 if (EditorGUI.EndChangeCheck()) Repaint();
             }
 
-            // Every room, click one to select it
+            // all rooms, click to select
             GUILayout.Space(8);
             GUILayout.Label($"Rooms ({doc.Rooms.Count})", EditorStyles.boldLabel);
             roomListScroll = GUILayout.BeginScrollView(roomListScroll);
