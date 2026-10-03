@@ -1,22 +1,51 @@
+/*!
+ * \file Command.cpp
+ * \brief The code behind the undo stack and the edit commands
+ *
+ * The stack runs a command, clears redo, and either merges it into the one on
+ * top (same kind, same target, within the time window) or pushes it. Undo and
+ * redo move commands between the two stacks. Each command stores what it needs
+ * to reverse itself: DeleteWall keeps the wall and its openings, MoveWall keeps
+ * the old end points, SetProperty keeps the old value, SetRoomCode keeps the
+ * old code and name.
+ *
+ * Links: implements what Command.hpp declares; commands change the building
+ * through Document::mutableLevel (Document.cpp).
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Stack execute, undo, redo, clear and discard
+ *   - Merging of repeated moves and property edits
+ *   - Do and Undo for each of the six commands
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #include "wf_doc/Command.hpp"
 #include "wf_doc/Document.hpp"
 #include <algorithm>
 
 namespace wf {
 
-    // ---- CommandStack --------------------------------------------------------------
-    void CommandStack::execute(Document& doc, std::unique_ptr<ICommand> cmd) 
+    //  CommandStack 
+    //runs it first, clears redo, then joins the last edit if same key and within 300ms
+    void CommandStack::execute(Document& doc, std::unique_ptr<ICommand> cmd)
     {
         cmd->Do(doc);
-        m_redo.clear();                                   
+        m_redo.clear();
         const auto now = Clock::now();
-        if (!m_undo.empty() && m_lastPush != Clock::time_point{}) {
+        if (!m_undo.empty() && m_lastPush != Clock::time_point{}) 
+        {
             const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastPush).count();
             auto& last = *m_undo.back();
             const std::string key = cmd->mergeKey();
-            if (ms <= m_coalesceMs && !key.empty() && key == last.mergeKey() && last.tryMerge(*cmd)) 
+            if (ms <= m_coalesceMs && !key.empty() && key == last.mergeKey() && last.tryMerge(*cmd))
             {
-                m_lastPush = now;                         
+                m_lastPush = now;
                 return;
             }
         }
@@ -24,7 +53,8 @@ namespace wf {
         m_lastPush = now;
     }
 
-    bool CommandStack::undo(Document& doc) {
+    bool CommandStack::undo(Document& doc) 
+    {
         if (m_undo.empty()) return false;
         auto cmd = std::move(m_undo.back()); m_undo.pop_back();
         cmd->Undo(doc);
@@ -33,7 +63,8 @@ namespace wf {
         return true;
     }
 
-    bool CommandStack::redo(Document& doc) {
+    bool CommandStack::redo(Document& doc)
+    {
         if (m_redo.empty()) return false;
         auto cmd = std::move(m_redo.back()); m_redo.pop_back();
         cmd->Do(doc);
@@ -43,18 +74,19 @@ namespace wf {
     }
 
     void CommandStack::clear() noexcept { m_undo.clear(); m_redo.clear(); breakCoalescing(); }
+    //drops last entry without undoing it, for edits that did nothing
     void CommandStack::discardLast() noexcept { if (!m_undo.empty()) m_undo.pop_back(); breakCoalescing(); }
 
-    // ---- AddWall -----------------------------------------------------------------------
+    //AddWall 
     void AddWallCommand::Do(Document& doc) { if (auto* l = doc.mutableLevel(m_level)) l->walls.push_back(m_wall); }
-    void AddWallCommand::Undo(Document& doc) 
+    void AddWallCommand::Undo(Document& doc)
     {
-        if (auto* l = doc.mutableLevel(m_level))
-            std::erase_if(l->walls, [&](const Wall& w) { return w.id == m_wall.id; });
+        if (auto* l = doc.mutableLevel(m_level)) std::erase_if(l->walls, [&](const Wall& w) { return w.id == m_wall.id; });
     }
 
-    // ---- DeleteWall --------------------------------------------------------------------
-    void DeleteWallCommand::Do(Document& doc) 
+    // DeleteWall 
+    //saves wall and its position, also pulls out the openings on it and saves them
+    void DeleteWallCommand::Do(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;
@@ -65,14 +97,15 @@ namespace wf {
         l->walls.erase(it);
         m_orphanedOpenings.clear();
 
-        std::erase_if(l->openings, [&](const Opening& o) 
-        {
-         if (o.wall == m_wallId) { m_orphanedOpenings.push_back(o); return true; }
-         return false;
-        });
+        std::erase_if(l->openings, [&](const Opening& o)
+            {
+                if (o.wall == m_wallId) { m_orphanedOpenings.push_back(o); return true; }
+                return false;
+            });
     }
 
-    void DeleteWallCommand::Undo(Document& doc) 
+    //wall goes back in same spot, openings go on the end of the list
+    void DeleteWallCommand::Undo(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;
@@ -82,12 +115,13 @@ namespace wf {
         m_orphanedOpenings.clear();
     }
 
-    // ---- MoveWall ----------------------------------------------------------------------
-    void MoveWallCommand::Do(Document& doc) 
+    // MoveWall 
+    //old ends only saved the first time, so redo doesnt overwrite them
+    void MoveWallCommand::Do(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;
-        if (Wall* w = l->findWall(m_wallId)) 
+        if (Wall* w = l->findWall(m_wallId))
         {
             if (!m_captured) { m_oldA = w->a; m_oldB = w->b; m_captured = true; }
             w->a = m_newA; w->b = m_newB;
@@ -99,7 +133,8 @@ namespace wf {
         if (!l) return;
         if (Wall* w = l->findWall(m_wallId)) { w->a = m_oldA; w->b = m_oldB; }
     }
-    bool MoveWallCommand::tryMerge(const ICommand& next) 
+
+    bool MoveWallCommand::tryMerge(const ICommand& next)
     {
         const auto* other = dynamic_cast<const MoveWallCommand*>(&next);
         if (!other) return false;
@@ -107,13 +142,15 @@ namespace wf {
         return true;
     }
 
-    // ---- SetProperty -------------------------------------------------------------------
-    namespace {
+    // SetProperty 
+    namespace 
+    {
+        //helpers
         template <class T>
         bool applyProp(std::vector<T>& v, std::string_view id, std::string_view prop,
-            const PropertyValue& value, PropertyValue* oldOut) 
+            const PropertyValue& value, PropertyValue* oldOut)
         {
-            for (auto& e : v) if (e.id == id) 
+            for (auto& e : v) if (e.id == id)
             {
                 if (oldOut) *oldOut = getProperty(e, prop).value_or(PropertyValue{});
                 return setProperty(e, prop, value);
@@ -123,13 +160,14 @@ namespace wf {
         }
     }
 
-    void SetPropertyCommand::Do(Document& doc) 
+    //saves old value first time, m_failed if element, name or type is wrong
+    void SetPropertyCommand::Do(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) { m_failed = true; return; }
         PropertyValue* oldOut = m_captured ? nullptr : &m_old;
         bool ok = false;
-        switch (m_kind) 
+        switch (m_kind)
         {
             case ElementKind::Wall:    ok = applyProp(l->walls, m_elementId, m_property, m_new, oldOut); break;
             case ElementKind::Opening: ok = applyProp(l->openings, m_elementId, m_property, m_new, oldOut); break;
@@ -145,23 +183,25 @@ namespace wf {
         m_failed = !ok;
     }
 
-    void SetPropertyCommand::Undo(Document& doc) 
+    void SetPropertyCommand::Undo(Document& doc)
     {
         if (m_failed) return;
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;
-        switch (m_kind) {
-        case ElementKind::Wall:    applyProp(l->walls, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Opening: applyProp(l->openings, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Room:    applyProp(l->rooms, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Node:    applyProp(l->nodes, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Poi:     applyProp(l->pois, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Anchor:  applyProp(l->anchors, m_elementId, m_property, m_old, nullptr); break;
-        case ElementKind::Level:   setProperty(*l, m_property, m_old); break;
+        switch (m_kind) 
+        {
+            case ElementKind::Wall:    applyProp(l->walls, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Opening: applyProp(l->openings, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Room:    applyProp(l->rooms, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Node:    applyProp(l->nodes, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Poi:     applyProp(l->pois, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Anchor:  applyProp(l->anchors, m_elementId, m_property, m_old, nullptr); break;
+            case ElementKind::Level:   setProperty(*l, m_property, m_old); break;
         }
     }
 
-    bool SetPropertyCommand::tryMerge(const ICommand& next) 
+    //same as move, keep our old value take their new one
+    bool SetPropertyCommand::tryMerge(const ICommand& next)
     {
         const auto* other = dynamic_cast<const SetPropertyCommand*>(&next);
         if (!other || other->m_failed) return false;
@@ -169,23 +209,23 @@ namespace wf {
         return true;
     }
 
-    // ---- AddOpening --------------------------------------------------------------------
+    // AddOpening 
     void AddOpeningCommand::Do(Document& doc) { if (auto* l = doc.mutableLevel(m_level)) l->openings.push_back(m_opening); }
-    void AddOpeningCommand::Undo(Document& doc) 
+    void AddOpeningCommand::Undo(Document& doc)
     {
         if (auto* l = doc.mutableLevel(m_level))
             std::erase_if(l->openings, [&](const Opening& o) { return o.id == m_opening.id; });
     }
 
-    // ---- SetRoomCode -------------------------------------------------------------------
-    void SetRoomCodeCommand::Do(Document& doc) 
+    //SetRoomCode 
+    void SetRoomCodeCommand::Do(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;
         if (Room* r = l->findRoom(m_roomId)) { m_oldCode = r->code; m_oldName = r->name; r->code = m_code; r->name = m_name; }
     }
 
-    void SetRoomCodeCommand::Undo(Document& doc) 
+    void SetRoomCodeCommand::Undo(Document& doc)
     {
         auto* l = doc.mutableLevel(m_level);
         if (!l) return;

@@ -1,18 +1,30 @@
-// The property system.
-//
-// Asks any registered struct what fields it has, by name and type, at runtime.
-// Hand-rolled (about 150 lines) because it must compile under the Android NDK.
-// xproperty (approved, recommended) can replace it later behind the same API.
-//
-//   struct Wall { Vec2 a, b; float thickness;
-//       WF_PROPERTIES(Wall, WF_PROP(a), WF_PROP(b), WF_PROP(thickness)) };
-//
-//   for (auto& p : wf::propertiesOf<Wall>()) ...      // reflection
-//   wf::getProperty(wall, "thickness")                // -> optional<PropertyValue>
-//   wf::setProperty(wall, "thickness", 0.3f)
-//
-// The editor inspector, the JSON serializer and the generic SetPropertyCommand
-// are all written once against this table instead of once per type.
+/*!
+ * \file Property.hpp
+ * \brief The property system: ask a struct what fields it has, by name
+ *
+ * C++ cannot list a struct's fields, so each struct lists them once here
+ * (name, type and where it sits in the struct). Anything that needs to go over
+ * every field uses that list: saving, loading, comparing two buildings, and
+ * undoing a property change. Adding a field to a struct is then one line.
+ * Also has getProperty / setProperty to read or write a field by name.
+ *
+ * Links: Property.cpp has the code behind it; Types.hpp registers every struct
+ * with the WF_PROPERTIES and WF_REGISTER_TYPE macros; Serialize.cpp and
+ * Command.cpp (SetPropertyCommand) loop over the lists.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Property types, values and the field list structure
+ *   - The WF_PROP, WF_PROPERTIES and WF_REGISTER_TYPE macros
+ *   - Enum name handling and the get / set / describe templates
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-08
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #pragma once
 #include <cstddef>
 #include <cstdint>
@@ -65,18 +77,20 @@ namespace wf {
         else return nullptr;
     }
 
+
     template <class F> constexpr int enumCountOf() 
     {
         if constexpr (std::is_enum_v<F>) { int n = 0; while (EnumNames<F>::names[n]) ++n; return n;}
         else return 0;
     }
 
-    // Public API ---------------------------------------------------------------
+    // Public API 
     template <class T> std::span<const PropertyInfo> propertiesOf() { return PropertyTraits<T>::properties(); }
     template <class T> constexpr std::string_view typeName() { return PropertyTraits<T>::name(); }
 
     const PropertyInfo* findProperty(std::span<const PropertyInfo> props, std::string_view name) noexcept;
 
+    //reads field by name
     PropertyValue getPropertyRaw(const void* object, const PropertyInfo& info);
 
     bool setPropertyRaw(void* object, const PropertyInfo& info, const PropertyValue& value);
@@ -96,6 +110,7 @@ namespace wf {
         return p ? setPropertyRaw(&obj, *p, value) : false;
     }
 
+    //Debugging and prints line by line
     template <class T> std::string describe(const T& obj) 
     {
         std::string out(typeName<T>());
@@ -114,11 +129,14 @@ namespace wf {
 
 } // namespace wf
 
-// Declaration macros ---------------------------------------------------------
+// Declaration macros 
+
+//make 1 row
 #define WF_PROP(field) \
     ::wf::PropertyInfo{ #field, ::wf::propertyTypeOf<decltype(WfSelf::field)>(), offsetof(WfSelf, field), \
                         ::wf::enumNamesOf<decltype(WfSelf::field)>(), ::wf::enumCountOf<decltype(WfSelf::field)>() }
 
+//Builds its field list
 #define WF_PROPERTIES(Type, ...)                                                       \
     using WfSelf = Type;                                                               \
     static std::span<const ::wf::PropertyInfo> wfProperties() {                        \
