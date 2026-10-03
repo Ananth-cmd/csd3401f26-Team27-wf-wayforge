@@ -1,3 +1,8 @@
+// Types.cpp
+// The find functions and the shape maths.
+//AI declaration : Claude was used as a support tool for writing and debugging code and for the comments.
+
+
 #include "wf_doc/Types.hpp"
 #include <algorithm>
 #include <cmath>
@@ -6,6 +11,8 @@
 namespace wf {
 
     namespace {
+
+        //helpers
         template <class C> auto* findById(C& c, std::string_view id) 
         {
             auto it = std::find_if(c.begin(), c.end(), [&](const auto& e) { return e.id == id; });
@@ -14,15 +21,17 @@ namespace wf {
     }
 
     const Wall* Level::findWall(std::string_view id) const noexcept { return findById(walls, id); }
-    Wall* Level::findWall(std::string_view id)       noexcept { return findById(walls, id); }
-    const Room* Level::findRoom(std::string_view id) const noexcept { return findById(rooms, id); }
-    Room* Level::findRoom(std::string_view id)       noexcept { return findById(rooms, id); }
-    const Node* Level::findNode(std::string_view id) const noexcept { return findById(nodes, id); }
-    Node* Level::findNode(std::string_view id)       noexcept { return findById(nodes, id); }
-    Opening* Level::findOpening(std::string_view id)    noexcept { return findById(openings, id); }
-    const Level* Building::findLevel(std::string_view id) const noexcept { return findById(levels, id); }
-    Level* Building::findLevel(std::string_view id)       noexcept { return findById(levels, id); }
 
+    Wall* Level::findWall(std::string_view id) noexcept { return findById(walls, id); }
+    const Room* Level::findRoom(std::string_view id) const noexcept { return findById(rooms, id); }
+    Room* Level::findRoom(std::string_view id) noexcept { return findById(rooms, id); }
+    const Node* Level::findNode(std::string_view id) const noexcept { return findById(nodes, id); }
+    Node* Level::findNode(std::string_view id) noexcept { return findById(nodes, id); }
+    Opening* Level::findOpening(std::string_view id) noexcept { return findById(openings, id); }
+    const Level* Building::findLevel(std::string_view id) const noexcept { return findById(levels, id); }
+    Level* Building::findLevel(std::string_view id) noexcept { return findById(levels, id); }
+
+    //always +ve size of shape
     float polygonArea(std::span<const Vec2> p) noexcept 
     {
         float s = 0;
@@ -30,6 +39,7 @@ namespace wf {
         return std::fabs(s) * 0.5f;
     }
 
+    //shape middle
     Vec2 polygonCentroid(std::span<const Vec2> p) noexcept 
     {
         float a = 0;
@@ -53,6 +63,7 @@ namespace wf {
         return c * (1.f / (3.f * a));
     }
 
+    //simple point in polygon check
     bool pointInPolygon(const Vec2& pt, std::span<const Vec2> p) noexcept 
     {
         if (p.size() < 3) return false;
@@ -67,6 +78,7 @@ namespace wf {
         return in;
     }
 
+    //accurate outline of shape
     Rect polygonBounds(std::span<const Vec2> p) noexcept 
     {
         Rect r;
@@ -76,6 +88,7 @@ namespace wf {
         return r;
     }
 
+    //for door middle
     Vec2 openingPosition(const Wall& w, const Opening& o) noexcept 
     {
         return w.a + w.direction() * (o.offset + o.width * 0.5f);
