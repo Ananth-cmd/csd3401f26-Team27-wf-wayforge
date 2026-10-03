@@ -75,7 +75,7 @@ extern "C" {
     typedef struct wf_doc_t* wf_doc;
 
     /* --- lifecycle ------------------------------------------------------------ */
-    WF_API int         wf_ping(void);                        /* returns 42: the week-1 "the plugin loads" test */
+    WF_API int         wf_ping(void);                        /* returns 42: "the plugin loads" test */
     WF_API const char* wf_version(void);                     /* "0.1.0" */
     WF_API const char* wf_platform(void);                    /* "Windows" / "Linux" / "Android" / "macOS" */
     WF_API const char* wf_last_error(void);                  /* message from the last failed call, thread-local */
