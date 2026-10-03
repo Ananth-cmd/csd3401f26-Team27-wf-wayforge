@@ -1,7 +1,32 @@
-// Types.hpp
-// The data model of a building.wfb. Plain structs, all fields reflected.
-// A wall is a line plus numbers, not a mesh. An opening is an offset along its
-// wall, never a world position. stepFree lives on every edge and link.
+/*!
+ * \file Types.hpp
+ * \brief The data model of a building (the structs that make up a .wfb file)
+ *
+ * Defines everything a building is made of: Building at the top, then Levels
+ * (one per floor), and on each level the walls, openings, rooms, nodes, edges,
+ * POIs and anchors. Also the links between levels and the enums (door type,
+ * room kind...) with their text names. These are plain structs that only hold
+ * data. Every field is registered with the property system so it can be saved,
+ * loaded and edited without extra code per field.
+ *
+ * Links: Types.cpp implements the find functions and shape maths declared here;
+ * Serialize.cpp writes and reads these structs; Command.cpp and Document.cpp
+ * change them; Property.hpp provides the field registration macros.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Structs for the building, levels, walls, openings, rooms, nodes, edges,
+ *     POIs, anchors and links
+ *   - Enums and their text name tables
+ *   - Registering every struct with the property system
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *   
+ * \date 2026-09-08
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #pragma once
 #include <string>
 #include <vector>
@@ -13,6 +38,7 @@
 namespace wf 
 {
 
+    //Classifying different info with tags
     enum class OpeningType : uint8_t { Door, Window, Opening };
     enum class RoomKind : uint8_t { Unknown, Classroom, Lab, Office, Toilet, Corridor, Stair, Lift, Lobby, Food, Storage, Exit };
     enum class NodeKind : uint8_t { Room, Door, Corridor, Stair, Lift, Exit, Poi };
@@ -20,19 +46,21 @@ namespace wf
 
     template <> struct EnumNames<OpeningType> { static constexpr const char* names[] = { "door", "window", "opening", nullptr }; };
     template <> struct EnumNames<RoomKind> { static constexpr const char* names[] = { "unknown", "classroom", "lab", "office", "toilet", "corridor", "stair", "lift", "lobby", "food", "storage", "exit", nullptr }; };
-    template <> struct EnumNames<NodeKind> { static constexpr const char* names[] = { "room", "door", "corridor", "stair", "lift", "exit", "poi", nullptr }; };
+    template <> struct EnumNames<NodeKind> { static constexpr const char* names[] = { "room", "door", "corridor", "stair", "lift", "exit", "poi", nullptr }; }; //poi = points of intrest
     template <> struct EnumNames<LinkKind> { static constexpr const char* names[] = { "stair", "lift", "ramp", nullptr }; };
 
+    //Wall info 
     struct Wall
     {
         std::string id;
-        Vec2 a, b;
+        Vec2 a, b; 
         float thickness = 0.2f;
         float confidence = 1.f;
         WF_PROPERTIES(Wall, WF_PROP(id), WF_PROP(a), WF_PROP(b), WF_PROP(thickness), WF_PROP(confidence))
 
-            Vec2 centre() const noexcept { return (a + b) * 0.5f; }
-        float length() const noexcept { return wf::distance(a, b); }
+
+        Vec2 centre() const noexcept { return (a + b) * 0.5f; } //middle 
+        float length() const noexcept { return wf::distance(a, b); } 
         Vec2 direction() const noexcept { return normalize(b - a); }
     };
 
@@ -64,6 +92,7 @@ namespace wf
         WF_PROPERTIES(Room, WF_PROP(id), WF_PROP(code), WF_PROP(name), WF_PROP(kind), WF_PROP(centroid), WF_PROP(area), WF_PROP(confidence))
     };
 
+    //point user can walk to
     struct Node
     {
         std::string id;
@@ -90,9 +119,11 @@ namespace wf
         std::string label;
         WF_PROPERTIES(Poi, WF_PROP(id), WF_PROP(kind), WF_PROP(pos), WF_PROP(label))
     };
-
+    
+    //is this needed? Need more research
     struct Anchor
-    {                       // QR code / tap-to-start location
+    {                       
+        // QR code / tap-to-start location
         std::string id;
         Vec2 pos;
         std::string name;
@@ -100,6 +131,7 @@ namespace wf
         WF_PROPERTIES(Anchor, WF_PROP(id), WF_PROP(pos), WF_PROP(name), WF_PROP(heading))
     };
 
+    //a level of a building holds all the stuff above like rooms, walls nodes etc.
     struct Level
     {
         std::string id;                   // "L5"
@@ -108,7 +140,7 @@ namespace wf
         float ceilingHeight = 2.8f;
         WF_PROPERTIES(Level, WF_PROP(id), WF_PROP(name), WF_PROP(elevation), WF_PROP(ceilingHeight))
 
-            std::vector<Wall> walls;
+        std::vector<Wall> walls;
         std::vector<Opening> openings;
         std::vector<Room> rooms;
         std::vector<Node> nodes;
@@ -125,6 +157,7 @@ namespace wf
         const Node* findNode(std::string_view id) const noexcept;
     };
 
+    //lifts/stairs(default) by default false.
     struct Link
     {
         std::string a, b;
@@ -142,6 +175,7 @@ namespace wf
         WF_PROPERTIES(BuildingInfo, WF_PROP(name), WF_PROP(id), WF_PROP(unitsPerMetre))
     };
 
+    //Where file came from and its info.
     struct SourceInfo
     {
         std::string file;
@@ -150,6 +184,7 @@ namespace wf
         WF_PROPERTIES(SourceInfo, WF_PROP(file), WF_PROP(pixelsPerMetre), WF_PROP(rectified))
     };
 
+   //building highest in heirarchy
     struct Building
     {
         int version = 1;
@@ -162,7 +197,7 @@ namespace wf
         const Level* findLevel(std::string_view id) const noexcept;
     };
 
-    // Geometry helpers on the model ------------------------------------------------
+    // Geometry helpers on the model 
     float polygonArea(std::span<const Vec2> poly) noexcept;        // signed, CCW positive
     Vec2 polygonCentroid(std::span<const Vec2> poly) noexcept;
     bool pointInPolygon(const Vec2& p, std::span<const Vec2> poly) noexcept;
