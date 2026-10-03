@@ -34,13 +34,14 @@ namespace wf {
     Document::Document() = default;
     Document::Document(Building building) : m_building(std::move(building)) { rescanIds(); }
 
-    const Level* Document::level(int index) const noexcept 
+    const Level* Document::level(int index) const noexcept
     {
         if (index < 0 || index >= levelCount()) return nullptr;
         return &m_building.levels[static_cast<size_t>(index)];
     }
 
-    Level* Document::mutableLevel(int index) noexcept 
+    //same as level but writable and marks dirty, for commands
+    Level* Document::mutableLevel(int index) noexcept
     {
         if (index < 0 || index >= levelCount()) return nullptr;
         m_dirty = true;
@@ -51,7 +52,7 @@ namespace wf {
     bool Document::undo() { return m_commands.undo(*this); }
     bool Document::redo() { return m_commands.redo(*this); }
 
-    std::string Document::addWall(int level, Vec2 a, Vec2 b, float thickness, float confidence) 
+    std::string Document::addWall(int level, Vec2 a, Vec2 b, float thickness, float confidence)
     {
         Wall w; w.id = nextId("w"); w.a = a; w.b = b; w.thickness = thickness; w.confidence = confidence;
         std::string id = w.id;
@@ -59,7 +60,7 @@ namespace wf {
         return id;
     }
 
-    bool Document::deleteWall(int level, std::string_view wallId) 
+    bool Document::deleteWall(int level, std::string_view wallId)
     {
         const Level* l = this->level(level);
         if (!l || !l->findWall(wallId)) return false;
@@ -67,7 +68,7 @@ namespace wf {
         return true;
     }
 
-    bool Document::moveWall(int level, std::string_view wallId, Vec2 a, Vec2 b) 
+    bool Document::moveWall(int level, std::string_view wallId, Vec2 a, Vec2 b)
     {
         const Level* l = this->level(level);
         if (!l || !l->findWall(wallId)) return false;
@@ -75,7 +76,8 @@ namespace wf {
         return true;
     }
 
-    bool Document::setProperty(int level, ElementKind kind, std::string_view elementId, std::string_view property, PropertyValue value) 
+    //if the command failed (bad name or type) it gets removed so the undo stack stays clean
+    bool Document::setProperty(int level, ElementKind kind, std::string_view elementId, std::string_view property, PropertyValue value)
     {
         auto cmd = std::make_unique<SetPropertyCommand>(level, kind, std::string(elementId), std::string(property), std::move(value));
         SetPropertyCommand* raw = cmd.get();
@@ -84,7 +86,7 @@ namespace wf {
         return true;
     }
 
-    std::string Document::addOpening(int level, std::string_view wallId, OpeningType type, float offset, float width, float confidence) 
+    std::string Document::addOpening(int level, std::string_view wallId, OpeningType type, float offset, float width, float confidence)
     {
         const Level* l = this->level(level);
         if (!l || !l->findWall(wallId)) return {};
@@ -94,7 +96,7 @@ namespace wf {
         return id;
     }
 
-    bool Document::setRoomCode(int level, std::string_view roomId, std::string_view code, std::string_view name) 
+    bool Document::setRoomCode(int level, std::string_view roomId, std::string_view code, std::string_view name)
     {
         const Level* l = this->level(level);
         if (!l || !l->findRoom(roomId)) return false;
@@ -102,7 +104,8 @@ namespace wf {
         return true;
     }
 
-    void Document::replaceBuilding(Building building) 
+    //import, not undoable so undo history is cleared
+    void Document::replaceBuilding(Building building)
     {
         m_building = std::move(building);
         m_commands.clear();
@@ -110,17 +113,18 @@ namespace wf {
         m_dirty = true;
     }
 
-    int Document::addLevel(Level level) 
+    int Document::addLevel(Level level)
     {
         m_building.levels.push_back(std::move(level));
         m_dirty = true;
         return levelCount() - 1;
     }
 
-    void Document::rescanIds() 
+    //finds the highest id number in use so nextId never repeats one
+    void Document::rescanIds()
     {
         m_ids.reset();
-        for (auto& l : m_building.levels) 
+        for (auto& l : m_building.levels)
         {
             for (auto& w : l.walls)    m_ids.bump(idNumber(w.id));
             for (auto& o : l.openings) m_ids.bump(idNumber(o.id));
@@ -130,9 +134,9 @@ namespace wf {
         }
     }
 
-    Status Document::save(const std::filesystem::path& path) { return saveBuilding(m_building, path);}
+    Status Document::save(const std::filesystem::path& path) { return saveBuilding(m_building, path); }
 
-    Result<Document> Document::load(const std::filesystem::path& path) 
+    Result<Document> Document::load(const std::filesystem::path& path)
     {
         auto b = loadBuilding(path);
         if (!b) return Result<Document>::fail(b.error());
@@ -140,9 +144,9 @@ namespace wf {
         return doc;
     }
 
-    std::string Document::toJson(int indent) const { return buildingToJson(m_building).dump(indent, ' ', false, json::error_handler_t::replace);}
+    std::string Document::toJson(int indent) const { return buildingToJson(m_building).dump(indent, ' ', false, json::error_handler_t::replace); }
 
-    Result<Document> Document::fromJson(std::string_view json) 
+    Result<Document> Document::fromJson(std::string_view json)
     {
         auto b = buildingFromJsonText(json);
         if (!b) return Result<Document>::fail(b.error());

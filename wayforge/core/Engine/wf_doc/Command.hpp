@@ -82,7 +82,7 @@ namespace wf {
             int m_coalesceMs = 300;
     };
 
-    // ---- concrete commands ------------------------------------------------------
+    //  concrete commands 
     // All of them address elements by level index + element id so they stay valid
     // while other elements come and go.
 
