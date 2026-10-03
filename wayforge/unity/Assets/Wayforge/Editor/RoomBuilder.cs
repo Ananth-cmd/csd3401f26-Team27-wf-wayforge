@@ -1,20 +1,17 @@
 /*!
  * \file RoomBuilder.cs
- * \brief Builds the floor plan as a 3D model in the Unity scene
+ * \brief builds the plan as a 3D model in the scene
  *
- * Called by the Make 3D button in the Studio. Every room gets a coloured
- * floor in its real shape with its name on it, every wall becomes a 3 m
- * tall box, and every door gets a beam above the gap. 1 Unity unit = 1 m.
- * Ctrl+Z removes the model again.
- *
- * Used by: StudioWindow (Make 3D button).
+ * used by the Make 3D button. each room gets a coloured floor in its
+ * real shape + its name, walls are 3m tall boxes, and each door gets a
+ * beam above the gap. 1 unity unit = 1m. ctrl+z removes it.
  *
  * \author Katie Lim
  *
  * Contribution: Katie Lim 100%
- *   - Room floors, walls, door beams and room labels in 3D
+ *   - room floors, walls, door beams and labels in 3D
  *
- * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ * AI declaration: used Claude to help write and debug the code and comments.
  *
  * \date 2026-09-30
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
@@ -26,26 +23,21 @@ using UnityEngine;
 
 namespace Wayforge.Editor
 {
-    // Builds the plan in 3D: one object per room (a coloured floor in the room's shape and a label),
-    // then the walls, and a beam over each door.
-    //
-    //   Wayforge 3D
-    //     Rooms / Room A1 (classroom) / Floor, Label
-    //     Walls / Wall ...
-    //     Doors / Door ...
+    // builds the plan in 3D. each room gets a coloured floor + label,
+    // then the walls, then a beam over each door
     public static class RoomBuilder
     {
         const float WallHeight = 3f;        // metres
         const float WallThickness = 0.2f;
         const float DoorHeight = 2.1f;
-        const float FloorHeight = 0.02f;    // just above y = 0 so it doesn't flicker against a ground plane
+        const float FloorHeight = 0.02f;    // slightly above 0 so it doesnt flicker with the ground
         const float LabelHeight = 0.05f;
         const string RootName = "Wayforge 3D";
 
-        // Makes the whole 3D model from the plan
+        // make the whole 3D model
         public static void Build(WayforgeDocument doc)
         {
-            // Remove the model from last time so it doesn't pile up
+            // delete the old one first so they dont stack
             var old = GameObject.Find(RootName);
             if (old != null) Undo.DestroyObjectImmediate(old);
 
@@ -58,7 +50,7 @@ namespace Wayforge.Editor
             var doorColour = MakeMaterial(new Color(0.55f, 0.35f, 0.2f));
             var floorColours = new Dictionary<Color, Material>();
 
-            // Rooms: a floor in the room's real shape, in the room's colour, with its name on it
+            // rooms: floor in the real shape + colour, with the name on it
             foreach (var room in doc.Rooms)
             {
                 if (room.corners.Length < 3) continue;
@@ -73,26 +65,26 @@ namespace Wayforge.Editor
                 floor.transform.SetParent(roomObject.transform, false);
                 floor.AddComponent<MeshFilter>().sharedMesh = FloorMesh(room);
                 floor.AddComponent<MeshRenderer>().sharedMaterial = colour;
-                floor.AddComponent<MeshCollider>();   // so the room can be clicked in the Scene view
+                floor.AddComponent<MeshCollider>();   // so u can click it in the scene view
 
                 MakeLabel(roomObject, room);
             }
 
-            // Walls: one box per wall, from the floor to the ceiling
+            // walls: 1 box per wall, floor to ceiling
             foreach (var wall in doc.Walls)
                 MakeBoxAlong(walls, "Wall", wall.a, wall.b, 0f, WallHeight, wallColour);
 
-            // Doors: the wall has a gap, so put a beam above it from door height to the ceiling
+            // doors: wall already has a gap so just add a beam above it
             foreach (var door in doc.Doors)
                 MakeBoxAlong(doors, "Door", door.a, door.b, DoorHeight, WallHeight, doorColour);
 
-            // Ctrl+Z removes the model, and the Scene view zooms to it
+            // ctrl+z removes it, and zoom the scene view to it
             Undo.RegisterCreatedObjectUndo(root, "Make 3D");
             Selection.activeGameObject = root;
             if (SceneView.lastActiveSceneView != null) SceneView.lastActiveSceneView.FrameSelected();
         }
 
-        // An empty object to keep the scene tidy (Rooms, Walls, Doors)
+        // empty parent to keep the hierarchy tidy
         static GameObject MakeGroup(GameObject parent, string name)
         {
             var group = new GameObject(name);
@@ -100,14 +92,14 @@ namespace Wayforge.Editor
             return group;
         }
 
-        // A flat mesh in the shape of the room outline. The plan's (x, y) becomes Unity's (x, z).
+        // flat mesh in the room shape. plan (x, y) -> unity (x, z)
         static Mesh FloorMesh(RoomData room)
         {
             var vertices = new Vector3[room.corners.Length];
             for (int i = 0; i < vertices.Length; i++)
                 vertices[i] = new Vector3(room.corners[i].x, FloorHeight, room.corners[i].y);
 
-            // Triangles come counter-clockwise in the plan; Unity shows the clockwise side, so flip each one to face up
+            // triangles are anticlockwise but unity shows the clockwise side, so flip them to face up
             int[] plan = room.Triangles;
             var triangles = new int[plan.Length];
             for (int t = 0; t + 2 < plan.Length; t += 3)
@@ -123,7 +115,7 @@ namespace Wayforge.Editor
             return mesh;
         }
 
-        // The room's code (and type) lying flat on the floor, readable from above
+        // room code (+ type) lying flat on the floor so u can read it from above
         static void MakeLabel(GameObject parent, RoomData room)
         {
             var label = new GameObject("Label");
@@ -131,7 +123,7 @@ namespace Wayforge.Editor
             label.transform.position = new Vector3(room.Centre.x, LabelHeight, room.Centre.y);
             label.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
 
-            // Bigger rooms get bigger text: about an eighth of the room's size, between 0.25 m and 1 m tall
+            // bigger room = bigger text, between 0.25m and 1m
             float textHeight = Mathf.Clamp(Mathf.Sqrt(room.Area) * 0.12f, 0.25f, 1f);
             var text = label.AddComponent<TextMesh>();
             text.text = room.kind == "unknown" ? room.code : room.code + "\n" + room.kind;
@@ -142,20 +134,20 @@ namespace Wayforge.Editor
             text.color = new Color(0.1f, 0.1f, 0.1f);
         }
 
-        // A box that runs along the line from a to b, between two heights.
-        // The plan's (x, y) becomes Unity's (x, z).
+        // box along the line a to b, between 2 heights.
+        // plan (x, y) -> unity (x, z)
         static void MakeBoxAlong(GameObject parent, string name, Vector2 a, Vector2 b, float bottom, float top, Material colour)
         {
             float length = Vector2.Distance(a, b);
             if (length < 0.01f) return;
 
             Vector2 mid = (a + b) * 0.5f;
-            float angle = -Mathf.Atan2(b.y - a.y, b.x - a.x) * Mathf.Rad2Deg;   // turn the box to face along the line
+            float angle = -Mathf.Atan2(b.y - a.y, b.x - a.x) * Mathf.Rad2Deg;   // rotate it to face along the line
             MakeBox(parent, name, new Vector3(mid.x, (bottom + top) / 2f, mid.y),
                     new Vector3(length + WallThickness, top - bottom, WallThickness), angle, colour);
         }
 
-        // One Unity cube, moved, turned and stretched to the given size
+        // 1 cube, moved, rotated and stretched
         static void MakeBox(GameObject parent, string name, Vector3 position, Vector3 size, float angle, Material colour)
         {
             var box = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -167,7 +159,7 @@ namespace Wayforge.Editor
             box.GetComponent<MeshRenderer>().sharedMaterial = colour;
         }
 
-        // A plain coloured material
+        // plain coloured material
         static Material MakeMaterial(Color colour)
         {
             return new Material(Shader.Find("Standard")) { color = colour };

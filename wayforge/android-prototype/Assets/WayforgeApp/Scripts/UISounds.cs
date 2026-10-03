@@ -1,14 +1,31 @@
+/*!
+ * \file UISounds.cs
+ * \brief UI sounds for the app prototype
+ *
+ * plays prof vuk's sounds (Resources/Audio) on every interaction.
+ * starts by itself so i didnt have to touch the scene.
+ *   any button     -> UI-Hover_Light
+ *   any toggle     -> TileHover 2
+ *   new screen     -> UI Hover 2
+ *   arriving       -> TPL_Pickup_02
+ *
+ * \author Katie Lim
+ *
+ * Contribution: Katie Lim 100%
+ *   - hooking sounds to every button, toggle and screen change
+ *
+ * AI declaration: used Claude to help write and debug the code and comments.
+ *
+ * \date 2026-10-02
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace WayforgeApp
 {
-    // Plays the UI sounds (Resources/Audio) on every interaction. It starts by itself, so no scene changes are needed.
-    //   Any button          -> UI-Hover_Light
-    //   Any toggle          -> TileHover 2
-    //   A new screen opens  -> UI Hover 2
-    //   Arriving            -> TPL_Pickup_02
     public sealed class UISounds : MonoBehaviour
     {
         AudioSource source;
@@ -23,7 +40,7 @@ namespace WayforgeApp
 
         void Awake()
         {
-            // Sound needs one AudioListener (the "ears") in the scene; add it if the camera has none
+            // need 1 AudioListener in the scene or theres no sound, add one if the camera doesnt have it
             if (FindFirstObjectByType<AudioListener>() == null) gameObject.AddComponent<AudioListener>();
             source = gameObject.AddComponent<AudioSource>();
             tap = Resources.Load<AudioClip>("Audio/UI-Hover_Light");
@@ -34,7 +51,7 @@ namespace WayforgeApp
 
         void Update()
         {
-            // Twice a second, give a sound to any new button or toggle (place cards are made while the app runs)
+            // every 0.5s hook up any new buttons/toggles (place cards get made while the app runs)
             if (Time.unscaledTime >= nextScan)
             {
                 nextScan = Time.unscaledTime + 0.5f;
@@ -45,7 +62,7 @@ namespace WayforgeApp
                 if (app == null && (app = FindFirstObjectByType<CanvasNavigator>()) != null) lastScreen = app.CurrentScreen;
             }
 
-            // A different screen opened: arrival gets its own sound
+            // screen changed, arrival gets its own sound
             if (app != null && app.CurrentScreen != lastScreen)
             {
                 lastScreen = app.CurrentScreen;
