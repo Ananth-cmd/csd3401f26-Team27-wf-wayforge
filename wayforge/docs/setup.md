@@ -55,7 +55,8 @@ build/desktop/Sandbox/wf_cli/wf_cli --version
 
 ## 5. Unity
 
-Open `unity/` in Unity Hub. Menu `Wayforge > Check native plugin` should report the core version.
+Build the core first (step 3), so `wayforge.dll` is in `unity/Assets/Wayforge/Plugins/x86_64/`. Building in Visual Studio copies it there automatically (close Unity before building, it locks the dll).
+Then open `unity/` in Unity Hub and go to `Wayforge > Studio`. The sidebar shows `core 0.1.0` once a plan is loaded. If the Import / Open buttons are greyed out, the dll is missing.
 
 
 ## 6. Android library
