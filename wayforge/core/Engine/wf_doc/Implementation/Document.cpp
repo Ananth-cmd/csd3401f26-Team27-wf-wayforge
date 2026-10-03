@@ -1,3 +1,31 @@
+/*!
+ * \file Document.cpp
+ * \brief The code behind Document
+ *
+ * Each edit function checks the target exists, builds the command, and runs it
+ * through the stack, then returns the new id or true / false. setProperty also
+ * removes the command again if it failed so nothing empty stays on the stack.
+ * replaceBuilding is the import step and clears undo. After a building is
+ * loaded or imported, rescanIds makes sure new ids do not repeat old ones.
+ * Save, load and the JSON text functions pass through to Serialize.
+ *
+ * Links: implements what Document.hpp declares; uses Command.cpp for the
+ * commands and Serialize.cpp for the file work.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Level access and the command wrappers
+ *   - Import and add level
+ *   - Id rescan after load
+ *   - Save, load and JSON text
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #include "wf_doc/Document.hpp"
 #include "wf_doc/Serialize.hpp"
 

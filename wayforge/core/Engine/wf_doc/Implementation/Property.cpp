@@ -1,3 +1,29 @@
+/*!
+ * \file Property.cpp
+ * \brief The code behind the property system
+ *
+ * Finds a field in a list by name, reads a field, writes a field (only if the
+ * value is the right type, otherwise nothing changes), and turns values and
+ * types into text for error messages and compare reports.
+ *
+ * Links: implements what Property.hpp declares; used by Serialize.cpp for
+ * saving, loading and comparing, and by Command.cpp for SetPropertyCommand.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Lookup of a field by name
+ *   - Reading and writing a field by its position in the struct
+ *   - Type checking on write, and enum handling by name
+ *   - Value and type to text
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-08
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
+
 #include "wf_doc/Property.hpp"
 #include <cstdio>
 

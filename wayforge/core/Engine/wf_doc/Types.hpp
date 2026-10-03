@@ -1,8 +1,31 @@
-// Types.hpp
-// The data model of a building.wfb. Plain structs, all fields reflected.
-// A wall is a line plus numbers, not a mesh. An opening is an offset along its
-// wall, never a world position. stepFree lives on every edge and link.
-//AI declaration : Claude was used as a support tool for writing and debugging code and for the comments.
+/*!
+ * \file Types.hpp
+ * \brief The data model of a building (the structs that make up a .wfb file)
+ *
+ * Defines everything a building is made of: Building at the top, then Levels
+ * (one per floor), and on each level the walls, openings, rooms, nodes, edges,
+ * POIs and anchors. Also the links between levels and the enums (door type,
+ * room kind...) with their text names. These are plain structs that only hold
+ * data. Every field is registered with the property system so it can be saved,
+ * loaded and edited without extra code per field.
+ *
+ * Links: Types.cpp implements the find functions and shape maths declared here;
+ * Serialize.cpp writes and reads these structs; Command.cpp and Document.cpp
+ * change them; Property.hpp provides the field registration macros.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Structs for the building, levels, walls, openings, rooms, nodes, edges,
+ *     POIs, anchors and links
+ *   - Enums and their text name tables
+ *   - Registering every struct with the property system
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *   
+ * \date 2026-09-08
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
 
 #pragma once
 #include <string>
@@ -161,7 +184,7 @@ namespace wf
         WF_PROPERTIES(SourceInfo, WF_PROP(file), WF_PROP(pixelsPerMetre), WF_PROP(rectified))
     };
 
-   //buildign highest in heirarchy
+   //building highest in heirarchy
     struct Building
     {
         int version = 1;

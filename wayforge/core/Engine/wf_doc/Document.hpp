@@ -1,6 +1,32 @@
-// The Document: a Building plus its command stack and id generators.
-// All mutation goes through execute(); nothing outside the command classes
-// writes to document fields directly (Rule from build plan 9.3).
+/*!
+ * \file Document.hpp
+ * \brief The Document: a building together with its undo stack and ids
+ *
+ * The one place the rest of the project goes through to change a building.
+ * Holds the Building, the command stack and the id counter. Has short
+ * functions for the common edits (add / delete / move a wall, add an opening,
+ * set a property, tag a room) that build the right command and run it, so every
+ * change can be undone. Also loads and saves the .wfb file. Writing to the
+ * building directly (mutableBuilding, mutableLevel) skips undo and is only for
+ * the commands, the graph rebuild and loading.
+ *
+ * Links: Document.cpp has the code; Command.hpp provides the commands and the
+ * stack; Serialize.hpp does the file reading and writing; wf_api and Studio
+ * use this class as their entry point.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - The Document class and its read / write access rules
+ *   - Edit functions that wrap the commands
+ *   - Import, level adding, id handling, and save / load
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #pragma once
 #include <memory>
 #include <string>

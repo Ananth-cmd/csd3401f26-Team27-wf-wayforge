@@ -1,9 +1,31 @@
-// Undo is a first-class citizen, not an afterthought (High Level Vision deck).
-//
-// Every mutation of the document is an ICommand with Do() and Undo(), pushed on
-// the CommandStack. Two stacks, undo and redo; doing something new clears redo.
-// Consecutive commands of the same kind on the same target within ~300 ms are
-// coalesced so a 60-step drag is one undo step.
+/*!
+ * \file Command.hpp
+ * \brief Undo and redo: the command stack and the edit commands
+ *
+ * Every change to a building is a command with a Do and an Undo. Commands are
+ * kept on a stack so they can be undone and redone. Doing something new clears
+ * redo. Commands of the same kind on the same target within 300 ms are merged,
+ * so dragging a wall for a second is one undo step, not sixty. The commands are
+ * AddWall, DeleteWall, MoveWall, SetProperty, AddOpening and SetRoomCode. They
+ * find their target by level index and element id, so they stay valid while
+ * other elements are added or deleted.
+ *
+ * Links: Command.cpp has the code; Document.hpp owns the stack and builds the
+ * commands; SetPropertyCommand uses the property system from Property.hpp.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - The ICommand interface and the merge hooks
+ *   - The CommandStack (undo, redo, clear, merge window)
+ *   - The six edit commands
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #pragma once
 #include <memory>
 #include <string>

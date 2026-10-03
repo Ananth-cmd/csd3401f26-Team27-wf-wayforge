@@ -1,6 +1,27 @@
-// Types.cpp
-// The find functions and the shape maths.
-//AI declaration : Claude was used as a support tool for writing and debugging code and for the comments.
+/*!
+ * \file Types.cpp
+ * \brief Find-by-id functions and shape maths for the building model
+ *
+ * Looks up walls, rooms, nodes, openings and levels by id (returns null if
+ * there is none). Also the maths on shapes: area, centre, whether a point is
+ * inside, the box around a shape, and where the middle of a door is in the
+ * world.
+ *
+ * Links: implements what Types.hpp declares; the shape maths is used by
+ * wf_read when it builds rooms and by Studio when picking a room.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - The find functions on Level and Building
+ *   - Polygon area, centroid, point-in-polygon and bounds
+ *   - Opening position along a wall
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-08
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
 
 
 #include "wf_doc/Types.hpp"

@@ -1,3 +1,30 @@
+/*!
+ * \file Command.cpp
+ * \brief The code behind the undo stack and the edit commands
+ *
+ * The stack runs a command, clears redo, and either merges it into the one on
+ * top (same kind, same target, within the time window) or pushes it. Undo and
+ * redo move commands between the two stacks. Each command stores what it needs
+ * to reverse itself: DeleteWall keeps the wall and its openings, MoveWall keeps
+ * the old end points, SetProperty keeps the old value, SetRoomCode keeps the
+ * old code and name.
+ *
+ * Links: implements what Command.hpp declares; commands change the building
+ * through Document::mutableLevel (Document.cpp).
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Stack execute, undo, redo, clear and discard
+ *   - Merging of repeated moves and property edits
+ *   - Do and Undo for each of the six commands
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-09-21
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 #include "wf_doc/Command.hpp"
 #include "wf_doc/Document.hpp"
 #include <algorithm>
