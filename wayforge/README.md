@@ -14,12 +14,13 @@ The Unity tool (Wayforge Studio) needs `wayforge.dll`, which is built from the C
 **Build the core first, otherwise the Studio buttons stay greyed out.**
 
 1. **Close Unity** if it is open (Unity locks the dll so it can't be replaced).
-2. Open **Visual Studio** (2022 or newer, with "Desktop development with C++").
-3. **File > Open > Folder...** and pick `wayforge/core`. Visual Studio reads `CMakePresets.json` by itself.
-4. In the configuration dropdown at the top, pick **Desktop Debug (Ninja)** and wait for CMake to finish.
-5. **Build > Build All**.
-   After the build, `wayforge.dll` is **copied into `unity/Assets/Wayforge/Plugins/x86_64/` automatically**, so nothing has to be copied by hand.
-6. Open the `unity/` folder in **Unity Hub** (Unity 6, 6000.6).
+2. Open Visual Studio (2022 or newer, with "Desktop development with C++").
+3. File > Open > Folder... and pick the whole `wf-wayforge` folder (the repo root).
+4. Visual Studio asks to enable CMake: click Enable and set source directory and pick
+`wayforge/core` (the folder with CMakeLists.txt and `CMakePresets.json`).
+5. In the configuration dropdown pick Desktop Debug (Ninja) and wait for "CMake generation finished".
+6. Build > Build All. wayforge.dll is copied into
+wayforge/unity/Assets/Wayforge/Plugins/x86_64/ automatically.
 7. In Unity: **Wayforge > Studio**, then **Import image** and pick `data/plans/simple_scan.png`, then **Make 3D**.
 
 Shortcut: `core\script_build_and_run.bat` does the build, runs the tests and copies the dll in one go.
