@@ -61,7 +61,7 @@ AI declaration: Claude Opus was used as a support tool for debugging, build infr
 #include <algorithm>
 #include <filesystem>
 
-// Set to 1 once wf_graph is written. While it is 0, the routing functions just return -1.
+// Keep this at 0 until the graph/routing part is ready.
 #define WF_API_WITH_GRAPH 0
 
 struct wf_doc_t {
@@ -78,8 +78,10 @@ namespace {
 
     thread_local std::string g_lastError;
 
+    // Saves the latest error message.
     void setError(std::string msg) { g_lastError = std::move(msg); }
 
+    // Copies a C++ string into the output buffer.
     int copyOut(const std::string& s, char* out, int cap) {
         if (!out || cap <= 0) return -1;
         const int n = static_cast<int>(std::min<size_t>(s.size(), static_cast<size_t>(cap - 1)));
@@ -88,6 +90,7 @@ namespace {
         return n;
     }
 
+    // Gets a level safely and reports an error if it is invalid.
     const wf::Level* levelOf(wf_doc d, int level) {
         if (!d) { setError("null document"); return nullptr; }
         const wf::Level* l = d->doc.level(level);
@@ -95,11 +98,13 @@ namespace {
         return l;
     }
 
+    // Converts the API element number into an ElementKind.
     wf::ElementKind toKind(int k, bool& ok) {
         ok = k >= 0 && k <= 6;
         return static_cast<wf::ElementKind>(k);
     }
 
+    // Gets the properties for the selected element type.
     std::span<const wf::PropertyInfo> propsFor(int kind) {
         switch (kind) {
         case 0: return wf::propertiesOf<wf::Wall>();
@@ -113,7 +118,8 @@ namespace {
         }
     }
 
-    // Convert "0.3" / "true" / "1,2" / "door" into the right PropertyValue for a property.
+    // Convert text into the property type expected by Wayforge.
+    // Converts a text value into the correct property type.
     bool parseValue(const wf::PropertyInfo& p, const char* text, wf::PropertyValue& out) {
         if (!text) return false;
         const std::string s(text);
@@ -137,6 +143,7 @@ namespace {
     }
 
 #if WF_API_WITH_GRAPH
+    // Copies a calculated route into the output buffer.
     int writeRoute(wf_doc d, const wf::Result<wf::graph::Route>& r, const wf::Building& b, float* out, int maxFloats, float* costOut) {
         if (!r) { setError(r.error()); return -1; }
         d->lastRoute = *r;
@@ -151,6 +158,7 @@ namespace {
     }
 
 #else
+    // Returns an error while routing support is disabled.
     int graphMissing() { setError("routing needs wf_graph, which is not written yet"); return -1; }
 #endif
 } // namespace
@@ -159,11 +167,16 @@ namespace {
 #define WF_CATCH(ret) } catch (const std::exception& e) { setError(e.what()); return ret; } catch (...) { setError("unknown exception"); return ret; }
 
 // lifecycle 
+// Simple check to confirm that the plugin loaded correctly.
 WF_API int         wf_ping(void) { return 42; }
+// Returns the current Wayforge version.
 WF_API const char* wf_version(void) { return wf::kVersionString; }
+// Returns the current platform name.
 WF_API const char* wf_platform(void) { return wf::platformName(); }
+// Returns the last error message from this thread.
 WF_API const char* wf_last_error(void) { return g_lastError.c_str(); }
 
+// Converts an SVG floor plan into a Wayforge document.
 WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
@@ -185,26 +198,27 @@ WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
     WF_CATCH(nullptr)
 }
 
-// Floor plan picture -> walls, doors and rooms.
-// wf_image cleans the picture, wf_vector traces the lines, wf_read finds walls, doors and rooms.
-// widthMetres = real width of the drawing (0 means 1 pixel = 2 cm).
+// Floor plan picture -> walls, openings and rooms.
+// Clean the image, trace its lines and turn them into floor plan data.
+// widthMetres is the real width. 0 uses the default 2 cm per pixel.
+// Converts a floor plan image into a Wayforge document.
 WF_API wf_doc wf_convert_image(const char* path, float widthMetres) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
     auto image = wf::img::load(path);
     if (!image) { setError(image.error()); return nullptr; }
 
-    // dark lines -> thin lines -> straight segments
+    // Clean the dark lines and turn them into straight segments.
     auto ink = wf::img::adaptiveThreshold(*image);
     auto segs = wf::vec::fitPolylines(wf::vec::traceSkeleton(wf::vec::thin(ink)), 1.5f, 3.f);
     if (segs.empty()) { setError("no lines found in the image"); return nullptr; }
 
-    // pixels -> metres (the image's y goes down, the plan's y goes up)
+    // Convert pixels into metres and flip the image Y direction.
     float width = wf::vec::bounds(segs).size().x;
     float metresPerPixel = (widthMetres > 0.f && width > 0.f) ? widthMetres / width : 0.02f;
     segs = wf::vec::clean(wf::vec::scale(segs, metresPerPixel, {}, true, static_cast<float>(image->height)));
 
-    // segments -> walls, doors, rooms
+    // Turn the line segments into walls, openings and rooms.
     wf::Building b;
     b.building.name = std::filesystem::path(path).stem().string();
     wf::Level level; level.id = "L1"; level.name = "Level 1";
@@ -216,6 +230,7 @@ WF_API wf_doc wf_convert_image(const char* path, float widthMetres) {
     WF_CATCH(nullptr)
 }
 
+// Opens a saved plan or converts an SVG file.
 WF_API wf_doc wf_open_plan(const char* path) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
@@ -227,6 +242,7 @@ WF_API wf_doc wf_open_plan(const char* path) {
     WF_CATCH(nullptr)
 }
 
+// Creates a new empty Wayforge document.
 WF_API wf_doc wf_new_doc(const char* name) {
     WF_TRY
         wf::Building b; b.building.name = name ? name : "Untitled";
@@ -234,8 +250,10 @@ WF_API wf_doc wf_new_doc(const char* name) {
     WF_CATCH(nullptr)
 }
 
+// Closes a document and frees its memory.
 WF_API void wf_close(wf_doc d) { delete d; }
 
+// Saves the document to a file.
 WF_API int wf_save(wf_doc d, const char* path) {
     WF_TRY
         if (!d || !path) { setError("null argument"); return -1; }
@@ -244,13 +262,17 @@ WF_API int wf_save(wf_doc d, const char* path) {
     return 0;
     WF_CATCH(-1)
 }
+// Checks if the document has unsaved changes.
 WF_API int wf_is_dirty(wf_doc d) { return d ? (d->doc.dirty() ? 1 : 0) : -1; }
 
 // levels 
+// Returns the number of levels in the document.
 WF_API int wf_level_count(wf_doc d) { return d ? d->doc.levelCount() : -1; }
+// Copies the selected level ID into the output buffer.
 WF_API int wf_get_level_id(wf_doc d, int level, char* out, int cap) {
     WF_TRY const wf::Level* l = levelOf(d, level); if (!l) return -1; return copyOut(l->id, out, cap); WF_CATCH(-1)
 }
+// Adds a new level to the building.
 WF_API int wf_add_level(wf_doc d, const char* id, const char* name, float elevation) {
     WF_TRY
         if (!d || !id) { setError("null argument"); return -1; }
@@ -260,7 +282,9 @@ WF_API int wf_add_level(wf_doc d, const char* id, const char* name, float elevat
 }
 
 // walls 
+// Returns the number of walls on a level.
 WF_API int wf_wall_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->walls.size()) : -1; WF_CATCH(-1) }
+// Copies wall positions and thickness values into the output buffer.
 WF_API int wf_get_walls(wf_doc d, int level, float* out, int maxFloats) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
@@ -272,6 +296,7 @@ WF_API int wf_get_walls(wf_doc d, int level, float* out, int maxFloats) {
     return n;
     WF_CATCH(-1)
 }
+// Copies the confidence value for each wall.
 WF_API int wf_get_wall_confidence(wf_doc d, int level, float* out, int maxFloats) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
@@ -279,6 +304,7 @@ WF_API int wf_get_wall_confidence(wf_doc d, int level, float* out, int maxFloats
     return n;
     WF_CATCH(-1)
 }
+// Copies the ID of one wall.
 WF_API int wf_get_wall_id(wf_doc d, int level, int i, char* out, int cap) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l) return -1;
@@ -286,6 +312,7 @@ WF_API int wf_get_wall_id(wf_doc d, int level, int i, char* out, int cap) {
     return copyOut(l->walls[static_cast<size_t>(i)].id, out, cap);
     WF_CATCH(-1)
 }
+// Adds a wall to the selected level.
 WF_API int wf_add_wall(wf_doc d, int level, float ax, float ay, float bx, float by, float t, char* idOut, int idCap) {
     WF_TRY
         if (!levelOf(d, level)) return -1;
@@ -294,6 +321,7 @@ WF_API int wf_add_wall(wf_doc d, int level, float ax, float ay, float bx, float 
     return 0;
     WF_CATCH(-1)
 }
+// Moves an existing wall to new endpoints.
 WF_API int wf_move_wall(wf_doc d, int level, const char* wallId, float ax, float ay, float bx, float by) {
     WF_TRY
         if (!levelOf(d, level) || !wallId) return -1;
@@ -301,6 +329,7 @@ WF_API int wf_move_wall(wf_doc d, int level, const char* wallId, float ax, float
     return 0;
     WF_CATCH(-1)
 }
+// Deletes a wall using its ID.
 WF_API int wf_delete_wall(wf_doc d, int level, const char* wallId) {
     WF_TRY
         if (!levelOf(d, level) || !wallId) return -1;
@@ -310,7 +339,9 @@ WF_API int wf_delete_wall(wf_doc d, int level, const char* wallId) {
 }
 
 // openings 
+// Returns the number of openings on a level.
 WF_API int wf_opening_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->openings.size()) : -1; WF_CATCH(-1) }
+// Copies opening position, width and type into the output buffer.
 WF_API int wf_get_openings(wf_doc d, int level, float* out, int maxFloats) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
@@ -325,15 +356,18 @@ WF_API int wf_get_openings(wf_doc d, int level, float* out, int maxFloats) {
     WF_CATCH(-1)
 }
 
-// rooms
+// Room functions.
 namespace {
+    // Gets a room safely using its index.
     const wf::Room* roomAt(wf_doc d, int level, int i) {
         const wf::Level* l = levelOf(d, level); if (!l) return nullptr;
         if (i < 0 || i >= static_cast<int>(l->rooms.size())) { setError("room index out of range"); return nullptr; }
         return &l->rooms[static_cast<size_t>(i)];
     }
 }
+// Returns the number of rooms on a level.
 WF_API int wf_room_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->rooms.size()) : -1; WF_CATCH(-1) }
+// Gets the main information for one room.
 WF_API int wf_get_room(wf_doc d, int level, int i, char* codeOut, int codeCap, float* centroidOut, float* confOut) {
     WF_TRY
         const wf::Room* r = roomAt(d, level, i); if (!r) return -1;
@@ -343,8 +377,11 @@ WF_API int wf_get_room(wf_doc d, int level, int i, char* codeOut, int codeCap, f
     return 0;
     WF_CATCH(-1)
 }
+// Copies the ID of one room.
 WF_API int wf_get_room_id(wf_doc d, int level, int i, char* out, int cap) { WF_TRY const wf::Room* r = roomAt(d, level, i); return r ? copyOut(r->id, out, cap) : -1; WF_CATCH(-1) }
+// Returns the type of the selected room.
 WF_API int wf_get_room_kind(wf_doc d, int level, int i) { WF_TRY const wf::Room* r = roomAt(d, level, i); return r ? static_cast<int>(r->kind) : -1; WF_CATCH(-1) }
+// Copies the room polygon as x and y pairs.
 WF_API int wf_get_room_polygon(wf_doc d, int level, int i, float* out, int maxFloats) {
     WF_TRY
         const wf::Room* r = roomAt(d, level, i); if (!r || !out) return -1;
@@ -352,6 +389,7 @@ WF_API int wf_get_room_polygon(wf_doc d, int level, int i, float* out, int maxFl
     return n;
     WF_CATCH(-1)
 }
+// Changes the room code and name.
 WF_API int wf_set_room_code(wf_doc d, int level, int i, const char* code, const char* name) {
     WF_TRY
         const wf::Room* r = roomAt(d, level, i); if (!r) return -1;
@@ -359,6 +397,7 @@ WF_API int wf_set_room_code(wf_doc d, int level, int i, const char* code, const 
     return 0;
     WF_CATCH(-1)
 }
+// Changes the room type.
 WF_API int wf_set_room_kind(wf_doc d, int level, int i, const char* kindName) {
     WF_TRY
         const wf::Room* r = roomAt(d, level, i); if (!r || !kindName) return -1;
@@ -368,7 +407,9 @@ WF_API int wf_set_room_kind(wf_doc d, int level, int i, const char* kindName) {
 }
 
 // properties 
+// Returns the number of properties for an element type.
 WF_API int wf_property_count(int kind) { return static_cast<int>(propsFor(kind).size()); }
+// Gets the name and type of a property.
 WF_API int wf_property_name(int kind, int i, char* nameOut, int cap, char* typeOut, int typeCap) {
     WF_TRY
         auto props = propsFor(kind);
@@ -378,6 +419,7 @@ WF_API int wf_property_name(int kind, int i, char* nameOut, int cap, char* typeO
     return 0;
     WF_CATCH(-1)
 }
+// Reads a property and returns it as text.
 WF_API int wf_get_property(wf_doc d, int level, int kind, const char* id, const char* prop, char* out, int cap) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !prop) return -1;
@@ -398,6 +440,7 @@ WF_API int wf_get_property(wf_doc d, int level, int kind, const char* id, const 
     return copyOut(wf::propertyValueToString(wf::getPropertyRaw(obj, *p), p), out, cap);
     WF_CATCH(-1)
 }
+// Sets a property using a text value.
 WF_API int wf_set_property(wf_doc d, int level, int kind, const char* id, const char* prop, const char* value) {
     WF_TRY
         if (!levelOf(d, level) || !prop) return -1;
@@ -413,25 +456,34 @@ WF_API int wf_set_property(wf_doc d, int level, int kind, const char* id, const 
 }
 
 // undo 
+// Undoes the last document change.
 WF_API int wf_undo(wf_doc d) { WF_TRY if (!d) return -1; return d->doc.undo() ? 0 : 1; WF_CATCH(-1) }
+// Redoes the last undone change.
 WF_API int wf_redo(wf_doc d) { WF_TRY if (!d) return -1; return d->doc.redo() ? 0 : 1; WF_CATCH(-1) }
+// Checks if there is anything available to undo.
 WF_API int wf_can_undo(wf_doc d) { return d ? (d->doc.commands().canUndo() ? 1 : 0) : -1; }
+// Checks if there is anything available to redo.
 WF_API int wf_can_redo(wf_doc d) { return d ? (d->doc.commands().canRedo() ? 1 : 0) : -1; }
 
 // graph / routing 
 #if WF_API_WITH_GRAPH
+// Builds the navigation graph for the document.
 WF_API int wf_build_graph(wf_doc d) {
     WF_TRY
         if (!d) { setError("null document"); return -1; }
+    // Start node IDs higher so they do not clash with wall or room IDs.
     wf::IdGenerator ids; ids.bump(100000);          // node ids must not collide with existing wall/room ids
     wf::graph::buildGraph(d->doc.mutableBuilding(), ids, {});
     return 0;
     WF_CATCH(-1)
 }
 #else
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_build_graph(wf_doc) { return graphMissing(); }
 #endif
+// Returns the number of navigation nodes on a level.
 WF_API int wf_node_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->nodes.size()) : -1; WF_CATCH(-1) }
+// Copies node position and type into the output buffer.
 WF_API int wf_get_nodes(wf_doc d, int level, float* out, int maxFloats) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
@@ -439,15 +491,19 @@ WF_API int wf_get_nodes(wf_doc d, int level, float* out, int maxFloats) {
     return n;
     WF_CATCH(-1)
 }
+// Returns the number of navigation edges on a level.
 WF_API int wf_edge_count(wf_doc d, int level) { WF_TRY const wf::Level* l = levelOf(d, level); return l ? static_cast<int>(l->edges.size()) : -1; WF_CATCH(-1) }
+// Copies graph edge information into the output buffer.
 WF_API int wf_get_edges(wf_doc d, int level, int* out, int maxInts) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
+    // Convert each node ID into its position in the node list.
     auto index = [&](const std::string& id) { for (size_t i = 0; i < l->nodes.size(); ++i) if (l->nodes[i].id == id) return static_cast<int>(i); return -1; };
     int n = 0; for (const auto& e : l->edges) { if (n + 3 > maxInts) break; out[n++] = index(e.a); out[n++] = index(e.b); out[n++] = e.stepFree ? 1 : 0; }
     return n;
     WF_CATCH(-1)
 }
+// Adds a link between two navigation references.
 WF_API int wf_add_link(wf_doc d, const char* a, const char* b, const char* kind, int stepFree, float cost) {
     WF_TRY
         if (!d || !a || !b) { setError("null argument"); return -1; }
@@ -458,12 +514,14 @@ WF_API int wf_add_link(wf_doc d, const char* a, const char* b, const char* kind,
     WF_CATCH(-1)
 }
 #if WF_API_WITH_GRAPH
+// Finds a route between two nodes.
 WF_API int wf_route(wf_doc d, const char* from, const char* to, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
     WF_TRY
         if (!d || !from || !to || !out) { setError("null argument"); return -1; }
     return writeRoute(d, wf::graph::findRoute(d->doc.building(), from, to, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
     WF_CATCH(-1)
 }
+// Finds a route from a node to a room.
 WF_API int wf_route_to_room(wf_doc d, const char* from, const char* roomCode, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
     WF_TRY
         if (!d || !from || !roomCode || !out) { setError("null argument"); return -1; }
@@ -472,12 +530,14 @@ WF_API int wf_route_to_room(wf_doc d, const char* from, const char* roomCode, in
     return writeRoute(d, wf::graph::findRoute(d->doc.building(), from, *ref, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
     WF_CATCH(-1)
 }
+// Finds a route from a node to an exit.
 WF_API int wf_egress(wf_doc d, const char* from, int stepFreeOnly, float* out, int maxFloats, float* costOut) {
     WF_TRY
         if (!d || !from || !out) { setError("null argument"); return -1; }
     return writeRoute(d, wf::graph::findEgress(d->doc.building(), from, { stepFreeOnly != 0 }), d->doc.building(), out, maxFloats, costOut);
     WF_CATCH(-1)
 }
+// Finds the navigation node linked to a room.
 WF_API int wf_node_for_room(wf_doc d, const char* room, char* out, int cap) {
     WF_TRY
         if (!d || !room) { setError("null argument"); return -1; }
@@ -486,6 +546,7 @@ WF_API int wf_node_for_room(wf_doc d, const char* room, char* out, int cap) {
     return copyOut(*ref, out, cap);
     WF_CATCH(-1)
 }
+// Finds the nearest navigation node to a position.
 WF_API int wf_nearest_node(wf_doc d, const char* levelId, float x, float y, char* out, int cap) {
     WF_TRY
         if (!d || !levelId) { setError("null argument"); return -1; }
@@ -495,20 +556,27 @@ WF_API int wf_nearest_node(wf_doc d, const char* levelId, float x, float y, char
     WF_CATCH(-1)
 }
 #else
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_route(wf_doc, const char*, const char*, int, float*, int, float*) { return graphMissing(); }
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_route_to_room(wf_doc, const char*, const char*, int, float*, int, float*) { return graphMissing(); }
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_egress(wf_doc, const char*, int, float*, int, float*) { return graphMissing(); }
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_node_for_room(wf_doc, const char*, char*, int) { return graphMissing(); }
+// Returns the graph-disabled error when routing is not available.
 WF_API int wf_nearest_node(wf_doc, const char*, float, float, char*, int) { return graphMissing(); }
 #endif
 
 // app helpers 
 namespace {
-    // "L1:r3" -> level + room
+    // Room references use the form "L1:r3".
+    // Looks up a room from a reference such as L1:r3.
     std::pair<const wf::Level*, const wf::Room*> splitRoomRef(const wf::Building& b, const char* ref) {
         if (!ref) return { nullptr, nullptr };
         const std::string s(ref); const size_t c = s.find(':');
         const wf::Level* l = c == std::string::npos ? nullptr : b.findLevel(s.substr(0, c));
+        // If there is no level prefix, also try it as a room code or ID.
         if (!l) { // maybe a bare room code
             for (const auto& lv : b.levels) for (const auto& r : lv.rooms) if (r.code == s || r.id == s) return { &lv, &r };
             return { nullptr, nullptr };
@@ -517,6 +585,7 @@ namespace {
     }
 }
 #if WF_API_WITH_GRAPH
+// Creates turn-by-turn instructions from the last route.
 WF_API int wf_instructions(wf_doc d, char* out, int cap) {
     WF_TRY
         if (!d || !out) { setError("null argument"); return -1; }
@@ -527,6 +596,7 @@ WF_API int wf_instructions(wf_doc d, char* out, int cap) {
     return static_cast<int>(list.size());
     WF_CATCH(-1)
 }
+// Searches rooms by code or name.
 WF_API int wf_search_rooms(wf_doc d, const char* query, char* out, int cap) {
     WF_TRY
         if (!d || !out) { setError("null argument"); return -1; }
@@ -541,9 +611,12 @@ WF_API int wf_search_rooms(wf_doc d, const char* query, char* out, int cap) {
     WF_CATCH(-1)
 }
 #else
+// Returns the graph-disabled error when instructions are not available.
 WF_API int wf_instructions(wf_doc, char*, int) { return graphMissing(); }
+// Returns the graph-disabled error when room search is not available.
 WF_API int wf_search_rooms(wf_doc, const char*, char*, int) { return graphMissing(); }
 #endif
+// Gets room information from a room reference or code.
 WF_API int wf_room_info(wf_doc d, const char* ref, char* codeOut, int codeCap, char* nameOut, int nameCap, int* kindOut, float* centroidOut) {
     WF_TRY
         if (!d) { setError("null document"); return -1; }
@@ -556,6 +629,7 @@ WF_API int wf_room_info(wf_doc d, const char* ref, char* codeOut, int codeCap, c
     return 0;
     WF_CATCH(-1)
 }
+// Writes all points of interest on a level into the output buffer.
 WF_API int wf_pois(wf_doc d, int level, char* out, int cap) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l || !out) return -1;
@@ -565,6 +639,7 @@ WF_API int wf_pois(wf_doc d, int level, char* out, int cap) {
     return static_cast<int>(l->pois.size());
     WF_CATCH(-1)
 }
+// Adds a point of interest to a level.
 WF_API int wf_add_poi(wf_doc d, int level, const char* kind, const char* label, float x, float y) {
     WF_TRY
         if (!levelOf(d, level)) return -1;
@@ -573,6 +648,7 @@ WF_API int wf_add_poi(wf_doc d, int level, const char* kind, const char* label, 
     return 0;
     WF_CATCH(-1)
 }
+// Gets the name, elevation and height of a level.
 WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float* elevationOut, float* heightOut) {
     WF_TRY
         const wf::Level* l = levelOf(d, level); if (!l) return -1;
@@ -582,6 +658,7 @@ WF_API int wf_level_info(wf_doc d, int level, char* nameOut, int nameCap, float*
     return 0;
     WF_CATCH(-1)
 }
+// Copies the building name into the output buffer.
 WF_API int wf_building_name(wf_doc d, char* out, int cap) {
     WF_TRY if (!d) { setError("null document"); return -1; } return copyOut(d->doc.building().building.name, out, cap); WF_CATCH(-1)
 }
