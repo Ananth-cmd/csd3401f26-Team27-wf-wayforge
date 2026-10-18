@@ -6,13 +6,16 @@
  * work out by hand: rectangle sums from the integral image, a dark line
  * surviving the adaptive threshold on an uneven background, a known
  * homography (and its inverse), straightening a tilted shape, and saving
- * then re-loading a PNG through stb. Returns 0 if everything passed, so
+ * then re-loading a PNG through stb, drawing lines / polygons, and tidying
+ * a plan (an annotation outside the building, a letter inside a room).
+ * Returns 0 if everything passed, so
  * CTest marks the test green; any failure prints the line and returns 1.
  *
  * \author Ananthan Elangovan (ananthan.e@digipen.edu)
  *
  * Contribution: Ananthan Elangovan 100%
  *   - Hand-checkable cases for every public function in wf_image
+ *   - Blueprint tidy-up and debug drawing checks (Tidy.cpp, Draw.cpp)
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
  *
@@ -91,6 +94,30 @@ int main() {
     CHECK(back.ok());
     if (back) { CHECK(back->width == 64 && back->height == 64); CHECK(countInk(*back) == countInk(bin)); }   // Same size, same ink.
     CHECK(!load("/nope/missing.png").ok());   // A missing file gives an error, not a crash.
+
+    // drawing (debug pictures) and tidying (real blueprints)
+    {
+        Image8 plan(200, 100, 255);                                  // white paper
+        drawLine(plan, {20, 20}, {180, 20}, 0, 3);                   // a "building": 3 px walls, all joined
+        drawLine(plan, {180, 20}, {180, 80}, 0, 3);
+        drawLine(plan, {180, 80}, {20, 80}, 0, 3);
+        drawLine(plan, {20, 80}, {20, 20}, 0, 3);
+        CHECK(plan.at(100, 20) == 0 && plan.at(100, 21) == 0 && plan.at(100, 50) == 255);
+        fillPolygon(plan, { {60, 40}, {66, 40}, {66, 46}, {60, 46} }, 0);   // a 6 px "letter" inside a room
+        CHECK(plan.at(63, 43) == 0);
+        drawLine(plan, {5, 95}, {15, 95}, 0, 2);                     // an annotation outside the building box
+        const size_t inkBefore = countInk(plan);
+
+        int removed = -1;
+        Image8 kept = keepMainDrawing(plan, &removed);
+        CHECK(removed == 1);                                         // only the annotation goes
+        CHECK(kept.at(10, 95) == 255 && kept.at(63, 43) == 0);       // the letter is inside the box: kept here
+        Image8 tidy = removeSmallBlobs(kept, 10, &removed);
+        CHECK(removed == 1);                                         // the letter goes
+        CHECK(tidy.at(63, 43) == 255);
+        CHECK(tidy.at(100, 20) == 0);                                // the walls stay (bigger than 10 px)
+        CHECK(countInk(tidy) < inkBefore && countInk(tidy) > 400);
+    }
 
     if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }
     std::cout << "wf_image: all checks passed\n";

@@ -55,6 +55,7 @@ AI declaration: Claude Opus was used as a support tool for debugging, build infr
 #include "wf_image/wf_image.hpp"
 #include "wf_vector/wf_vector.hpp"
 #include "wf_read/wf_read.hpp"
+#include "wf_read/Convert.hpp"
 #include "wf_graph/wf_graph.hpp"
 #include <cstring>
 #include <string>
@@ -62,7 +63,7 @@ AI declaration: Claude Opus was used as a support tool for debugging, build infr
 #include <filesystem>
 
 // Keep this at 0 until the graph/routing part is ready.
-#define WF_API_WITH_GRAPH 0
+#define WF_API_WITH_GRAPH 1
 
 struct wf_doc_t {
     wf::Document doc;
@@ -180,21 +181,15 @@ WF_API const char* wf_last_error(void) { return g_lastError.c_str(); }
 WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
-    auto svg = wf::vec::importSvg(path);
-    if (!svg) { setError(svg.error()); return nullptr; }
-    auto segs = wf::vec::scale(svg->segments, metresPerUnit, {}, true, svg->height);
-    segs = wf::vec::clean(segs);
-    wf::Building b;
-    b.building.name = std::filesystem::path(path).stem().string();
+    // Shared converter (wf_read/Convert.hpp), same as wf_cli.
+    wf::IdGenerator ids;
+    auto level = wf::read::convertSvg(path, metresPerUnit, ids);
+    if (!level) { setError(level.error()); return nullptr; }
+    std::vector<wf::Level> floors{ std::move(*level) };
+    wf::Building b = wf::read::assembleBuilding(std::move(floors), std::filesystem::path(path).stem().string());
     b.source.file = std::filesystem::path(path).filename().string();
     b.source.pixelsPerMetre = metresPerUnit > 0 ? 1.f / metresPerUnit : 0.f;
-    wf::Level level; level.id = "L1"; level.name = "Level 1";
-    wf::IdGenerator ids;
-    auto st = wf::read::interpret(segs, level, ids, {});
-    if (!st) { setError(st.error()); return nullptr; }
-    b.levels.push_back(std::move(level));
-    auto* h = new wf_doc_t{ wf::Document(std::move(b)), {} };
-    return h;
+    return new wf_doc_t{ wf::Document(std::move(b)), {} };
     WF_CATCH(nullptr)
 }
 
@@ -205,27 +200,15 @@ WF_API wf_doc wf_convert_svg(const char* path, float metresPerUnit) {
 WF_API wf_doc wf_convert_image(const char* path, float widthMetres) {
     WF_TRY
         if (!path) { setError("null path"); return nullptr; }
-    auto image = wf::img::load(path);
-    if (!image) { setError(image.error()); return nullptr; }
-
-    // Clean the dark lines and turn them into straight segments.
-    auto ink = wf::img::adaptiveThreshold(*image);
-    auto segs = wf::vec::fitPolylines(wf::vec::traceSkeleton(wf::vec::thin(ink)), 1.5f, 3.f);
-    if (segs.empty()) { setError("no lines found in the image"); return nullptr; }
-
-    // Convert pixels into metres and flip the image Y direction.
-    float width = wf::vec::bounds(segs).size().x;
-    float metresPerPixel = (widthMetres > 0.f && width > 0.f) ? widthMetres / width : 0.02f;
-    segs = wf::vec::clean(wf::vec::scale(segs, metresPerPixel, {}, true, static_cast<float>(image->height)));
-
-    // Turn the line segments into walls, openings and rooms.
-    wf::Building b;
-    b.building.name = std::filesystem::path(path).stem().string();
-    wf::Level level; level.id = "L1"; level.name = "Level 1";
+    // Shared converter (wf_read/Convert.hpp), same as wf_cli.
+    wf::read::ConvertOptions opt;
+    opt.widthMetres = widthMetres;
     wf::IdGenerator ids;
-    auto result = wf::read::interpret(segs, level, ids);
-    if (!result) { setError(result.error()); return nullptr; }
-    b.levels.push_back(std::move(level));
+    auto level = wf::read::convertImage(path, ids, opt);
+    if (!level) { setError(level.error()); return nullptr; }
+    std::vector<wf::Level> floors{ std::move(*level) };
+    wf::Building b = wf::read::assembleBuilding(std::move(floors), std::filesystem::path(path).stem().string());
+    b.source.file = std::filesystem::path(path).filename().string();
     return new wf_doc_t{ wf::Document(std::move(b)), {} };
     WF_CATCH(nullptr)
 }
@@ -472,8 +455,8 @@ WF_API int wf_build_graph(wf_doc d) {
     WF_TRY
         if (!d) { setError("null document"); return -1; }
     // Start node IDs higher so they do not clash with wall or room IDs.
-    wf::IdGenerator ids; ids.bump(100000);          // node ids must not collide with existing wall/room ids
-    wf::graph::buildGraph(d->doc.mutableBuilding(), ids, {});
+    // Graph on every level, exit doors, stair / lift links between levels.
+    wf::graph::prepareNavigation(d->doc.mutableBuilding());
     return 0;
     WF_CATCH(-1)
 }

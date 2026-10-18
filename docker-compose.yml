@@ -5,6 +5,7 @@
 #   docker compose build            build the Ubuntu 24.04 image (first time / after Dockerfile changes)
 #   docker compose run --rm test    configure, build, run all tests, smoke-run wf_cli
 #   docker compose run --rm dev     open a bash shell inside the container
+#   docker compose build cli        small image with only wf_cli, for the backend (wayforge/core/Dockerfile.cli)
 #
 # Builds go to wayforge/build/docker so they never clash with the Windows build in build/desktop.
 #
@@ -44,3 +45,13 @@ services:
       && cmake --build build/docker
       && ctest --test-dir build/docker --output-on-failure
       && build/docker/Sandbox/wf_cli/wf_cli --version"
+
+  # Just wf_cli, for the backend (see wayforge/core/Dockerfile.cli). Build: docker compose build cli
+  # Run: docker compose run --rm cli convert /workspace/plan.png /workspace/out.wfb
+  cli:
+    build:
+      context: ./wayforge/core
+      dockerfile: Dockerfile.cli
+    image: wayforge-cli
+    volumes:
+      - .:/workspace

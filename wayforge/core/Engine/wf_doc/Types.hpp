@@ -172,7 +172,13 @@ namespace wf
         std::string name = "Untitled";
         std::string id;
         float unitsPerMetre = 1.f;
-        WF_PROPERTIES(BuildingInfo, WF_PROP(name), WF_PROP(id), WF_PROP(unitsPerMetre))
+        // Geolocation of plan point (0,0) in degrees, and the bearing of the plan's +y axis
+        // (degrees clockwise from north). latitude = longitude = 0 means not set.
+        float latitude = 0.f;
+        float longitude = 0.f;
+        float heading = 0.f;
+        WF_PROPERTIES(BuildingInfo, WF_PROP(name), WF_PROP(id), WF_PROP(unitsPerMetre),
+                      WF_PROP(latitude), WF_PROP(longitude), WF_PROP(heading))
     };
 
     //Where file came from and its info.

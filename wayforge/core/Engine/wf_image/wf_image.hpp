@@ -103,4 +103,16 @@ namespace wf::img {
     // Count ink pixels (handy for tests and stats).
     size_t countInk(const Image8& binary) noexcept;
 
+    // --- component filtering (Tidy.cpp) ---------------------------------------------------
+    // Erase ink components no larger than maxSizePx in width and height (text, fixtures,
+    // furniture, columns). removed = number of components erased.
+    Image8 removeSmallBlobs(const Image8& binary, int maxSizePx, int* removed = nullptr);
+    // Keep the component with the largest bounding box (the walls) and anything overlapping
+    // that box; erase the rest (dimension lines, title block). removed = components erased.
+    Image8 keepMainDrawing(const Image8& binary, int* removed = nullptr);
+
+    // --- drawing (Draw.cpp), for debug images --------------------------------------------
+    void drawLine(Image8& img, Vec2 a, Vec2 b, uint8_t value, int width = 1);   // width in pixels
+    void fillPolygon(Image8& img, const std::vector<Vec2>& points, uint8_t value); // even-odd rule
+
 } // namespace wf::img

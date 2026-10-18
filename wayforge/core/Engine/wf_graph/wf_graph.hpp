@@ -59,6 +59,17 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p 
 // Rebuilds every level, keeps building.links as they are.
 GraphStats buildGraph(Building& building, IdGenerator& ids, const GraphParams& p = {});
 
+// --- building-level navigation (Link.cpp) ------------------------------------------------
+// Set NodeKind::Exit on door nodes whose opening has a room on one side only. Returns the count.
+int markExitDoors(Level& level);
+// Link every stair / lift room to the room of the same kind within maxOffset metres on the next
+// level up (by elevation). Lift links are step-free. Links to missing nodes are removed first and
+// existing links are not duplicated. Returns the number of links added.
+int linkFloors(Building& building, float maxOffset = 3.f);
+struct NavStats { GraphStats graph; int exits = 0; int links = 0; };   // links: total after linking
+// buildGraph() with node ids from 100000, then markExitDoors() on every level and linkFloors().
+NavStats prepareNavigation(Building& building, const GraphParams& p = {});
+
 // True if segment a-b crosses no wall of the level (openings let it through).
 bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearance = 0.15f);
 

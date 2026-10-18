@@ -24,14 +24,6 @@
 # \date 2026-09-15
 # \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
 #
-# NEED TO ENABLE BACK LATER(CI-DISABLED): wf_api is temporarily left out of CI.
-#   reset wf_graph to an empty stub, but
-#   wf_api/Implementation/Api.cpp still calls wf::graph::buildGraph/findRoute/...
-#   and wf::vec::importSvg, so wf_api (wayforge.dll / libwayforge.so) cannot compile.
-#   Until wf_graph (and wf_vector's Svg.cpp) are back:
-#     - desktop builds every target except wf_api / wf_api_test
-#     - android is switched off (its only output is libwayforge.so = wf_api)
-#   To undo: search this file for "CI-DISABLED" and revert each marked spot.
 name: build
 
 # When CI runs: every push to any branch, PRs into main, and the manual
@@ -100,20 +92,12 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then GEN="-G Ninja"; fi
           cmake -S core -B build/desktop $GEN -DCMAKE_BUILD_TYPE=$CONFIG
 
-      # NEED TO ENABBLE BACK LATER(CI-DISABLED): build everything except wf_api. Restore to:
-      #   run: cmake --build build/desktop --config $CONFIG --parallel
-      # (">" joins the lines below into one command.)
       - name: Build
-        run: >
-          cmake --build build/desktop --config $CONFIG --parallel --target
-          wf_core wf_doc wf_image wf_vector wf_read wf_graph wf_cli
-          wf_core_test wf_doc_test wf_image_test wf_vector_test wf_read_test wf_graph_test
+        run: cmake --build build/desktop --config $CONFIG --parallel
 
-      # NEED TO ENABLE BACK LTR(CI-DISABLED): wf_api_test is skipped. Restore to:
-      #   run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG
-      # -E excludes tests whose name matches; --output-on-failure prints a failing test's log.
+      # --output-on-failure prints a failing test's log.
       - name: Unit tests (CTest)
-        run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG -E wf_api_test
+        run: ctest --test-dir build/desktop --output-on-failure -C $CONFIG
 
       # Find the wf_cli binary (its folder differs between Ninja and Visual Studio builds),
       # check it runs, and save its path in $CLI for the next step.
@@ -146,8 +130,6 @@ jobs:
   # ------------------------------------------------------------------ android
   # Cross-compile the Unity plugin (libwayforge.so) and upload it as a downloadable artifact.
   android:
-    # NEED TO ENABLE BACK LTR(CI-DISABLED): switched off until wf_api compiles again. Delete this "if" line to re-enable.
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -7,12 +7,14 @@
  * finding exactly two rooms in it, face-finding on a 2x1 grid with a stray
  * line, merging/snapping/straightening noisy lines, Douglas-Peucker, and
  * the full picture path (thin -> trace -> fit -> clean -> faces) on a drawn
- * rectangle. Returns 0 if everything passed, 1 otherwise.
+ * rectangle, and the blueprint symbols: a lift X, a stair flight, a door
+ * leaf and slanted arc leftovers. Returns 0 if everything passed, 1 otherwise.
  *
  * \author Ananthan Elangovan (ananthan.e@digipen.edu)
  *
  * Contribution: Ananthan Elangovan 100%
  *   - Test cases covering SVG import, clean-up, planar graph and the raster path
+ *   - Symbol checks (Symbols.cpp): lifts, stairs, door leaves, arc leftovers
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the Doxygen header comments.
  *
@@ -118,6 +120,56 @@ int main() {
     auto rfaces = findFaces(rg);
     CHECK(rfaces.size() == 1);                                          // One closed room.
     if (!rfaces.empty()) CHECK(rfaces[0].area > 40 * 20 && rfaces[0].area < 50 * 30);
+
+    // blueprint symbols (Symbols.cpp), in metres, inside a 20 x 10 m building so the grid is clear
+    const std::vector<Segment> building = { {{0,0},{20,0}}, {{20,0},{20,10}}, {{20,10},{0,10}}, {{0,10},{0,0}} };
+    {
+        // lift: an X in the box 1..4, one arm cut in two by a door leaf drawn over it
+        auto s = building;
+        s.push_back({{1,4},{4,1}});                 // arm 1, whole
+        s.push_back({{2.1f,2.1f},{4,4}});           // arm 2 through the crossing at (2.5, 2.5)...
+        s.push_back({{1,1},{2,2}});                 // ...and its cut-off piece, not near the crossing
+        auto lifts = detectLifts(s);
+        CHECK(lifts.size() == 1);
+        CHECK(s.size() == building.size());         // all three X pieces are gone
+        if (!lifts.empty()) {
+            CHECK(distance(lifts[0].centre, {2.5f, 2.5f}) < 0.05f);
+            CHECK(lifts[0].box.size().x > 2.9f && lifts[0].box.size().y > 2.9f);
+        }
+    }
+    {
+        // stairs: 7 treads 2 m long, 0.3 m apart
+        auto s = building;
+        for (int k = 0; k < 7; ++k) s.push_back({{10, 4 + 0.3f * k}, {12, 4 + 0.3f * k}});
+        s.push_back({{10, 9}, {12, 9}});            // one more line far away: not a tread
+        auto stairs = detectStairs(s);
+        CHECK(stairs.size() == 1);
+        CHECK(s.size() == building.size() + 1);    // treads gone, the odd line kept
+        if (!stairs.empty()) CHECK(stairs[0].box.contains({11, 5}));
+        auto none = building;
+        CHECK(detectStairs(none).empty());           // plain walls are never a staircase
+    }
+    {
+        // door leaf: wall A ends at the hinge, a 1 m gap, wall B carries on; the leaf sticks out 1 m
+        std::vector<Segment> s = { {{0,5},{3,5}}, {{4,5},{10,5}}, {{3,5},{3,6}} };
+        int removed = 0;
+        auto out = removeDoorLeaves(s, 0.5f, 1.6f, &removed);
+        CHECK(removed == 1 && out.size() == 2);
+        // the same short line with something at its far end is a real wall stub, not a leaf
+        s.push_back({{2,6},{5,6}});
+        CHECK(removeDoorLeaves(s, 0.5f, 1.6f).size() == 4);
+    }
+    {
+        // arc leftovers: short and slanted goes, long slanted (a real diagonal wall) and grid lines stay
+        auto s = building;
+        s.push_back({{5,5},{5.3f,5.4f}});           // 0.5 m, 53 degrees off the grid
+        s.push_back({{6,6},{6.9f,6.1f}});           // 0.9 m, 6 degrees off: kept at the default 12...
+        s.push_back({{10,1},{13,4}});               // 4.2 m diagonal wall
+        int removed = 0;
+        auto out = removeShortDiagonals(s, 1.f, 12.f, &removed);
+        CHECK(removed == 1 && out.size() == building.size() + 2);
+        CHECK(removeShortDiagonals(s, 1.f, 5.f).size() == building.size() + 1);   // ...removed at 5
+    }
 
     if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }
     std::cout << "wf_vector: all checks passed\n";

@@ -116,14 +116,17 @@ void bridgeDoorGaps(std::vector<Wall>& walls, std::vector<Opening>& openings, Id
                 Wall& A = walls[i]; Wall& B = walls[j];
                 if (lineAngleDiff(angleOf(A.b - A.a), angleOf(B.b - B.a)) > angTol) continue;   // not parallel
                 const Vec2 d = A.direction();
-                // both ends of B have to be on A's line
-                if (distancePointToLine(B.a, A.a, A.b) > p.collinearTol || distancePointToLine(B.b, A.a, A.b) > p.collinearTol) continue;
                 // gap between the end of 1 wall and start of the other
                 const auto pa = project(A, A.a, d), pb = project(B, A.a, d);
                 float gap, gapStart;
                 if (pb.first >= pa.second) { gap = pb.first - pa.second; gapStart = pa.second; }
                 else if (pa.first >= pb.second) { gap = pa.first - pb.second; gapStart = pb.second; }
                 else continue;                                             // overlapping, no gap
+                // the 2 ends facing each other across the gap have to be on the other wall's line
+                // (far ends drift too much on long walls that are slightly off parallel)
+                const auto nearest = [](const Wall& w, const Vec2& to) { return distance(w.a, to) < distance(w.b, to) ? w.a : w.b; };
+                const Vec2 endA = nearest(A, (B.a + B.b) * 0.5f), endB = nearest(B, (A.a + A.b) * 0.5f);
+                if (distancePointToLine(endB, A.a, A.b) > p.collinearTol || distancePointToLine(endA, B.a, B.b) > p.collinearTol) continue;
                 if (gap < p.minDoorWidth || gap > p.maxDoorWidth) continue;   // too small / too big for a door
                 // join into 1 wall from first end to last end
                 const float lo = std::min(pa.first, pb.first), hi = std::max(pa.second, pb.second);

@@ -148,6 +148,12 @@ namespace wf::vec {
                     const float t = cross(segs[j].a - segs[i].a, s) / den;
                     const Vec2 x = segs[i].a + r * t;   // Where the two lines would cross if extended.
                     if (distance(x, *pi) > maxGap * 1.5f || distance(x, *pj) > maxGap * 1.5f) continue;   // Crossing is too far away: not a real corner.
+                    // Corners may extend a segment or trim a small overshoot, never shorten it by
+                    // more than a third of maxGap (stray short pieces near a door jamb would
+                    // otherwise pull the wall end back and widen the door gap).
+                    const float shrinkI = segs[i].length() - distance(x, *pi == segs[i].a ? segs[i].b : segs[i].a);
+                    const float shrinkJ = segs[j].length() - distance(x, *pj == segs[j].a ? segs[j].b : segs[j].a);
+                    if (shrinkI > maxGap * 0.34f || shrinkJ > maxGap * 0.34f) continue;
                     *pi = x; *pj = x;   // Move both ends onto the crossing: the corner is now closed.
                 }
             }

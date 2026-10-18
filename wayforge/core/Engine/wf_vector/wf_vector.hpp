@@ -126,4 +126,28 @@ namespace wf::vec {
 
     Rect bounds(const std::vector<Segment>& segs) noexcept;   // Smallest box around all the segments.
 
+    // --- plan symbols (Symbols.cpp) -------------------------------------------------------
+    // Door arcs / leaves, stair treads and lift crosses are removed before wf_read reads walls.
+    // All lengths are in segment units (metres). removed = number of segments taken out.
+
+    // Where a stair or lift symbol was found.
+    struct SymbolRegion {
+        Rect box;            // bounds of the symbol's segments
+        Vec2 centre;         // used to find the containing room
+        int  lines = 0;      // segments that made up the symbol
+    };
+
+    // Remove segments shorter than maxLength that are more than tolDeg off the dominant grid
+    // (pieces of door swing arcs). Long diagonals such as real slanted walls are kept.
+    std::vector<Segment> removeShortDiagonals(const std::vector<Segment>& in, float maxLength, float tolDeg = 12.f, int* removed = nullptr);
+    // Find lift crosses: two diagonals crossing at 60+ degrees with a bounding box of at least
+    // minLength each way. Removes the arms (and collinear pieces of split arms). One region per lift.
+    std::vector<SymbolRegion> detectLifts(std::vector<Segment>& segs, float minLength = 0.8f);
+    // Find stair flights: at least minTreads parallel segments of similar length, spaced evenly
+    // minGap..maxGap apart. Removes the treads. One region per flight.
+    std::vector<SymbolRegion> detectStairs(std::vector<Segment>& segs, int minTreads = 5, float minGap = 0.15f, float maxGap = 0.5f);
+    // Remove door leaves: a minWidth..maxWidth segment with a free end, hinged on a wall end that
+    // is followed by a gap of about the same width and then a collinear wall.
+    std::vector<Segment> removeDoorLeaves(const std::vector<Segment>& in, float minWidth, float maxWidth, int* removed = nullptr);
+
 } // namespace wf::vec

@@ -1,0 +1,44 @@
+# \file Dockerfile.cli
+# \brief Small image holding only wf_cli, for the backend (convert / build / route from Node)
+#
+# Stage 1 builds wf_cli with the same toolchain as CI (Ubuntu 24.04, GCC 13). It is linked
+# fully static, so the one file runs in any Linux image (Node's Debian images have an older
+# libstdc++ and glibc than Ubuntu 24.04). Stage 2 is just that file.
+#
+# Build (from the repo root):   docker compose build cli
+# Run:                          docker run --rm -v "$PWD/wayforge/data:/data" wayforge-cli \
+#                                   build /data/building.wfb /data/L1.png /data/L2.png
+# Use in the backend's image:   COPY --from=wayforge-cli /usr/local/bin/wf_cli /usr/local/bin/wf_cli
+#
+# The build context is wayforge/core (only the C++ sources), not the repo root, whose
+# .dockerignore keeps the dev image's context empty.
+#
+# \author Ananthan Elangovan (ananthan.e@digipen.edu)
+#
+# Contribution: Ananthan Elangovan 100%
+#   - Two-stage static wf_cli image for the backend
+#
+# AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
+#
+# \date 2026-10-18
+# \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+
+FROM ubuntu:24.04 AS build
+ENV DEBIAN_FRONTEND=noninteractive
+# git + certificates: CMake's FetchContent downloads nlohmann::json, pugixml and stb.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake ninja-build git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY . /src/core
+RUN cmake -S /src/core -B /src/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DWF_BUILD_TESTS=OFF -DWF_BUILD_VIEWER=OFF \
+        -DCMAKE_EXE_LINKER_FLAGS="-static" \
+    && cmake --build /src/build --target wf_cli \
+    && strip /src/build/Sandbox/wf_cli/wf_cli \
+    && /src/build/Sandbox/wf_cli/wf_cli --version
+
+FROM ubuntu:24.04
+COPY --from=build /src/build/Sandbox/wf_cli/wf_cli /usr/local/bin/wf_cli
+WORKDIR /data
+ENTRYPOINT ["wf_cli"]
+CMD ["--help"]

@@ -47,13 +47,18 @@ bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearan
         if (!blocked) continue;
         // Openings let the line through: does it pass through the door span?
         bool throughOpening = false;
+        // Extend the tested line 5 cm at both ends: a room-to-door line ends exactly on the wall,
+        // and without the margin rounding decides whether it hits the opening span.
+        const Vec2 along = b - a;
+        const float len = length(along);
+        const Vec2 ext = len > 1e-6f ? along * (0.05f / len) : Vec2{};
         for (const Opening& o : level.openings) {
             if (o.wall != w.id) continue;                 // only openings in this wall matter
             const Vec2 d = w.direction();                 // unit vector along the wall
             // The opening runs from offset to offset + width, measured from wall end a.
             const Vec2 o0 = w.a + d * o.offset, o1 = w.a + d * (o.offset + o.width);
             // widen the door span by 5 cm each side so a line through the very edge of the door still counts
-            if (segmentsIntersect(a, b, o0 - d * 0.05f, o1 + d * 0.05f)) { throughOpening = true; break; }
+            if (segmentsIntersect(a - ext, b + ext, o0 - d * 0.05f, o1 + d * 0.05f)) { throughOpening = true; break; }
         }
         // Blocked by this wall and not through one of its doors: no line of sight.
         if (!throughOpening) return false;

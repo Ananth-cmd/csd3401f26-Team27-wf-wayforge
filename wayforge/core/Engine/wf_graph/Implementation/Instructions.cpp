@@ -86,15 +86,19 @@ std::vector<Instruction> instructions(const Building& b, const Route& r) {
         // level change (link)
         if (cur.level != next.level) {
             Instruction i; i.pos = cur.pos; i.level = cur.level;
-            const Level* to = b.findLevel(next.level); const Level* from = b.findLevel(cur.level);
+            // Consecutive level changes are merged into one instruction ("up to Level 3").
+            size_t last = k;
+            while (last + 2 < st.size() && st[last + 1].level != st[last + 2].level) ++last;
+            const Level* to = b.findLevel(st[last + 1].level); const Level* from = b.findLevel(cur.level);
             // Up or down is decided by comparing the two levels' elevations.
             const bool up = to && from && to->elevation > from->elevation;
             const std::string via = cur.kind == NodeKind::Lift ? "Take the lift " : "Take the stairs ";
-            i.text = via + (up ? "up" : "down") + " to " + (to ? to->name : next.level);
+            i.text = via + (up ? "up" : "down") + " to " + (to ? to->name : st[last + 1].level);
             out.push_back(i);
+            k = last;                                     // skip the intermediate levels
             // The direction on the new level is the next leg there, so the first walk on it isn't judged
             // against the stair/lift jump.
-            heading = (k + 2 < st.size()) ? st[k + 2].pos - next.pos : heading;
+            heading = (k + 2 < st.size()) ? st[k + 2].pos - st[k + 1].pos : heading;
             run = 0.f;
             continue;
         }
