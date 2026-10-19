@@ -52,9 +52,19 @@ already in it (made with the real `wf_cli build` from `data/plans/simple_scan.pn
 
 ### 3D preview
 
-The site doesn't draw 3D itself, it uses the viewer from `wayforge/viewer` (on the Ananth branch).
-Build it in Unity as WebGL and copy the build into `public/viewer/` (steps in
-`public/viewer/README.md`). Without it the 3D tab just shows a message, everything else works.
+The site doesn't draw 3D itself, it uses Ananth's viewer from `wayforge/viewer`.
+Build it once in Unity (**Wayforge > Build WebGL Viewer**). The Studio picks up
+`wayforge/viewer/Build/WebGL` by itself: `npm run dev` serves it, `npm run build` copies it into
+`dist/viewer`. Without it the 3D tab just shows a message, everything else works.
+Picking a room on the 2D plan highlights it in 3D, clicking a room in 3D selects it in 2D.
+
+## Layout
+
+Two columns. Buildings and New building: list/form on the left, preview on the right.
+Editor: levels on the left (top floor at the top, like lift buttons), the plan on the right on
+graph paper with a scale bar, 2D/3D switch and Find route on top of the plan, tools and the
+edit fields for whatever you picked along the bottom. Building details, stairs/lifts and checks
+open as a panel over the plan.
 
 ## Files
 
@@ -70,7 +80,8 @@ src/
   pages/EditorPage.jsx      the editor (undo, save, publish, shortcuts)
   components/PlanView.jsx   SVG 2D plan + tools
   components/Viewer3D.jsx   embeds the Unity viewer
-  components/Inspector.jsx  right side panels
+  components/Inspector.jsx  edit fields (bottom bar), building/stairs/checks/route panels
+  components/MiniPlan.jsx   small plan on the buildings page
 public/samples/sample-3floors.wfb   sample building
 public/viewer/                      put the Unity WebGL build here
 ```

@@ -29,7 +29,8 @@ export default function EditorPage({ id, go }) {
   const [selection, setSelection] = useState(null);
   const [tool, setTool] = useState("select");
   const [centre, setCentre] = useState("2d");
-  const [side, setSide] = useState("edit");
+  const [sheet, setSheet] = useState(null); // building | links | checks popout
+  const [routeOpen, setRouteOpen] = useState(false);
   const [showPaths, setShowPaths] = useState(false);
   const [route, setRoute] = useState(null);
   const [busy, setBusy] = useState("");
@@ -107,7 +108,7 @@ export default function EditorPage({ id, go }) {
   }
 
   async function publish() {
-    if (problems.some((p) => p.type === "error")) { setSide("checks"); flash("Fix the errors first"); return; }
+    if (problems.some((p) => p.type === "error")) { setSheet("checks"); flash("Fix the errors first"); return; }
     if (!window.confirm(`Publish "${doc.building.name}" so it shows up in the Navigator?`)) return;
     if (dirty && !(await save())) return;
     setBusy("publish");
@@ -206,88 +207,119 @@ export default function EditorPage({ id, go }) {
   const onRoomClicked = useCallback((room) => {
     setLevelId(room.level);
     setSelection({ type: "room", id: room.id });
-    setSide("edit");
   }, []);
 
-  if (error) return <div className="page"><p className="error-text">{error}</p><button onClick={() => go("/")}>Back</button></div>;
-  if (!doc || !level) return <div className="page muted">loading building...</div>;
+  if (error) return <div className="page"><p className="error-text">{error}</p><button onClick={() => go("/")}>Back to buildings</button></div>;
+  if (!doc || !level) return <div className="page muted">Loading building...</div>;
 
   const s = summary(doc);
   const errors = problems.filter((p) => p.type === "error").length;
-  const status = info?.publishedAt ? (dirty || info.status === "changed" ? "changed since publish" : `published v${info.version}`) : "draft";
+  const status = info?.publishedAt ? (dirty || info.status === "changed" ? "Edited since publish" : `Published v${info.version}`) : "Draft";
+  // floors listed top floor first, like the buttons in a lift
+  const floorsTopDown = [...doc.levels].reverse();
+  const toggleSheet = (name) => setSheet((cur) => (cur === name ? null : name));
 
   return (
     <div className="editor">
-      <div className="toolbar">
-        <button className="ghost" onClick={() => (!dirty || window.confirm("Leave without saving?")) && go("/")}>← Buildings</button>
-        <div className="title">
-          <b>{doc.building.name || id}</b>
-          <span className={`badge ${status.startsWith("published") ? "pub" : ""}`}>{status}</span>
-          <span className="muted small">{s.floors} floors · {s.rooms} rooms · {s.tagged}/{s.rooms} tagged</span>
+      <header className="ed-top">
+        <a className="wordmark" href="#/" onClick={(e) => { if (dirty && !window.confirm("Leave without saving?")) e.preventDefault(); }}>
+          Wayforge <span>Studio</span>
+        </a>
+        <div className="ed-title">
+          <h1>{doc.building.name || id}</h1>
+          <span className={"status" + (status.startsWith("Published") ? " is-live" : "")}>{status}</span>
         </div>
-        <div className="spacer" />
-        <button className="ghost" onClick={doUndo} disabled={!undo.current.length} title="Ctrl+Z">Undo</button>
-        <button className="ghost" onClick={doRedo} disabled={!redo.current.length} title="Ctrl+Y">Redo</button>
-        <button className="ghost" onClick={download} title="download the .wfb file">Download .wfb</button>
-        <button onClick={save} disabled={!dirty || busy === "save"} title="Ctrl+S">{busy === "save" ? "Saving..." : dirty ? "Save" : "Saved"}</button>
-        <button className="primary" onClick={publish} disabled={busy === "publish"}>{busy === "publish" ? "Publishing..." : "Publish"}</button>
-      </div>
+        <div className="ed-actions">
+          <button className="quiet" onClick={doUndo} disabled={!undo.current.length} title="Ctrl+Z">Undo</button>
+          <button className="quiet" onClick={doRedo} disabled={!redo.current.length} title="Ctrl+Y">Redo</button>
+          <span className="sep" />
+          <button className="quiet" onClick={download} title="Download the .wfb file">Download</button>
+          <button onClick={save} disabled={!dirty || busy === "save"} title="Ctrl+S">{busy === "save" ? "Saving..." : dirty ? "Save" : "Saved"}</button>
+          <button className="primary" onClick={publish} disabled={busy === "publish"}>{busy === "publish" ? "Publishing..." : "Publish"}</button>
+        </div>
+      </header>
 
       {geometryChanged && (
-        <div className="banner">Walls or doors changed. The walking paths get rebuilt by the server when you save
-          (<code>wf_cli graph</code>){api.mode === "mock" ? ", the mock can't do that so test routes still use the old paths" : ""}.</div>
+        <div className="banner">Walls or doors changed. Walking paths are rebuilt on the server when you save
+          (<code>wf_cli graph</code>){api.mode === "mock" ? "; the mock backend can't, so test routes still use the old paths" : ""}.</div>
       )}
 
-      <div className="editor-body">
-        <aside className="left">
-          <h4>Floors</h4>
-          {doc.levels.map((l) => (
-            <button key={l.id} className={"floor" + (l.id === level.id ? " active" : "")} onClick={() => { setLevelId(l.id); setSelection(null); }}>
-              <b>{l.id}</b> <span>{l.name}</span>
+      <div className="ed-body">
+        <aside className="ed-side">
+          <section>
+            <h2>Levels</h2>
+            <ol className="levels">
+              {floorsTopDown.map((l) => (
+                <li key={l.id}>
+                  <button className={l.id === level.id ? "on" : ""} onClick={() => { setLevelId(l.id); setSelection(null); }}>
+                    <b>{l.id}</b><span>{l.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </section>
+          <section className="side-links">
+            <button className={sheet === "building" ? "on" : ""} onClick={() => toggleSheet("building")}>Building details</button>
+            <button className={sheet === "links" ? "on" : ""} onClick={() => toggleSheet("links")}>Stairs and lifts <em>{s.links}</em></button>
+            <button className={sheet === "checks" ? "on" : ""} onClick={() => toggleSheet("checks")}>
+              Checks {problems.length > 0 && <em className={errors ? "bad" : "warn"}>{problems.length}</em>}
             </button>
-          ))}
-          <h4>Tools</h4>
-          <button className={"tool" + (tool === "select" ? " active" : "")} onClick={() => setTool("select")}>Select <kbd>V</kbd></button>
-          <button className={"tool" + (tool === "wall" ? " active" : "")} onClick={() => { setTool("wall"); setCentre("2d"); }}>Draw wall <kbd>W</kbd></button>
-          <button className={"tool" + (tool === "door" ? " active" : "")} onClick={() => { setTool("door"); setCentre("2d"); }}>Add door <kbd>D</kbd></button>
-          <label className="check"><input type="checkbox" checked={showPaths} onChange={(e) => setShowPaths(e.target.checked)} /> show walking paths</label>
+          </section>
+          <p className="side-foot">{s.rooms} rooms, {s.tagged} tagged<br />{s.floors} levels</p>
         </aside>
 
-        <main className="centre">
-          <div className="tabs">
-            <button className={centre === "2d" ? "active" : ""} onClick={() => setCentre("2d")}>2D plan</button>
-            <button className={centre === "3d" ? "active" : ""} onClick={() => setCentre("3d")}>3D preview</button>
+        <main className="ed-main">
+          <div className="view-switch" role="tablist">
+            <button role="tab" aria-selected={centre === "2d"} className={centre === "2d" ? "on" : ""} onClick={() => setCentre("2d")}>2D</button>
+            <button role="tab" aria-selected={centre === "3d"} className={centre === "3d" ? "on" : ""} onClick={() => setCentre("3d")}>3D</button>
           </div>
+
+          <div className={"route-drop" + (routeOpen ? " open" : "")}>
+            <button className="route-toggle" onClick={() => setRouteOpen((o) => !o)} aria-expanded={routeOpen}>
+              {route?.ok ? "Route shown" : "Find route"}
+            </button>
+            {routeOpen && (
+              <div className="drop-body">
+                <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} />
+              </div>
+            )}
+          </div>
+
+          {sheet && (
+            <div className="sheet">
+              <button className="sheet-close" onClick={() => setSheet(null)} aria-label="Close">Close</button>
+              {sheet === "building" && <BuildingPanel doc={doc} onChange={edit} />}
+              {sheet === "links" && <LinksPanel doc={doc} onChange={edit} />}
+              {sheet === "checks" && <ChecksPanel problems={problems} onPick={(p) => { if (p.level) setLevelId(p.level); if (p.room) setSelection({ type: "room", id: p.room }); }} />}
+            </div>
+          )}
+
           {/* keep the 3D mounted once opened so Unity doesn't reload every time */}
-          <div className="centre-view" style={{ display: centre === "2d" ? "block" : "none" }}>
+          <div className="canvas" style={{ display: centre === "2d" ? "block" : "none" }}>
             <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths} route={route}
-              onSelect={(sel) => { setSelection(sel); if (sel) setSide("edit"); }} onAddWall={addWall} onAddDoor={addDoor} />
+              onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} />
           </div>
           <Lazy3D show={centre === "3d"}>
-            <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked} />
+            <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked}
+              highlight={selection?.type === "room" ? `${level.id}:${selection.id}` : ""} />
           </Lazy3D>
         </main>
 
-        <aside className="right">
-          <div className="tabs small">
-            <button className={side === "edit" ? "active" : ""} onClick={() => setSide("edit")}>Edit</button>
-            <button className={side === "building" ? "active" : ""} onClick={() => setSide("building")}>Building</button>
-            <button className={side === "links" ? "active" : ""} onClick={() => setSide("links")}>Stairs/lifts</button>
-            <button className={side === "checks" ? "active" : ""} onClick={() => setSide("checks")}>
-              Checks {problems.length > 0 && <span className={"count" + (errors ? " bad" : "")}>{problems.length}</span>}
-            </button>
-            <button className={side === "route" ? "active" : ""} onClick={() => setSide("route")}>Route</button>
+        <footer className="ed-bottom">
+          <div className="tools" role="toolbar" aria-label="Tools">
+            <span className="group-name">Tools</span>
+            <button className={tool === "select" ? "on" : ""} onClick={() => setTool("select")}>Select <kbd>V</kbd></button>
+            <button className={tool === "wall" ? "on" : ""} onClick={() => { setTool("wall"); setCentre("2d"); }}>Wall <kbd>W</kbd></button>
+            <button className={tool === "door" ? "on" : ""} onClick={() => { setTool("door"); setCentre("2d"); }}>Door <kbd>D</kbd></button>
+            <label className="check"><input type="checkbox" checked={showPaths} onChange={(e) => setShowPaths(e.target.checked)} /> Paths</label>
           </div>
-          <div className="panel">
-            {side === "edit" && <SelectionPanel level={level} selection={selection} onChange={edit} onDelete={deleteSelected} />}
-            {side === "building" && <BuildingPanel doc={doc} onChange={edit} />}
-            {side === "links" && <LinksPanel doc={doc} onChange={edit} />}
-            {side === "checks" && <ChecksPanel problems={problems} onPick={(p) => { setLevelId(p.level); if (p.room) { setSelection({ type: "room", id: p.room }); setSide("edit"); } }} />}
-            {side === "route" && <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} />}
+          <div className="edit-strip">
+            <span className="group-name">Edit</span>
+            <SelectionPanel level={level} selection={selection} onChange={edit} onDelete={deleteSelected} />
           </div>
-        </aside>
+        </footer>
       </div>
-      {toast && <div className="toast">{toast}</div>}
+      {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
@@ -297,5 +329,5 @@ function Lazy3D({ show, children }) {
   const [opened, setOpened] = useState(false);
   useEffect(() => { if (show) setOpened(true); }, [show]);
   if (!opened) return null;
-  return <div className="centre-view" style={{ display: show ? "block" : "none" }}>{children}</div>;
+  return <div className="canvas" style={{ display: show ? "block" : "none" }}>{children}</div>;
 }

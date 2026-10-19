@@ -78,83 +78,92 @@ export default function UploadPage({ go }) {
   }
 
   return (
-    <div className="page narrow">
-      <button className="ghost" onClick={() => go("/")}>← Buildings</button>
-      <h1>New building</h1>
+    <form className="split" onSubmit={submit}>
+      <section className="split-list">
+        <div className="list-head"><h1>New building</h1></div>
 
-      <div className="tabs">
-        <button className={mode === "images" ? "active" : ""} onClick={() => setMode("images")}>From floor plan pictures</button>
-        <button className={mode === "wfb" ? "active" : ""} onClick={() => setMode("wfb")}>From a .wfb file</button>
-      </div>
+        <div className="seg" role="tablist">
+          <button type="button" className={mode === "images" ? "on" : ""} onClick={() => setMode("images")}>From floor plans</button>
+          <button type="button" className={mode === "wfb" ? "on" : ""} onClick={() => setMode("wfb")}>From a .wfb file</button>
+        </div>
 
-      <form onSubmit={submit} className="form">
-        <label>Building name {mode === "wfb" && <span className="muted">(leave empty to keep the name in the file)</span>}
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SIT Punggol Campus E2" />
-        </label>
+        <div className="form">
+          <label>Building name {mode === "wfb" && <span className="muted">(empty keeps the name in the file)</span>}
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="SIT Punggol, E2" />
+          </label>
+          {mode === "images" && (
+            <>
+              <label>Height between levels (m)
+                <input type="number" step="0.1" min="2" value={floorHeight} onChange={(e) => setFloorHeight(e.target.value)} />
+              </label>
+              <div className="row2">
+                <label>Latitude <input type="number" step="any" value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="1.4136" /></label>
+                <label>Longitude <input type="number" step="any" value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="103.9100" /></label>
+              </div>
+              <button type="button" className="link" onClick={useMyLocation}>Use my current location</button>
+            </>
+          )}
+        </div>
 
+        {api.mode === "mock" && mode === "images" && (
+          <p className="note">Demo mode doesn't read the pictures yet; that happens on the server with wf_cli.
+            You'll get the sample plan with one level per picture so you can try the editor.</p>
+        )}
+        {error && <p className="error-text">{error}</p>}
+
+        <div className="row-buttons">
+          <button className="primary" type="submit" disabled={!ready || !!step}>{step ? step + "..." : "Create building"}</button>
+          <button type="button" className="quiet" onClick={() => go("/")}>Cancel</button>
+        </div>
+      </section>
+
+      <section className="split-detail">
         {mode === "images" ? (
           <>
+            <h2>Levels</h2>
+            <p className="muted">One picture per level. The top of the list is the top floor; use the arrows to change the order.</p>
+            {floors.length > 0 && (
+              <ol className="stack">
+                {[...floors].map((f, i) => ({ f, i })).reverse().map(({ f, i }) => (
+                  <li key={f.url}>
+                    <b className="lvl">L{i + 1}</b>
+                    <img src={f.url} alt="" />
+                    <span className="grow">{f.file.name}<br /><span className="muted small">{(f.file.size / 1024).toFixed(0)} KB</span></span>
+                    <button type="button" className="quiet small" onClick={() => move(i, 1)} disabled={i === floors.length - 1} title="Move up a level">Up</button>
+                    <button type="button" className="quiet small" onClick={() => move(i, -1)} disabled={i === 0} title="Move down a level">Down</button>
+                    <button type="button" className="quiet small danger" onClick={() => removeFloor(i)}>Remove</button>
+                  </li>
+                ))}
+              </ol>
+            )}
             <div
               className={"drop" + (dragOver ? " over" : "")}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
             >
-              <p><b>Drop floor plan pictures here</b>, one per floor (bottom floor first)</p>
+              <p>Drop floor plan pictures here, or</p>
               <label className="button">Choose pictures
                 <input type="file" accept={IMAGE_TYPES.join(",")} multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
               </label>
-              <p className="muted small">Scans and phone photos both work. Straight on photos read better.</p>
+              <p className="muted small">Scans and phone photos both work. Straight-on photos read better.</p>
             </div>
-
-            {floors.length > 0 && (
-              <ol className="floor-list">
-                {floors.map((f, i) => (
-                  <li key={f.url}>
-                    <img src={f.url} alt="" />
-                    <div className="grow">
-                      <b>L{i + 1}</b> <span className="muted small">{f.file.name} · {(f.file.size / 1024).toFixed(0)} KB</span>
-                    </div>
-                    <button type="button" className="ghost small" onClick={() => move(i, -1)} disabled={i === 0} title="move down a floor">↑</button>
-                    <button type="button" className="ghost small" onClick={() => move(i, 1)} disabled={i === floors.length - 1} title="move up a floor">↓</button>
-                    <button type="button" className="ghost small danger" onClick={() => removeFloor(i)}>×</button>
-                  </li>
-                ))}
-              </ol>
-            )}
-
-            <div className="row3">
-              <label>Floor to floor height (m)
-                <input type="number" step="0.1" min="2" value={floorHeight} onChange={(e) => setFloorHeight(e.target.value)} />
-              </label>
-              <label>Latitude <input type="number" step="any" value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="1.4136" /></label>
-              <label>Longitude <input type="number" step="any" value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="103.9100" /></label>
-            </div>
-            <button type="button" className="link" onClick={useMyLocation}>use my current location</button>
           </>
         ) : (
-          <div className="drop"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
-            <p><b>{wfbFile ? wfbFile.name : "Drop a .wfb file here"}</b></p>
-            <label className="button">Choose .wfb
-              <input type="file" accept=".wfb,application/json" hidden onChange={(e) => setWfbFile(e.target.files[0] || null)} />
-            </label>
-            <p className="muted small">e.g. one made with <code>wf_cli build</code> or saved from the Unity Studio.</p>
-          </div>
+          <>
+            <h2>Building file</h2>
+            <div className="drop"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
+              <p>{wfbFile ? wfbFile.name : "Drop a .wfb file here, or"}</p>
+              <label className="button">Choose .wfb
+                <input type="file" accept=".wfb,application/json" hidden onChange={(e) => setWfbFile(e.target.files[0] || null)} />
+              </label>
+              <p className="muted small">For example one made with <code>wf_cli build</code>, or saved from the Unity Studio.</p>
+            </div>
+          </>
         )}
-
-        {api.mode === "mock" && mode === "images" && (
-          <p className="note">Mock mode: the pictures aren't really read yet (that needs the server running wf_cli),
-            you'll get the sample building with {floors.length || "N"} floor(s) instead.</p>
-        )}
-        {error && <p className="error-text">{error}</p>}
-
-        <div className="row-buttons">
-          <button className="primary" type="submit" disabled={!ready || !!step}>{step ? step + "..." : "Create building"}</button>
-          <button type="button" className="ghost" onClick={() => go("/")}>Cancel</button>
-        </div>
-      </form>
-    </div>
+      </section>
+    </form>
   );
 }

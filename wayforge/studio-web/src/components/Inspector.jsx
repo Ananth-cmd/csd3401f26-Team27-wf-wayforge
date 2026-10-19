@@ -18,37 +18,34 @@ import { ROOM_KINDS, KIND_COLOURS, wallLength, polygonArea } from "../lib/wfb.js
 
 const num = (v, d = 2) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixed(d));
 
+// sits in the bottom bar, so everything is laid out in one row
 export function SelectionPanel({ level, selection, onChange, onDelete }) {
   if (!selection) {
-    return <p className="muted">Click a room, wall or door on the plan to edit it.</p>;
+    return <p className="hint">Click a room, wall or door on the plan.</p>;
   }
   if (selection.type === "room") {
     const r = (level.rooms || []).find((x) => x.id === selection.id);
-    if (!r) return null;
+    if (!r) return <p className="hint">That room isn't on this level.</p>;
     // change one field on the room
     const set = (field, value) => onChange((doc) => {
       const room = doc.levels.find((l) => l.id === level.id).rooms.find((x) => x.id === r.id);
       room[field] = value;
-    }, field !== "name" && field !== "code"); // only kind changes are worth a separate undo step while typing
+    }, field !== "name" && field !== "code"); // typing a name shouldn't make an undo step per letter
     return (
-      <div className="form">
-        <h3><span className="swatch" style={{ background: KIND_COLOURS[r.kind] }} /> Room {level.id}:{r.id}</h3>
-        <label>Room code
-          <input value={r.code || ""} placeholder={`e.g. ${level.id}-01`} onChange={(e) => set("code", e.target.value)} />
+      <div className="fields">
+        <span className="what"><i className="swatch" style={{ background: KIND_COLOURS[r.kind] }} />Room {r.id}</span>
+        <label>Code
+          <input className="code-input" value={r.code || ""} placeholder={`${level.id}-01`} onChange={(e) => set("code", e.target.value)} />
         </label>
-        <label>Name
-          <input value={r.name || ""} placeholder="e.g. Lecture Theatre 1" onChange={(e) => set("name", e.target.value)} />
+        <label className="wide">Name
+          <input value={r.name || ""} placeholder="Lecture Theatre 1" onChange={(e) => set("name", e.target.value)} />
         </label>
         <label>Kind
           <select value={r.kind} onChange={(e) => set("kind", e.target.value)}>
             {ROOM_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         </label>
-        <dl>
-          <dt>Area</dt><dd>{num(r.area ?? polygonArea(r.polygon), 1)} m²</dd>
-          <dt>Confidence</dt><dd>{num((r.confidence ?? 1) * 100, 0)}%</dd>
-        </dl>
-        <p className="muted small">Same as <code>wf_cli tag file.wfb {level.id}:{r.id} --kind {r.kind} --code ...</code></p>
+        <span className="facts">{num(r.area ?? polygonArea(r.polygon), 1)} m², {num((r.confidence ?? 1) * 100, 0)}% sure</span>
       </div>
     );
   }
@@ -57,18 +54,14 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
     if (!w) return null;
     const doors = (level.openings || []).filter((o) => o.wall === w.id).length;
     return (
-      <div className="form">
-        <h3>Wall {w.id}</h3>
+      <div className="fields">
+        <span className="what">Wall {w.id}</span>
         <label>Thickness (m)
           <input type="number" step="0.05" min="0.05" value={w.thickness}
             onChange={(e) => onChange((doc) => { findIn(doc, level.id, "walls", w.id).thickness = Number(e.target.value); }, true)} />
         </label>
-        <dl>
-          <dt>Length</dt><dd>{num(wallLength(w))} m</dd>
-          <dt>Doors/windows</dt><dd>{doors}</dd>
-          <dt>Confidence</dt><dd>{num((w.confidence ?? 1) * 100, 0)}%</dd>
-        </dl>
-        <button className="danger" onClick={onDelete}>Delete wall{doors ? ` (+${doors} door${doors > 1 ? "s" : ""})` : ""}</button>
+        <span className="facts">{num(wallLength(w))} m long, {doors} door{doors === 1 ? "" : "s"}, {num((w.confidence ?? 1) * 100, 0)}% sure</span>
+        <button className="danger" onClick={onDelete}>Delete wall{doors ? ` and its door${doors > 1 ? "s" : ""}` : ""}</button>
       </div>
     );
   }
@@ -77,22 +70,21 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
     if (!o) return null;
     const set = (field, value) => onChange((doc) => { findIn(doc, level.id, "openings", o.id)[field] = value; }, true);
     return (
-      <div className="form">
-        <h3>{o.type === "window" ? "Window" : "Door"} {o.id}</h3>
+      <div className="fields">
+        <span className="what">{o.type === "window" ? "Window" : "Door"} {o.id}</span>
         <label>Type
           <select value={o.type} onChange={(e) => set("type", e.target.value)}>
             <option value="door">door</option>
-            <option value="opening">opening (no door)</option>
+            <option value="opening">opening, no door</option>
             <option value="window">window</option>
           </select>
         </label>
         <label>Width (m)
           <input type="number" step="0.05" min="0.3" value={num(o.width)} onChange={(e) => set("width", Number(e.target.value))} />
         </label>
-        <label>Distance from wall start (m)
+        <label>From wall start (m)
           <input type="number" step="0.05" min="0" value={num(o.offset)} onChange={(e) => set("offset", Number(e.target.value))} />
         </label>
-        <p className="muted small">On wall {o.wall}. Windows aren't used for walking routes.</p>
         <button className="danger" onClick={onDelete}>Delete {o.type}</button>
       </div>
     );
@@ -119,7 +111,7 @@ export function BuildingPanel({ doc, onChange }) {
       <label>Heading (° clockwise from north)
         <input type="number" step="1" value={b.heading ?? 0} onChange={(e) => setB("heading", Number(e.target.value))} />
       </label>
-      <h3>Floors</h3>
+      <h3>Levels</h3>
       <table className="mini">
         <thead><tr><th>Id</th><th>Name</th><th>Height (m)</th></tr></thead>
         <tbody>
@@ -165,7 +157,8 @@ export function LinksPanel({ doc, onChange }) {
 
   return (
     <div className="form">
-      <h3>Stairs &amp; lifts between floors</h3>
+      <h3>Stairs and lifts</h3>
+      <p className="muted small">These join the levels so a route can go up or down.</p>
       {!(doc.links || []).length && <p className="muted">No links yet, so routes can't change floor.</p>}
       <ul className="links">
         {(doc.links || []).map((k, i) => (
@@ -200,10 +193,11 @@ export function LinksPanel({ doc, onChange }) {
 }
 
 export function ChecksPanel({ problems, onPick }) {
-  if (!problems.length) return <p className="ok">All good, ready to publish.</p>;
+  if (!problems.length) return <div><h3>Checks</h3><p className="ok">Nothing to fix. Ready to publish.</p></div>;
   const errors = problems.filter((p) => p.type === "error").length;
   return (
     <div>
+      <h3>Checks</h3>
       <p className="muted">{errors} error(s), {problems.length - errors} warning(s). Errors stop publishing, warnings don't.</p>
       <ul className="checks">
         {problems.map((p, i) => (
@@ -224,8 +218,7 @@ export function RoutePanel({ doc, onRoute, route, busy }) {
   const [stepFree, setStepFree] = useState(false);
   return (
     <div className="form">
-      <h3>Test a route</h3>
-      <p className="muted small">Check people can actually get from one room to another before publishing.</p>
+      <p className="muted small">Try a trip before you publish. Use a room code, or type exit.</p>
       <datalist id="room-codes">{codes.map((c) => <option key={c} value={c} />)}<option value="exit" /></datalist>
       <div className="row2">
         <label>From <input list="room-codes" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
@@ -233,7 +226,7 @@ export function RoutePanel({ doc, onRoute, route, busy }) {
       </div>
       <label className="check"><input type="checkbox" checked={stepFree} onChange={(e) => setStepFree(e.target.checked)} /> step free only (no stairs)</label>
       <div className="row-buttons">
-        <button onClick={() => onRoute(from, to, stepFree)} disabled={busy || !from || !to}>{busy ? "finding..." : "Find route"}</button>
+        <button onClick={() => onRoute(from, to, stepFree)} disabled={busy || !from || !to}>{busy ? "Finding..." : "Show route"}</button>
         {route && <button className="ghost" onClick={() => onRoute(null)}>Clear</button>}
       </div>
       {route && !route.ok && <p className="error-text">{route.error}</p>}

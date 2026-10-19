@@ -32,13 +32,18 @@ export default function App() {
   else if (path === "/new") page = <UploadPage go={go} />;
   else page = <BuildingsPage go={go} />;
 
+  // the editor has its own top bar (undo, save, publish), other pages share this one
+  if (m) return <div className="app app-editor">{page}</div>;
   return (
-    <div className={"app" + (m ? " app-editor" : "")}>
-      <header className="top">
-        <a href="#/" className="brand"><span className="logo">W</span> Wayforge <span>Studio</span></a>
-        <div className="spacer" />
-        <span className={"mode " + api.mode} title={api.mode === "mock" ? "using the pretend backend" : "using the real server"}>
-          {api.mode === "mock" ? "Mock backend" : "Server"}
+    <div className="app">
+      <header className="site-top">
+        <a href="#/" className="wordmark">Wayforge <span>Studio</span></a>
+        <nav>
+          <a href="#/" className={path === "/" ? "on" : ""}>Buildings</a>
+          <a href="#/new" className={path === "/new" ? "on" : ""}>New building</a>
+        </nav>
+        <span className={"backend " + api.mode} title={api.mode === "mock" ? "Data is kept in this browser" : "Connected to the server"}>
+          {api.mode === "mock" ? "Offline demo data" : "Server"}
         </span>
       </header>
       {page}

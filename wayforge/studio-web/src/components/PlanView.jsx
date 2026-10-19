@@ -28,6 +28,15 @@ export default function PlanView({
   const [wallStart, setWallStart] = useState(null);
   const [mouse, setMouse] = useState(null);
   const drag = useRef(null);
+  const [size, setSize] = useState({ w: 0, h: 0 }); // svg size in pixels, for the scale bar
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const ro = new ResizeObserver(([e]) => setSize({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, [view === null]);
 
   const bounds = useMemo(() => levelBounds(level), [level]);
 
@@ -144,9 +153,9 @@ export default function PlanView({
 
   return (
     <div className="plan-wrap">
-    <button className="fit-btn" onClick={fit} title="fit the floor in the view">Fit</button>
-    {tool === "wall" && <div className="plan-hint">{wallStart ? "click the end point (Esc to cancel)" : "click where the wall starts"}</div>}
-    {tool === "door" && <div className="plan-hint">click on a wall to add a door</div>}
+    <button className="fit-btn" onClick={fit} title="Fit the whole level in view">Fit to screen</button>
+    {tool === "wall" && <div className="plan-hint">{wallStart ? "Click where the wall ends. Esc cancels." : "Click where the wall starts."}</div>}
+    {tool === "door" && <div className="plan-hint">Click on a wall to put a door there.</div>}
     <svg
       ref={svgRef}
       className={`plan tool-${tool}`}
@@ -156,7 +165,18 @@ export default function PlanView({
       onPointerUp={onPointerUp}
       onPointerLeave={() => setMouse(null)}
     >
-      <rect data-bg="1" x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} fill="var(--plan-bg)" />
+      {/* graph paper: thin line every metre, darker every 5 m. drawn in metres so it zooms with the plan */}
+      <defs>
+        <pattern id="grid1" width="1" height="1" patternUnits="userSpaceOnUse">
+          <path d="M 1 0 L 0 0 0 1" className="grid-minor" />
+        </pattern>
+        <pattern id="grid5" width="5" height="5" patternUnits="userSpaceOnUse">
+          <rect width="5" height="5" fill="url(#grid1)" />
+          <path d="M 5 0 L 0 0 0 5" className="grid-major" />
+        </pattern>
+      </defs>
+      <rect data-bg="1" x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} className="paper" />
+      <rect x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} fill="url(#grid5)" pointerEvents="none" />
 
       {/* rooms first so walls draw on top */}
       {(level.rooms || []).map((r) => (
@@ -229,6 +249,22 @@ export default function PlanView({
       )}
       {tool === "wall" && wallStart && <circle cx={wallStart[0]} cy={wallStart[1]} r={font * 0.3} className="route-start" />}
     </svg>
+    <ScaleBar view={view} size={size} />
+    </div>
+  );
+}
+
+// "how long is 1 metre on screen" so people can tell if a room size looks right.
+// picks a round length that ends up roughly 80-160 px wide
+function ScaleBar({ view, size }) {
+  if (!size.w || !view) return null;
+  const pxPerM = Math.min(size.w / view.w, size.h / view.h);
+  const steps = [0.5, 1, 2, 5, 10, 20, 50, 100];
+  const metres = steps.find((m) => m * pxPerM >= 80) || steps.at(-1);
+  return (
+    <div className="scalebar" aria-hidden="true">
+      <div className="bar" style={{ width: metres * pxPerM }} />
+      <span>{metres} m</span>
     </div>
   );
 }

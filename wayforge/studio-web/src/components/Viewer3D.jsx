@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from "react";
 
 const VIEWER_URL = import.meta.env.BASE_URL + "viewer/index.html";
 
-export default function Viewer3D({ wfbText, levelId, route, onRoomClicked }) {
+export default function Viewer3D({ wfbText, levelId, route, onRoomClicked, highlight }) {
   const frameRef = useRef(null);
   const viewerRef = useRef(null);
   const [state, setState] = useState("checking"); // checking | missing | loading | ready | error
@@ -78,17 +78,22 @@ export default function Viewer3D({ wfbText, levelId, route, onRoomClicked }) {
     else viewerRef.current.clearRoute();
   }, [state, route]);
 
+  // the room picked on the 2D plan goes yellow in 3D too ("" clears it)
+  useEffect(() => {
+    if (state === "ready") viewerRef.current.highlightRoom(highlight || "");
+  }, [state, highlight]);
+
   const call = (method, ...args) => viewerRef.current && viewerRef.current[method](...args);
 
   if (state === "checking") return <div className="viewer-msg">checking for the 3D viewer...</div>;
   if (state === "missing") {
     return (
       <div className="viewer-msg">
-        <h3>3D viewer not installed yet</h3>
-        <p>Build <code>wayforge/viewer</code> in Unity (WebGL) and copy the output from
-          <code> viewer/Build/WebGL/</code> into <code>studio-web/public/viewer/</code>,
-          then refresh this page. Steps are in <code>public/viewer/README.md</code>.</p>
-        <p>The 2D plan still works without it.</p>
+        <h3>The 3D viewer hasn't been built yet</h3>
+        <p>Open <code>wayforge/viewer</code> in Unity and run <b>Wayforge &gt; Build WebGL Viewer</b>.
+          The Studio picks up <code>viewer/Build/WebGL</code> by itself when you run <code>npm run dev</code>
+          or <code>npm run build</code>, then refresh this page.</p>
+        <p>The 2D plan works without it.</p>
       </div>
     );
   }
