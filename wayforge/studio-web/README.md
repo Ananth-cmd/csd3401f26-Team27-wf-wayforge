@@ -11,19 +11,33 @@ Made by Katie Lim (M2 item 2). React + Vite, no other libraries.
 
 ## Run it
 
-Needs Node 18+ (`node -v` to check).
+Needs Node 18+ (`node -v` to check). On Windows, if PowerShell blocks npm, use `npm.cmd`.
 
 ```
 cd wayforge/studio-web
 npm install
-npm run dev
+npm run server     (window 1: the Studio backend, runs wf_cli)
+npm run dev        (window 2: the website)
 ```
 
-Then open http://localhost:5173. `npm run build` makes the static site in `dist/`.
+Open http://localhost:5173. The top right says **Connected to the Studio server** when the backend
+is running. If it isn't, the site still opens on **offline demo data** (the mock, kept in your browser),
+but uploaded blueprints can't be read.
 
-It starts on the **mock backend** (yellow "Mock backend" tag at the top right), so it works
-without any server. Buildings are kept in your browser. There's a sample 3 floor building
-already in it (made with the real `wf_cli build` from `data/plans/simple_scan.png`).
+The backend needs `wf_cli`. Build the C++ core once (Visual Studio, Build All, see the main README):
+the server finds `wf_cli.exe` in `wayforge/build/...` by itself, or set `WF_CLI` to its path.
+
+`npm run build` makes the static site in `dist/`.
+
+### Uploading a real blueprint
+
+1. New building, drop one picture per level (PNG/JPG/SVG/BMP).
+2. **Crop**: drag a box around just the plan, leaving out the border, title block, notes and
+   dimension lines. They'd turn into walls otherwise.
+3. **Measure**: click both ends of a dimension line (e.g. one marked 18000 mm) and type 18.
+   That sets how many metres a pixel is, which makes the walls/doors come out much better.
+4. Create building. The server runs `wf_cli build` (a few seconds) and opens the editor.
+   Fix what it got wrong, name the rooms, save (the server reruns `wf_cli graph`), publish.
 
 ## What works now
 
@@ -77,18 +91,22 @@ src/
   lib/route.js        simple route finder for the mock
   pages/BuildingsPage.jsx   building list
   pages/UploadPage.jsx      new building
+  components/PlanPrep.jsx   crop + measure a blueprint before upload
   pages/EditorPage.jsx      the editor (undo, save, publish, shortcuts)
   components/PlanView.jsx   SVG 2D plan + tools
   components/Viewer3D.jsx   embeds the Unity viewer
   components/Inspector.jsx  edit fields (bottom bar), building/stairs/checks/route panels
   components/MiniPlan.jsx   small plan on the buildings page
 public/samples/sample-3floors.wfb   sample building
-public/viewer/                      put the Unity WebGL build here
+public/viewer/                      only if the viewer was built somewhere else
+server/server.mjs                   the Studio backend (runs wf_cli), no npm packages
+server/data/                        buildings it made (not in git)
 ```
 
 ## Still to do
 
-* Real backend hookup once item 4 is up (upload -> `wf_cli build`, save -> `wf_cli graph`, route -> `wf_cli route`)
+* Show the uploaded picture under the 2D plan (the server already keeps it: `/api/buildings/:id/source/L1`)
+* Per-level crop, for drawing sets where levels aren't lined up
 * Login / company accounts (who owns which building)
 * Show the original floor plan picture under the 2D plan so you can compare
 * Draw/edit room shapes, move wall ends by dragging

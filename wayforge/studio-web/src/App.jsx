@@ -43,7 +43,7 @@ export default function App() {
           <a href="#/new" className={path === "/new" ? "on" : ""}>New building</a>
         </nav>
         <span className={"backend " + api.mode} title={api.mode === "mock" ? "Data is kept in this browser" : "Connected to the server"}>
-          {api.mode === "mock" ? "Offline demo data" : "Server"}
+          {api.mode === "mock" ? "Offline demo data (no server running)" : "Connected to the Studio server"}
         </span>
       </header>
       {page}

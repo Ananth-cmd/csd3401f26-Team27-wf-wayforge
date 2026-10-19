@@ -4,13 +4,15 @@
  *        or from a .wfb file you already have
  *
  * the backend turns the pictures into a building with
- *   wf_cli build out.wfb L1.png L2.png ... --name --floor-height --lat --lon
- * so the order of the pictures here = the order of the floors
+ *   wf_cli build out.wfb L1.png L2.png ... --name --floor-height --scale --lat --lon
+ * so the order of the pictures here = the order of the floors.
+ * before that you can crop away the title block and set the scale (PlanPrep)
  *
  * \author Katie Lim
  */
 import { useEffect, useState } from "react";
 import { api } from "../api/api.js";
+import PlanPrep, { cropFile } from "../components/PlanPrep.jsx";
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/svg+xml", "image/bmp"];
 
@@ -20,7 +22,10 @@ export default function UploadPage({ go }) {
   const [floorHeight, setFloorHeight] = useState("3.5");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
-  const [floors, setFloors] = useState([]); // [{file, url}]
+  const [floors, setFloors] = useState([]); // [{file, url, w, h}]
+  const [picked, setPicked] = useState(0);   // which picture is shown in the crop/measure view
+  const [crop, setCrop] = useState(null);    // {x,y,w,h} in picture pixels, used for every level
+  const [scale, setScale] = useState(0);     // metres per pixel, 0 = let wf_cli use its default
   const [wfbFile, setWfbFile] = useState(null);
   const [step, setStep] = useState("");
   const [error, setError] = useState("");
@@ -38,7 +43,14 @@ export default function UploadPage({ go }) {
     else setError("");
     // sort by name so L1, L2, L3 end up in order when you drop them all at once
     images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    setFloors((cur) => [...cur, ...images.map((file) => ({ file, url: URL.createObjectURL(file) }))]);
+    const added = images.map((file) => ({ file, url: URL.createObjectURL(file), w: 0, h: 0 }));
+    setFloors((cur) => [...cur, ...added]);
+    // find out how big each picture is (needed for cropping)
+    added.forEach((f) => {
+      const img = new Image();
+      img.onload = () => setFloors((cur) => cur.map((x) => (x.url === f.url ? { ...x, w: img.naturalWidth, h: img.naturalHeight } : x)));
+      img.src = f.url;
+    });
   }
 
   const move = (i, by) => setFloors((cur) => {
@@ -47,7 +59,10 @@ export default function UploadPage({ go }) {
     [next[i], next[j]] = [next[j], next[i]];
     return next;
   });
-  const removeFloor = (i) => setFloors((cur) => { URL.revokeObjectURL(cur[i].url); return cur.filter((_, k) => k !== i); });
+  const removeFloor = (i) => {
+    setFloors((cur) => { URL.revokeObjectURL(cur[i].url); return cur.filter((_, k) => k !== i); });
+    setPicked(0);
+  };
 
   // use the phone/laptop location as a starting point for lat/lon
   function useMyLocation() {
@@ -65,9 +80,14 @@ export default function UploadPage({ go }) {
     if (!ready) return;
     setError("");
     try {
+      let files = [];
+      if (mode === "images") {
+        setStep(crop ? "Cropping the pictures" : "Uploading");
+        files = await Promise.all(floors.map((f) => cropFile(f, crop)));
+      }
       const res = await api.createBuilding({
-        name: name.trim(), floorHeight, latitude, longitude,
-        floors: mode === "images" ? floors.map((f) => f.file) : [],
+        name: name.trim(), floorHeight, latitude, longitude, scale,
+        floors: files,
         wfbFile: mode === "wfb" ? wfbFile : null,
       }, setStep);
       go(`/b/${res.id}`);
@@ -106,8 +126,8 @@ export default function UploadPage({ go }) {
         </div>
 
         {api.mode === "mock" && mode === "images" && (
-          <p className="note">Demo mode doesn't read the pictures yet; that happens on the server with wf_cli.
-            You'll get the sample plan with one level per picture so you can try the editor.</p>
+          <p className="note">The Studio server isn't running, so the pictures can't be read. You'll get the
+            sample plan instead. Start it with <code>npm run server</code> to use your own blueprints.</p>
         )}
         {error && <p className="error-text">{error}</p>}
 
@@ -120,18 +140,25 @@ export default function UploadPage({ go }) {
       <section className="split-detail">
         {mode === "images" ? (
           <>
+            {floors.length > 0 && (
+              <>
+                <h2>Get the plan ready</h2>
+                <PlanPrep floor={floors[Math.min(picked, floors.length - 1)]} crop={crop} onCrop={setCrop} scale={scale} onScale={setScale} />
+                <p className="muted small">The same crop and scale are used for every level, so upload pictures from one drawing set.</p>
+              </>
+            )}
             <h2>Levels</h2>
-            <p className="muted">One picture per level. The top of the list is the top floor; use the arrows to change the order.</p>
+            <p className="muted">One picture per level. The top of the list is the top floor. Click a level to see it above.</p>
             {floors.length > 0 && (
               <ol className="stack">
                 {[...floors].map((f, i) => ({ f, i })).reverse().map(({ f, i }) => (
-                  <li key={f.url}>
+                  <li key={f.url} className={i === Math.min(picked, floors.length - 1) ? "on" : ""} onClick={() => setPicked(i)}>
                     <b className="lvl">L{i + 1}</b>
                     <img src={f.url} alt="" />
-                    <span className="grow">{f.file.name}<br /><span className="muted small">{(f.file.size / 1024).toFixed(0)} KB</span></span>
-                    <button type="button" className="quiet small" onClick={() => move(i, 1)} disabled={i === floors.length - 1} title="Move up a level">Up</button>
-                    <button type="button" className="quiet small" onClick={() => move(i, -1)} disabled={i === 0} title="Move down a level">Down</button>
-                    <button type="button" className="quiet small danger" onClick={() => removeFloor(i)}>Remove</button>
+                    <span className="grow">{f.file.name}<br /><span className="muted small">{f.w ? `${f.w} × ${f.h} px, ` : ""}{(f.file.size / 1024).toFixed(0)} KB</span></span>
+                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, 1); }} disabled={i === floors.length - 1} title="Move up a level">Up</button>
+                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, -1); }} disabled={i === 0} title="Move down a level">Down</button>
+                    <button type="button" className="quiet small danger" onClick={(e) => { e.stopPropagation(); removeFloor(i); }}>Remove</button>
                   </li>
                 ))}
               </ol>

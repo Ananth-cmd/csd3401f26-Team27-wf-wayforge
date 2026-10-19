@@ -1,4 +1,10 @@
-# Studio <-> backend API (proposal)
+# Studio <-> backend API
+
+`server/server.mjs` implements all of this (run `npm run server`). `GET /api/health` returns
+`{ ok, wfCli }`; the site uses it to decide between the server and the offline mock.
+`GET /api/buildings/:id/source/L1` gives back the uploaded picture for a level.
+
+## (original proposal below)
 
 This is what the Studio website expects from the backend (M2 item 4). It's my proposal, so if
 something doesn't work for the backend side tell me and I'll change `src/api/realApi.js`.
@@ -27,12 +33,13 @@ Make a new building.
 | `name` | building name |
 | `floorHeight` | metres between floors, default 3.5 |
 | `latitude`, `longitude` | optional |
+| `scale` | optional, metres per pixel (from the Measure tool). Passed as `--scale` |
 | `floors` | the pictures, sent several times. **order = L1, L2, L3...** |
 | `wfb` | instead of pictures, an existing `.wfb` file |
 
 Backend runs:
 ```
-wf_cli build out.wfb L1.png L2.png ... --name "<name>" --floor-height <h> --lat <lat> --lon <lon>
+wf_cli build out.wfb L1.png L2.png ... --name "<name>" --floor-height <h> [--scale <m/px>] --lat <lat> --lon <lon>
 ```
 Returns `{ "id": "new-id" }`. If it takes long it's fine to just make the user wait for now
 (the Studio shows a "building..." state).

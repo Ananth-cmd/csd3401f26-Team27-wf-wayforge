@@ -95,13 +95,6 @@ export default function BuildingsPage({ go }) {
             <div className="detail-plan">
               {preview ? <MiniPlan key={picked} doc={preview} /> : <p className="muted">Loading plan...</p>}
             </div>
-            <dl className="facts-row">
-              <div><dt>Levels</dt><dd>{b.floors}</dd></div>
-              <div><dt>Rooms</dt><dd>{b.rooms}</dd></div>
-              <div><dt>Named</dt><dd>{b.tagged}</dd></div>
-              <div><dt>Doors</dt><dd>{b.doors}</dd></div>
-              <div><dt>Stairs and lifts</dt><dd>{b.links}</dd></div>
-            </dl>
           </>
         ) : (
           list && list.length > 0 && <p className="muted">Pick a building on the left.</p>

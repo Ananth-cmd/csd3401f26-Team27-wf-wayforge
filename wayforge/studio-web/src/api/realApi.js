@@ -35,10 +35,11 @@ export const realApi = {
     fd.append("floorHeight", form.floorHeight || "3.5");
     if (form.latitude !== "") fd.append("latitude", form.latitude);
     if (form.longitude !== "") fd.append("longitude", form.longitude);
+    if (form.scale) fd.append("scale", String(form.scale)); // metres per pixel, from the measure tool
     if (form.wfbFile) fd.append("wfb", form.wfbFile);
     // order matters, the first picture becomes L1, second L2 ...
     (form.floors || []).forEach((f) => fd.append("floors", f));
-    onStep("uploading and building (wf_cli build)");
+    onStep("Reading the floor plans");
     return call("/buildings", { method: "POST", body: fd });
   },
 
