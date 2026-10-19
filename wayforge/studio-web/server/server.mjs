@@ -105,7 +105,9 @@ function info(id) {
   const doc = readJson(path.join(dir, "draft.wfb"));
   const status = meta.publishedAt ? (meta.updatedAt > meta.publishedAt ? "changed" : "published") : "draft";
   return { id, name: doc.building.name || id, status, updatedAt: meta.updatedAt, publishedAt: meta.publishedAt || null,
-    version: meta.version || 0, sources: meta.sources || [], ...summary(doc) };
+    version: meta.version || 0, sources: meta.sources || [],
+    // metres per pixel of the uploaded pictures, so the site can line them up under the plan
+    scale: meta.scale || (meta.sources?.length ? 0.02 : null), ...summary(doc) };
 }
 
 function listIds() {
@@ -188,6 +190,7 @@ async function createBuilding(req) {
       const args = ["build", path.join(dir, "draft.wfb"), ...files, "--name", f.name || "Building",
         "--floor-height", String(Number(f.floorHeight) || 3.5)];
       if (Number(f.scale) > 0) args.push("--scale", String(Number(f.scale)));
+      meta.scale = Number(f.scale) > 0 ? Number(f.scale) : 0.02; // 0.02 = wf_cli's default
       if (f.latitude) args.push("--lat", String(Number(f.latitude)));
       if (f.longitude) args.push("--lon", String(Number(f.longitude)));
       const { stdout } = await runCli(args);

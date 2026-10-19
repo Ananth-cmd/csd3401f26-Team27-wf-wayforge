@@ -46,6 +46,7 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
           </select>
         </label>
         <span className="facts">{num(r.area ?? polygonArea(r.polygon), 1)} m², {num((r.confidence ?? 1) * 100, 0)}% sure</span>
+        <button className="danger" onClick={onDelete}>Delete room</button>
       </div>
     );
   }
@@ -97,9 +98,50 @@ function findIn(doc, levelId, list, id) {
   return doc.levels.find((l) => l.id === levelId)[list].find((x) => x.id === id);
 }
 
-export function BuildingPanel({ doc, onChange }) {
+export function BuildingPanel({ doc, onChange, current, onPick }) {
   const b = doc.building;
   const setB = (field, value) => onChange((d) => { d.building[field] = value; });
+  // levels are kept bottom to top. "elevation" is how high the floor is above the ground floor
+  const sorted = [...doc.levels].sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
+  const gap = sorted.length > 1 ? (sorted.at(-1).elevation - sorted[0].elevation) / (sorted.length - 1) : 3.5;
+
+  const setLevel = (id, field, value) => onChange((d) => { d.levels.find((l) => l.id === id)[field] = value; });
+
+  // move a floor up or down by swapping heights with the one next to it
+  const moveLevel = (id, dir) => onChange((d) => {
+    const order = [...d.levels].sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
+    const i = order.findIndex((l) => l.id === id), j = i + dir;
+    if (j < 0 || j >= order.length) return;
+    [order[i].elevation, order[j].elevation] = [order[j].elevation, order[i].elevation];
+    d.levels.sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
+  }, true);
+
+  // new empty floor on top, draw its walls with the tools or start from a copy later
+  const addLevel = () => onChange((d) => {
+    const top = Math.max(...d.levels.map((l) => l.elevation ?? 0), -gap);
+    let n = d.levels.length + 1;
+    while (d.levels.some((l) => l.id === `L${n}`)) n++;
+    d.levels.push({ id: `L${n}`, name: `Level ${n}`, elevation: top + (gap || 3.5), ceilingHeight: 3,
+      walls: [], openings: [], rooms: [], nodes: [], edges: [], pois: [], anchors: [] });
+  }, true);
+
+  const removeLevel = (id) => {
+    if (doc.levels.length <= 1) return;
+    if (!window.confirm(`Remove ${id} and everything on it?`)) return;
+    onChange((d) => {
+      d.levels = d.levels.filter((l) => l.id !== id);
+      // stairs/lifts that went to that floor go too
+      d.links = (d.links || []).filter((k) => !k.a.startsWith(id + ":") && !k.b.startsWith(id + ":"));
+    }, true);
+    if (id === current) onPick(doc.levels.find((l) => l.id !== id).id);
+  };
+
+  // set every floor to the same floor-to-floor height
+  const spaceAll = (h) => onChange((d) => {
+    const order = [...d.levels].sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
+    order.forEach((l, i) => { l.elevation = Math.round(i * h * 100) / 100; });
+  }, true);
+
   return (
     <div className="form">
       <h3>Building</h3>
@@ -111,19 +153,31 @@ export function BuildingPanel({ doc, onChange }) {
       <label>Heading (° clockwise from north)
         <input type="number" step="1" value={b.heading ?? 0} onChange={(e) => setB("heading", Number(e.target.value))} />
       </label>
+
       <h3>Levels</h3>
-      <table className="mini">
-        <thead><tr><th>Id</th><th>Name</th><th>Height (m)</th></tr></thead>
+      <p className="muted small">Height = how far above the ground floor. Top floor is at the top.</p>
+      <table className="mini levels-table">
+        <thead><tr><th>Id</th><th>Name</th><th>Height</th><th>Ceiling</th><th /></tr></thead>
         <tbody>
-          {doc.levels.map((l, i) => (
-            <tr key={l.id}>
-              <td>{l.id}</td>
-              <td><input value={l.name || ""} onChange={(e) => onChange((d) => { d.levels[i].name = e.target.value; })} /></td>
-              <td><input type="number" step="0.5" value={l.elevation ?? 0} onChange={(e) => onChange((d) => { d.levels[i].elevation = Number(e.target.value); })} /></td>
+          {[...sorted].reverse().map((l, k) => (
+            <tr key={l.id} className={l.id === current ? "on" : ""}>
+              <td><button className="link" onClick={() => onPick(l.id)}>{l.id}</button></td>
+              <td><input value={l.name || ""} onChange={(e) => setLevel(l.id, "name", e.target.value)} /></td>
+              <td><input type="number" step="0.5" value={l.elevation ?? 0} onChange={(e) => setLevel(l.id, "elevation", Number(e.target.value))} /></td>
+              <td><input type="number" step="0.1" value={l.ceilingHeight ?? 3} onChange={(e) => setLevel(l.id, "ceilingHeight", Number(e.target.value))} /></td>
+              <td className="row-tools">
+                <button className="quiet small" title="Move up" disabled={k === 0} onClick={() => moveLevel(l.id, 1)}>Up</button>
+                <button className="quiet small" title="Move down" disabled={k === sorted.length - 1} onClick={() => moveLevel(l.id, -1)}>Down</button>
+                <button className="quiet small danger" title="Remove this level" disabled={sorted.length <= 1} onClick={() => removeLevel(l.id)}>Remove</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <div className="row-buttons">
+        <button onClick={addLevel}>Add a level on top</button>
+        <button className="quiet" onClick={() => { const h = Number(window.prompt("Floor to floor height in metres", String(Math.round(gap * 10) / 10 || 3.5))); if (h > 0) spaceAll(h); }}>Same height for all</button>
+      </div>
     </div>
   );
 }
@@ -210,7 +264,7 @@ export function ChecksPanel({ problems, onPick }) {
   );
 }
 
-export function RoutePanel({ doc, onRoute, route, busy }) {
+export function RoutePanel({ doc, onRoute, route, busy, dirty }) {
   const codes = [];
   for (const l of doc.levels) for (const r of l.rooms || []) if (r.code) codes.push(r.code);
   const [from, setFrom] = useState(codes[0] || "");
@@ -218,7 +272,9 @@ export function RoutePanel({ doc, onRoute, route, busy }) {
   const [stepFree, setStepFree] = useState(false);
   return (
     <div className="form">
+      <h3>Test a route</h3>
       <p className="muted small">Try a trip before you publish. Use a room code, or type exit.</p>
+      {dirty && <p className="note small">The route uses the last saved version. Save first to test your changes.</p>}
       <datalist id="room-codes">{codes.map((c) => <option key={c} value={c} />)}<option value="exit" /></datalist>
       <div className="row2">
         <label>From <input list="room-codes" value={from} onChange={(e) => setFrom(e.target.value)} /></label>

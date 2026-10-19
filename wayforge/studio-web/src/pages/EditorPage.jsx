@@ -10,10 +10,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/api.js";
-import { parseWfb, toWfbText, clone, validate, summary, nextId } from "../lib/wfb.js";
+import { parseWfb, toWfbText, clone, validate, summary, nextId, polygonArea } from "../lib/wfb.js";
 import PlanView from "../components/PlanView.jsx";
 import Viewer3D from "../components/Viewer3D.jsx";
-import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel } from "../components/Inspector.jsx";
+import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel, RoutePanel } from "../components/Inspector.jsx";
 
 const MERGE_MS = 800; // edits closer together than this (like typing) share one undo step
 
@@ -31,6 +31,10 @@ export default function EditorPage({ id, go }) {
   const [centre, setCentre] = useState("2d");
   const [sheet, setSheet] = useState(null); // building | links | checks popout
   const [showPaths, setShowPaths] = useState(false);
+  const [route, setRoute] = useState(null);
+  const [blueprint, setBlueprint] = useState(true);   // show the uploaded picture under the plan
+  const [opacity, setOpacity] = useState(0.35);
+  const [picDims, setPicDims] = useState({});         // {L1: {w, h}} sizes of the uploaded pictures
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState("");
   const undo = useRef([]), redo = useRef([]), lastEdit = useRef(0);
@@ -50,6 +54,17 @@ export default function EditorPage({ id, go }) {
       .catch((e) => !stop && setError(e.message));
     return () => { stop = true; };
   }, [id]);
+
+  const picUrl = (lv) => `/api/buildings/${encodeURIComponent(id)}/source/${lv}`;
+  // find out how big each uploaded picture is, so it can be lined up under the plan
+  useEffect(() => {
+    if (!info || api.mode !== "server") return;
+    for (const src of info.sources || []) {
+      const img = new Image();
+      img.onload = () => setPicDims((cur) => ({ ...cur, [src.level]: { w: img.naturalWidth, h: img.naturalHeight } }));
+      img.src = picUrl(src.level);
+    }
+  }, [info?.id, info?.sources?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flash = (text) => { setToast(text); setTimeout(() => setToast(""), 2500); };
 
@@ -72,6 +87,7 @@ export default function EditorPage({ id, go }) {
     lastEdit.current = now;
     redo.current = [];
     put(next);
+    setRoute(null); // an old route might not be right any more
   }, []);
 
   const doUndo = useCallback(() => {
@@ -127,6 +143,40 @@ export default function EditorPage({ id, go }) {
 
 
 
+  // drag a wall (or one end of it) in the 2D plan
+  function moveWall(wallId, a, b) {
+    edit((d) => {
+      const w = d.levels.find((x) => x.id === level.id).walls.find((x) => x.id === wallId);
+      if (w) { w.a = a; w.b = b; }
+    }, true);
+  }
+
+  // a room drawn with the room tool. centroid = average of the corners, good enough for the label
+  function addRoom(poly) {
+    let newId = null;
+    edit((d) => {
+      const l = d.levels.find((x) => x.id === level.id);
+      l.rooms = l.rooms || [];
+      newId = nextId(l, "r");
+      const cx = poly.reduce((t, p) => t + p[0], 0) / poly.length, cy = poly.reduce((t, p) => t + p[1], 0) / poly.length;
+      l.rooms.push({ id: newId, code: "", name: "", kind: "unknown", polygon: poly, centroid: [cx, cy],
+        area: polygonArea(poly), boundary: [], confidence: 1 });
+    }, true);
+    setTool("select");
+    setTimeout(() => newId && setSelection({ type: "room", id: newId }), 0);
+  }
+
+  // try a trip between two rooms (the server runs wf_cli route on the saved file)
+  async function findRoute(from, to, stepFree) {
+    if (from == null) { setRoute(null); return; }
+    setBusy("route");
+    try {
+      const r = await api.route(id, text, from, to, stepFree);
+      setRoute(r);
+      if (r.ok) setLevelId(r.steps[0].level); // jump to where the route starts
+    } catch (e) { setRoute({ ok: false, error: e.message }); } finally { setBusy(""); }
+  }
+
   function addWall(a, b) {
     edit((d) => {
       const l = d.levels.find((x) => x.id === level.id);
@@ -154,12 +204,14 @@ export default function EditorPage({ id, go }) {
   }
 
   const deleteSelected = useCallback(() => {
-    if (!selection || selection.type === "room" || !level) return;
+    if (!selection || !level) return;
     edit((d) => {
       const l = d.levels.find((x) => x.id === level.id);
       if (selection.type === "wall") {
         l.walls = l.walls.filter((w) => w.id !== selection.id);
         l.openings = (l.openings || []).filter((o) => o.wall !== selection.id); // its doors go too
+      } else if (selection.type === "room") {
+        l.rooms = l.rooms.filter((r) => r.id !== selection.id);
       } else if (selection.type === "opening") {
         l.openings = l.openings.filter((o) => o.id !== selection.id);
       }
@@ -180,6 +232,7 @@ export default function EditorPage({ id, go }) {
       else if (e.key === "v") setTool("select");
       else if (e.key === "w") setTool("wall");
       else if (e.key === "d") setTool("door");
+      else if (e.key === "r") setTool("room");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -202,6 +255,23 @@ export default function EditorPage({ id, go }) {
   if (!doc || !level) return <div className="page muted">Loading building...</div>;
 
   const s = summary(doc);
+
+  // the uploaded picture for this level (only buildings made from pictures on the server have one)
+  const hasPic = api.mode === "server" && (info?.sources || []).some((x) => x.level === level.id);
+  const dims = picDims[level.id];
+  const underlay = hasPic && blueprint && dims
+    ? { url: picUrl(level.id), w: dims.w, h: dims.h, scale: info.scale || 0.02, opacity } : null;
+
+  // stairs/lifts on this level that go somewhere, so the plan can mark them
+  const linksHere = [];
+  for (const k of doc.links || []) {
+    for (const [here, there] of [[k.a, k.b], [k.b, k.a]]) {
+      const [lv, node] = here.split(":");
+      if (lv !== level.id) continue;
+      const n = (level.nodes || []).find((x) => x.id === node);
+      if (n) linksHere.push({ pos: n.pos, kind: k.kind, to: there.split(":")[0] });
+    }
+  }
   const errors = problems.filter((p) => p.type === "error").length;
   const status = info?.publishedAt ? (dirty || info.status === "changed" ? "Edited since publish" : `Published v${info.version}`) : "Draft";
   // floors listed top floor first, like the buttons in a lift
@@ -253,6 +323,7 @@ export default function EditorPage({ id, go }) {
             <button className={sheet === "checks" ? "on" : ""} onClick={() => toggleSheet("checks")}>
               Checks {problems.length > 0 && <em className={errors ? "bad" : "warn"}>{problems.length}</em>}
             </button>
+            <button className={sheet === "route" ? "on" : ""} onClick={() => toggleSheet("route")}>Test a route</button>
           </section>
           <p className="side-foot">{s.rooms} rooms, {s.tagged} tagged<br />{s.floors} levels</p>
         </aside>
@@ -266,7 +337,8 @@ export default function EditorPage({ id, go }) {
           {sheet && (
             <div className="sheet">
               <button className="sheet-close" onClick={() => setSheet(null)} aria-label="Close">Close</button>
-              {sheet === "building" && <BuildingPanel doc={doc} onChange={edit} />}
+              {sheet === "building" && <BuildingPanel doc={doc} onChange={edit} current={level.id} onPick={setLevelId} />}
+              {sheet === "route" && <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} dirty={dirty} />}
               {sheet === "links" && <LinksPanel doc={doc} onChange={edit} />}
               {sheet === "checks" && <ChecksPanel problems={problems} onPick={(p) => { if (p.level) setLevelId(p.level); if (p.room) setSelection({ type: "room", id: p.room }); }} />}
             </div>
@@ -274,11 +346,12 @@ export default function EditorPage({ id, go }) {
 
           {/* keep the 3D mounted once opened so Unity doesn't reload every time */}
           <div className="canvas" style={{ display: centre === "2d" ? "block" : "none" }}>
-            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths}
-              onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} />
+            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths} route={route}
+              underlay={underlay} links={linksHere}
+              onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} onMoveWall={moveWall} onAddRoom={addRoom} />
           </div>
           <Lazy3D show={centre === "3d"}>
-            <Viewer3D wfbText={text} levelId={level.id} onRoomClicked={onRoomClicked}
+            <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked}
               highlight={selection?.type === "room" ? `${level.id}:${selection.id}` : ""} />
           </Lazy3D>
         </main>
@@ -289,7 +362,14 @@ export default function EditorPage({ id, go }) {
             <button className={tool === "select" ? "on" : ""} onClick={() => setTool("select")}>Select <kbd>V</kbd></button>
             <button className={tool === "wall" ? "on" : ""} onClick={() => { setTool("wall"); setCentre("2d"); }}>Wall <kbd>W</kbd></button>
             <button className={tool === "door" ? "on" : ""} onClick={() => { setTool("door"); setCentre("2d"); }}>Door <kbd>D</kbd></button>
+            <button className={tool === "room" ? "on" : ""} onClick={() => { setTool("room"); setCentre("2d"); }}>Room <kbd>R</kbd></button>
             <label className="check"><input type="checkbox" checked={showPaths} onChange={(e) => setShowPaths(e.target.checked)} /> Paths</label>
+            {hasPic && (
+              <label className="check" title="Show the uploaded blueprint under the plan">
+                <input type="checkbox" checked={blueprint} onChange={(e) => setBlueprint(e.target.checked)} /> Blueprint
+                {blueprint && <input type="range" min="0.1" max="1" step="0.05" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} aria-label="Blueprint opacity" />}
+              </label>
+            )}
           </div>
           <div className="edit-strip">
             <span className="group-name">Edit</span>

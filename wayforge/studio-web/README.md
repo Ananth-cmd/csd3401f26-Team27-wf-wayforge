@@ -39,20 +39,17 @@ the server finds `wf_cli.exe` in `wayforge/build/...` by itself, or set `WF_CLI`
 4. Create building. The server runs `wf_cli build` (a few seconds) and opens the editor.
    Fix what it got wrong, name the rooms, save (the server reruns `wf_cli graph`), publish.
 
-## What works now
+## What works now (editor = epics 13-16)
 
-| Page | What you can do |
+| Epic | What you can do |
 |---|---|
-| Buildings | see all buildings, how many rooms are tagged, draft/published, delete |
-| New building | drop one picture per floor (reorder them), name, floor height, lat/lon. Or open a `.wfb` you already have |
-| Editor, 2D plan | zoom (scroll), pan (drag), switch floors, click rooms/walls/doors, show the walking paths |
-| Editor, tools | **V** select, **W** draw a wall (snaps to wall ends), **D** add a door on a wall, **Delete** removes the selected wall/door |
-| Edit panel | room code, name and kind (same as `wf_cli tag`), wall thickness, door type/width/position |
-| Building panel | building name, lat/lon, heading, floor names and heights |
-| Stairs/lifts | link a stair/lift room on one floor to one on another floor |
-| Checks | things to fix before publishing (duplicate codes, untagged rooms, no exit, no floor links, no location) |
-| 3D preview | Ananth's Unity WebGL viewer, gets the building live as you edit. Click a room in 3D to select it |
-| Save / Download / Publish | Ctrl+S saves, Download gives you the `.wfb`, Publish sends it to the Navigator. Ctrl+Z / Ctrl+Y undo/redo |
+| 13 View | 2D plan with the uploaded blueprint underneath (Blueprint tick box + fade slider), walls, doors/windows, rooms coloured by kind, room codes/names, zoom (scroll), pan (drag), level switcher, anything the engine was less than 70% sure about in orange |
+| 14 Editing | select a room and set its code, name and kind; select a wall and drag it, or drag its end dots; **W** add a wall; **D** add a door; **R** draw a new room (click the corners); **Delete** removes the selected room/wall/door; Ctrl+Z / Ctrl+Y undo/redo, Ctrl+S save |
+| 15 Levels, stairs, lifts | Building details: add a level on top, remove, move up/down, set each level's height and ceiling, or one floor-to-floor height for all. Stairs and lifts: link a stair/lift on one level to another, see the links on the plan ("stairs to L2"), remove them |
+| 16 Save and preview | save/load through the Studio server, 3D preview (Ananth's viewer), test a route (left column), Publish, warning when leaving with unsaved changes |
+
+Also: Buildings list with a preview, New building with auto crop + measure, Checks before publishing,
+Download .wfb.
 
 ### Mock vs real backend
 
@@ -104,9 +101,7 @@ server/data/                        buildings it made (not in git)
 
 ## Still to do
 
-* Show the uploaded picture under the 2D plan (the server already keeps it: `/api/buildings/:id/source/L1`)
 * Per-level crop, for drawing sets where levels aren't lined up
 * Login / company accounts (who owns which building)
-* Show the original floor plan picture under the 2D plan so you can compare
 * Draw/edit room shapes, move wall ends by dragging
-* Put it on the VM with the backend (item 5)
+* Put it on the VM with the backend: see deploy/README.md
