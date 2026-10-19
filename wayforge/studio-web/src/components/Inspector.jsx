@@ -21,11 +21,11 @@ const num = (v, d = 2) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixe
 // sits in the bottom bar, so everything is laid out in one row
 export function SelectionPanel({ level, selection, onChange, onDelete }) {
   if (!selection) {
-    return <p className="hint">Click a room, wall or door on the plan.</p>;
+    return <p className="hint">Nothing selected.</p>;
   }
   if (selection.type === "room") {
     const r = (level.rooms || []).find((x) => x.id === selection.id);
-    if (!r) return <p className="hint">That room isn't on this level.</p>;
+    if (!r) return <p className="hint">Nothing selected.</p>;
     // change one field on the room
     const set = (field, value) => onChange((doc) => {
       const room = doc.levels.find((l) => l.id === level.id).rooms.find((x) => x.id === r.id);
@@ -155,7 +155,6 @@ export function BuildingPanel({ doc, onChange, current, onPick }) {
       </label>
 
       <h3>Levels</h3>
-      <p className="muted small">Height = how far above the ground floor. Top floor is at the top.</p>
       <table className="mini levels-table">
         <thead><tr><th>Id</th><th>Name</th><th>Height</th><th>Ceiling</th><th /></tr></thead>
         <tbody>
@@ -212,8 +211,7 @@ export function LinksPanel({ doc, onChange }) {
   return (
     <div className="form">
       <h3>Stairs and lifts</h3>
-      <p className="muted small">These join the levels so a route can go up or down.</p>
-      {!(doc.links || []).length && <p className="muted">No links yet, so routes can't change floor.</p>}
+      {!(doc.links || []).length && <p className="muted">No links yet.</p>}
       <ul className="links">
         {(doc.links || []).map((k, i) => (
           <li key={i}>
@@ -223,7 +221,7 @@ export function LinksPanel({ doc, onChange }) {
         ))}
       </ul>
       {transfer.length < 2 ? (
-        <p className="muted small">Mark rooms as kind <b>stair</b> or <b>lift</b> on two floors first, then link them here.</p>
+        <p className="muted small">Set rooms to <b>stair</b> or <b>lift</b> on two levels to link them.</p>
       ) : (
         <>
           <label>From
@@ -252,7 +250,7 @@ export function ChecksPanel({ problems, onPick }) {
   return (
     <div>
       <h3>Checks</h3>
-      <p className="muted">{errors} error(s), {problems.length - errors} warning(s). Errors stop publishing, warnings don't.</p>
+      <p className="muted">{errors} error(s), {problems.length - errors} warning(s)</p>
       <ul className="checks">
         {problems.map((p, i) => (
           <li key={i} className={p.type} onClick={() => p.level && onPick(p)} title={p.level ? "show it on the plan" : ""}>
@@ -273,8 +271,7 @@ export function RoutePanel({ doc, onRoute, route, busy, dirty }) {
   return (
     <div className="form">
       <h3>Test a route</h3>
-      <p className="muted small">Try a trip before you publish. Use a room code, or type exit.</p>
-      {dirty && <p className="note small">The route uses the last saved version. Save first to test your changes.</p>}
+      {dirty && <p className="note small">Save first to include your changes.</p>}
       <datalist id="room-codes">{codes.map((c) => <option key={c} value={c} />)}<option value="exit" /></datalist>
       <div className="row2">
         <label>From <input list="room-codes" value={from} onChange={(e) => setFrom(e.target.value)} /></label>

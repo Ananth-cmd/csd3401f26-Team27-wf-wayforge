@@ -122,7 +122,7 @@ export default function EditorPage({ id, go }) {
 
   async function publish() {
     if (problems.some((p) => p.type === "error")) { setSheet("checks"); flash("Fix the errors first"); return; }
-    if (!window.confirm(`Publish "${doc.building.name}" so it shows up in the Navigator?`)) return;
+    if (!window.confirm(`Publish "${doc.building.name}" to the Navigator?`)) return;
     if (dirty && !(await save())) return;
     setBusy("publish");
     try {
@@ -189,7 +189,7 @@ export default function EditorPage({ id, go }) {
   function addDoor(wall, at) {
     const width = 0.9;
     const len = Math.hypot(wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]);
-    if (len < width + 0.1) { flash("That wall is too short for a door"); return; }
+    if (len < width + 0.1) { flash("Wall too short for a door"); return; }
     // centre the door where you clicked but keep it inside the wall
     const offset = Math.min(Math.max(at - width / 2, 0.05), len - width - 0.05);
     let newId = null;
@@ -299,8 +299,7 @@ export default function EditorPage({ id, go }) {
       </header>
 
       {geometryChanged && (
-        <div className="banner">Walls or doors changed. Walking paths are rebuilt on the server when you save
-          (<code>wf_cli graph</code>).</div>
+        <div className="banner">Walls or doors edited. Paths update on save.</div>
       )}
 
       <div className="ed-body">

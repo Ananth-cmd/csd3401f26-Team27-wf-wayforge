@@ -220,11 +220,11 @@ export default function PlanView({
   return (
     <div className="plan-wrap">
     <button className="fit-btn" onClick={fit} title="Fit the whole level in view">Fit to screen</button>
-    <div className="legend"><i className="lg-unsure" /> check these, the engine wasn't sure</div>
-    {tool === "wall" && <div className="plan-hint">{wallStart ? "Click where the wall ends. Esc cancels." : "Click where the wall starts."}</div>}
-    {tool === "door" && <div className="plan-hint">Click on a wall to put a door there.</div>}
-    {tool === "room" && <div className="plan-hint">{roomPts.length < 3 ? "Click each corner of the new room." : "Click the first corner or press Enter to finish. Backspace undoes a corner."}</div>}
-    {tool === "select" && selWall && <div className="plan-hint">Drag the wall to move it, or drag an end dot.</div>}
+    <div className="legend"><i className="lg-unsure" /> Low confidence</div>
+    {tool === "wall" && <div className="plan-hint">{wallStart ? "Click the end point (Esc to cancel)" : "Click the start point"}</div>}
+    {tool === "door" && <div className="plan-hint">Click a wall to add a door</div>}
+    {tool === "room" && <div className="plan-hint">{roomPts.length < 3 ? "Click each corner" : "Click the first corner or press Enter to finish"}</div>}
+    {tool === "select" && selWall && <div className="plan-hint">Drag to move, or drag an end point</div>}
     <svg
       ref={svgRef}
       className={`plan tool-${tool}`}

@@ -115,22 +115,22 @@ export function validate(doc) {
     for (const r of l.rooms || []) {
       if (r.kind === "exit") exits++;
       if (!r.code) {
-        if (r.kind !== "corridor") out.push({ level: l.id, room: r.id, type: "warn", text: `${l.id} ${r.id} has no room code, people can't search for it` });
+        if (r.kind !== "corridor") out.push({ level: l.id, room: r.id, type: "warn", text: `${l.id} ${r.id}: no room code` });
         continue;
       }
       const key = r.code.toLowerCase();
-      if (codes.has(key)) out.push({ level: l.id, room: r.id, type: "error", text: `room code ${r.code} is used twice (${codes.get(key)} and ${l.id}:${r.id})` });
+      if (codes.has(key)) out.push({ level: l.id, room: r.id, type: "error", text: `Duplicate code ${r.code} (${codes.get(key)}, ${l.id}:${r.id})` });
       else codes.set(key, `${l.id}:${r.id}`);
-      if (r.kind === "unknown") out.push({ level: l.id, room: r.id, type: "warn", text: `${r.code} is still kind "unknown"` });
+      if (r.kind === "unknown") out.push({ level: l.id, room: r.id, type: "warn", text: `${r.code}: kind not set` });
     }
-    if (!(l.nodes || []).length) out.push({ level: l.id, type: "error", text: `${l.id} has no navigation points, rebuild it with wf_cli` });
+    if (!(l.nodes || []).length) out.push({ level: l.id, type: "error", text: `${l.id}: no navigation points` });
   }
-  if (!exits) out.push({ type: "warn", text: "no room is marked as an exit, the Navigator can't guide people out" });
+  if (!exits) out.push({ type: "warn", text: "No exit marked" });
   if (doc.levels.length > 1 && !(doc.links || []).length) {
-    out.push({ type: "warn", text: "there are no stairs/lifts linking the floors, the Navigator can't take people between levels" });
+    out.push({ type: "warn", text: "No stairs or lifts linking the levels" });
   }
   if (!doc.building.latitude && !doc.building.longitude) {
-    out.push({ type: "warn", text: "building has no location (lat/lon), the Navigator map can't place it" });
+    out.push({ type: "warn", text: "No building location (lat/lon)" });
   }
   return out;
 }

@@ -122,15 +122,11 @@ export default function PlanPrep({ floor, crop, onCrop, onAuto, autoBusy, scale,
             <label className="check small"><input type="checkbox" checked={shared} onChange={(e) => onShared(e.target.checked)} /> Same crop for every level</label>
           </>
         ) : (
-          <span className="muted small">Click both ends of a dimension line or the scale bar.</span>
+          <span className="muted small">Click both ends of a known length</span>
         )}
       </div>
       {tool === "crop" && (
-        <p className="muted small prep-help">
-          {shared
-            ? "One box for all levels, so the floors stay lined up on top of each other. Drag its edges or corners to change it, drag inside to move it, or drag outside to draw a new one."
-            : `This crop is only for ${levelLabel}. Drag its edges or corners to change it. Floors cropped differently may not line up in 3D.`}
-        </p>
+        <p className="muted small prep-help">{shared ? "Applies to all levels" : `${levelLabel} only`}</p>
       )}
 
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className={"prep-img tool-" + tool}
@@ -165,9 +161,9 @@ export default function PlanPrep({ floor, crop, onCrop, onAuto, autoBusy, scale,
         )}
         <p className="small">
           {scale
-            ? <>1 pixel = {(scale * 100).toFixed(2)} cm, so this area is about {Math.round(used.w * scale)} × {Math.round(used.h * scale)} m.</>
-            : <>No scale set; the engine will guess 2 cm per pixel. Use Measure if the sizes look wrong.</>}
-          {crop ? <> Cropped to {crop.w} × {crop.h} px.</> : <> Not cropped.</>}
+            ? <>Scale: 1 px = {(scale * 100).toFixed(2)} cm ({Math.round(used.w * scale)} × {Math.round(used.h * scale)} m)</>
+            : <>Scale: not set (default 2 cm per px)</>}
+          {crop ? <> · Crop: {crop.w} × {crop.h} px</> : null}
         </p>
       </div>
     </div>

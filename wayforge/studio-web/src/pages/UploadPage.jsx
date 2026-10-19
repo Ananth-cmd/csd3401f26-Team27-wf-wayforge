@@ -145,7 +145,7 @@ export default function UploadPage({ go }) {
         </div>
 
         <div className="form">
-          <label>Building name {mode === "wfb" && <span className="muted">(empty keeps the name in the file)</span>}
+          <label>Building name 
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="SIT Punggol, E2" />
           </label>
           {mode === "images" && (
@@ -163,8 +163,7 @@ export default function UploadPage({ go }) {
         </div>
 
         {api.mode === "mock" && mode === "images" && (
-          <p className="note">The Studio server isn't running, so the pictures can't be read. You'll get the
-            sample plan instead. Start it with <code>npm run server</code> to use your own blueprints.</p>
+          <p className="note">Server offline. Run <code>npm run server</code> to read your own plans.</p>
         )}
         {error && <p className="error-text">{error}</p>}
 
@@ -183,11 +182,9 @@ export default function UploadPage({ go }) {
                 <PlanPrep floor={current} crop={shared ? sharedCrop : current.crop} onCrop={changeCrop}
                   onAuto={resetToAuto} autoBusy={autoBusy} shared={shared} onShared={setShared}
                   levelLabel={`L${Math.min(picked, floors.length - 1) + 1}`} scale={scale} onScale={setScale} />
-                <p className="muted small">The scale is used for every level.</p>
               </>
             )}
             <h2>Levels</h2>
-            <p className="muted">One picture per level. The top of the list is the top floor. Click a level to see it above.</p>
             {floors.length > 0 && (
               <ol className="stack">
                 {[...floors].map((f, i) => ({ f, i })).reverse().map(({ f, i }) => (
@@ -195,8 +192,8 @@ export default function UploadPage({ go }) {
                     <b className="lvl">L{i + 1}</b>
                     <img src={f.url} alt="" />
                     <span className="grow">{f.file.name}<br /><span className="muted small">{f.w ? `${f.w} × ${f.h} px, ` : ""}{(f.file.size / 1024).toFixed(0)} KB</span></span>
-                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, 1); }} disabled={i === floors.length - 1} title="Move up a level">Up</button>
-                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, -1); }} disabled={i === 0} title="Move down a level">Down</button>
+                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, 1); }} disabled={i === floors.length - 1} title="Up">Up</button>
+                    <button type="button" className="quiet small" onClick={(e) => { e.stopPropagation(); move(i, -1); }} disabled={i === 0} title="Down">Down</button>
                     <button type="button" className="quiet small danger" onClick={(e) => { e.stopPropagation(); removeFloor(i); }}>Remove</button>
                   </li>
                 ))}
@@ -208,11 +205,10 @@ export default function UploadPage({ go }) {
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
             >
-              <p>Drop floor plan pictures here, or</p>
+              <p>Drop floor plans here, one per level</p>
               <label className="button">Choose pictures
                 <input type="file" accept={IMAGE_TYPES.join(",")} multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
               </label>
-              <p className="muted small">Scans and phone photos both work. Straight-on photos read better.</p>
             </div>
           </>
         ) : (
@@ -221,11 +217,10 @@ export default function UploadPage({ go }) {
             <div className="drop"
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
-              <p>{wfbFile ? wfbFile.name : "Drop a .wfb file here, or"}</p>
+              <p>{wfbFile ? wfbFile.name : "Drop a .wfb file here"}</p>
               <label className="button">Choose .wfb
                 <input type="file" accept=".wfb,application/json" hidden onChange={(e) => setWfbFile(e.target.files[0] || null)} />
               </label>
-              <p className="muted small">For example one made with <code>wf_cli build</code>, or saved from the Unity Studio.</p>
             </div>
           </>
         )}

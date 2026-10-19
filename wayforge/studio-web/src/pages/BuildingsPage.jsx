@@ -33,7 +33,7 @@ export default function BuildingsPage({ go }) {
   }, [picked]);
 
   async function remove(b) {
-    if (!window.confirm(`Delete "${b.name}"? This can't be undone.`)) return;
+    if (!window.confirm(`Delete "${b.name}"?`)) return;
     await api.deleteBuilding(b.id);
     refresh();
   }
@@ -53,7 +53,6 @@ export default function BuildingsPage({ go }) {
         {list && !list.length && (
           <div className="empty">
             <p>No buildings yet.</p>
-            <p className="muted">Upload a floor plan for each level and Wayforge reads the walls, doors and rooms for you.</p>
             <button className="primary" onClick={() => go("/new")}>Upload floor plans</button>
           </div>
         )}
@@ -73,7 +72,7 @@ export default function BuildingsPage({ go }) {
         )}
 
         {api.mode === "mock" && (
-          <p className="muted small foot">Demo data is kept in this browser only.{" "}
+          <p className="muted small foot">Demo data (this browser only).{" "}
             <button className="link" onClick={async () => { await api.reset(); refresh(); }}>Reset it</button>
           </p>
         )}
@@ -97,7 +96,7 @@ export default function BuildingsPage({ go }) {
             </div>
           </>
         ) : (
-          list && list.length > 0 && <p className="muted">Pick a building on the left.</p>
+          list && list.length > 0 && <p className="muted">Select a building.</p>
         )}
       </section>
     </div>

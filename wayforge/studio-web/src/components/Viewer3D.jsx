@@ -89,11 +89,8 @@ export default function Viewer3D({ wfbText, levelId, route, onRoomClicked, highl
   if (state === "missing") {
     return (
       <div className="viewer-msg">
-        <h3>The 3D viewer hasn't been built yet</h3>
-        <p>Open <code>wayforge/viewer</code> in Unity and run <b>Wayforge &gt; Build WebGL Viewer</b>.
-          The Studio picks up <code>viewer/Build/WebGL</code> by itself when you run <code>npm run dev</code>
-          or <code>npm run build</code>, then refresh this page.</p>
-        <p>The 2D plan works without it.</p>
+        <h3>3D viewer not available</h3>
+        <p>Build it in Unity: <b>Wayforge &gt; Build WebGL Viewer</b>.</p>
       </div>
     );
   }
