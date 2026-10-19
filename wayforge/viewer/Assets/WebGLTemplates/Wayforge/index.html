@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<!--
+  index.html - Wayforge 3D viewer, full window (WebGL template).
+
+  Open directly, or embed in an iframe. Query parameters:
+    ?building=<url of a .wfb>   load a building on start
+    ?view=2d                    start in the top-down view
+  In an iframe the parent drives it with postMessage:
+    frame.contentWindow.postMessage({ target: "wayforge-viewer", method: "showFloor", args: ["L2"] }, "*")
+  and gets events back as { source: "wayforge-viewer", event, data } (see docs/viewer.md).
+
+  Author: Ananthan Elangovan (ananthan.e@digipen.edu)
+  AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
+  Copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, user-scalable=no">
+  <title>Wayforge Viewer</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body class="viewer-page">
+  <canvas id="viewer-canvas" tabindex="-1"></canvas>
+  <div id="loading">
+    <div class="loading-title">Wayforge</div>
+    <div class="loading-bar"><div id="loading-fill"></div></div>
+    <div id="loading-text">Loading viewer...</div>
+  </div>
+
+  <script src="viewer-build.js"></script>
+  <script src="wayforge-viewer.js"></script>
+  <script>
+    (async function () {
+      var fill = document.getElementById("loading-fill");
+      var text = document.getElementById("loading-text");
+      var params = new URLSearchParams(location.search);
+
+      try {
+        var viewer = await WayforgeViewer.create({
+          canvas: document.getElementById("viewer-canvas"),
+          buildUrl: ".",
+          onProgress: function (p) {
+            fill.style.width = Math.round(p * 100) + "%";
+            text.textContent = "Loading viewer... " + Math.round(p * 100) + "%";
+          }
+        });
+        document.getElementById("loading").style.display = "none";
+        window.viewer = viewer;                                       // for debugging from the console
+
+        // iframe embedding: { target: "wayforge-viewer", method, args } from the parent page.
+        window.addEventListener("message", function (e) {
+          var m = e.data;
+          if (!m || m.target !== "wayforge-viewer" || typeof viewer[m.method] !== "function") return;
+          viewer[m.method].apply(viewer, m.args || []);
+        });
+
+        if (params.get("view") === "2d") viewer.setView("2d");
+        if (params.get("building")) viewer.loadBuildingUrl(params.get("building"));
+      } catch (err) {
+        text.textContent = "The viewer could not start: " + err.message;
+        console.error(err);
+      }
+    })();
+  </script>
+</body>
+</html>

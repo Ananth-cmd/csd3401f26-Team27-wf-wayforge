@@ -100,7 +100,7 @@ std::vector<SymbolRegion> detectLifts(std::vector<Segment>& segs, float minLengt
             std::vector<Segment> arms;
             for (size_t k : diag) {
                 if (drop[k] || distancePointToSegment(x, segs[k].a, segs[k].b) > 0.3f) continue;
-                drop[k] = 1; ++r.lines; arms.push_back(segs[k]);
+                drop[k] = 1; arms.push_back(segs[k]);
                 r.box.expand(segs[k].a); r.box.expand(segs[k].b);
             }
             // Arms split by a door drawn across them: also take collinear diagonal pieces
@@ -113,7 +113,7 @@ std::vector<SymbolRegion> detectLifts(std::vector<Segment>& segs, float minLengt
                 for (const Segment& arm : arms) {
                     if (lineAngleDiff(arm.angle(), segs[k].angle()) > degToRad(5.f)) continue;
                     if (distancePointToLine(segs[k].a, arm.a, arm.b) > 0.1f || distancePointToLine(segs[k].b, arm.a, arm.b) > 0.1f) continue;
-                    drop[k] = 1; ++r.lines;
+                    drop[k] = 1;
                     r.box.expand(segs[k].a); r.box.expand(segs[k].b);
                     break;
                 }
@@ -168,7 +168,7 @@ std::vector<SymbolRegion> detectStairs(std::vector<Segment>& segs, int minTreads
             if (static_cast<int>(chain.size()) < minTreads) continue;
             SymbolRegion r;
             for (size_t ci : chain) {
-                used[ci] = 1; drop[c[ci].idx] = 1; ++r.lines;
+                used[ci] = 1; drop[c[ci].idx] = 1;
                 r.box.expand(segs[c[ci].idx].a); r.box.expand(segs[c[ci].idx].b);
             }
             r.centre = r.box.centre();

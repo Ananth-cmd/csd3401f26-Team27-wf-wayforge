@@ -1,0 +1,54 @@
+/*
+ * viewer.css - styles for index.html (full-window viewer) and test.html (contract test page).
+ * Author: Ananthan Elangovan (ananthan.e@digipen.edu)
+ * AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
+ * Copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+:root {
+  --bg: #1e2228;
+  --panel: #f6f7f9;
+  --text: #1f2328;
+  --muted: #5d6670;
+  --accent: #2f6fde;
+  --border: #d5d9de;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); }
+
+/* --- full-window viewer ------------------------------------------------------------- */
+.viewer-page { background: var(--bg); overflow: hidden; }
+.viewer-page canvas { display: block; width: 100vw; height: 100vh; touch-action: none; outline: none; }
+
+#loading {
+  position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: var(--bg); color: #e8eaed;
+}
+.loading-title { font-size: 28px; font-weight: 600; letter-spacing: 0.04em; }
+.loading-bar { width: min(320px, 70vw); height: 6px; border-radius: 3px; background: #3a4048; overflow: hidden; }
+#loading-fill { width: 0; height: 100%; background: var(--accent); transition: width 0.2s; }
+#loading-text { font-size: 13px; color: #aab1ba; }
+
+/* --- test page ---------------------------------------------------------------------- */
+.test-page { display: grid; grid-template-columns: 340px 1fr; height: 100vh; background: var(--panel); }
+.test-page aside { overflow-y: auto; padding: 14px; border-right: 1px solid var(--border); font-size: 13px; }
+.test-page main { position: relative; background: var(--bg); }
+.test-page main canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.test-page h1 { font-size: 16px; margin: 0 0 4px; }
+.test-page h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 6px; }
+.test-page .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.test-page button, .test-page select, .test-page input[type=text] {
+  font: inherit; padding: 5px 9px; border: 1px solid var(--border); border-radius: 4px; background: #fff;
+}
+.test-page button { cursor: pointer; }
+.test-page button:hover { border-color: var(--accent); }
+.test-page textarea { width: 100%; height: 90px; font: 12px ui-monospace, Consolas, monospace; }
+#log { height: 180px; overflow-y: auto; background: #fff; border: 1px solid var(--border); padding: 6px;
+       font: 11px ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+#status { color: var(--muted); }
+
+@media (max-width: 760px) {
+  .test-page { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; }
+  .test-page main { grid-row: 1; }
+  .test-page aside { grid-row: 2; border-right: none; border-top: 1px solid var(--border); }
+}

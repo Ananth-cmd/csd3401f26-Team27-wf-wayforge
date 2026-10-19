@@ -156,7 +156,8 @@ json reportJson(const wf::Level& l, const wf::read::ConvertReport& r) {
              {"corridors", corridors}, {"stairRooms", stairs}, {"liftRooms", lifts},
              {"removed", { {"annotations", r.annotationsRemoved}, {"blobs", r.blobsRemoved}, {"arcs", r.arcsRemoved},
                            {"diagonals", r.diagonalsRemoved}, {"doorLeaves", r.leavesRemoved} }},
-             {"metresPerPixel", r.metresPerPixel}, {"debugFiles", r.debugFiles} };
+             {"metresPerPixel", r.metresPerPixel}, {"imageWidth", r.imageWidth}, {"imageHeight", r.imageHeight},
+             {"segments", r.segments}, {"debugFiles", r.debugFiles} };
 }
 
 void printReport(const wf::Level& l, const wf::read::ConvertReport& r) {

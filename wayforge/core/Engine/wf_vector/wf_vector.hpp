@@ -134,7 +134,6 @@ namespace wf::vec {
     struct SymbolRegion {
         Rect box;            // bounds of the symbol's segments
         Vec2 centre;         // used to find the containing room
-        int  lines = 0;      // segments that made up the symbol
     };
 
     // Remove segments shorter than maxLength that are more than tolDeg off the dominant grid

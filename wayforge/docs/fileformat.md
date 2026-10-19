@@ -29,8 +29,8 @@ Example: `unity/Assets/Wayforge/Samples/square.wfb`
 | version | file format version |
 | building.name | building name |
 | building.unitsPerMetre | always 1 (metres) |
-| building.latitude, longitude | where plan point (0, 0) is on Earth, in degrees. 0, 0 = not set. Stored as 32-bit floats: about 1 m accuracy, finer than phone GPS |
-| building.heading | which way the plan's +y axis points, degrees clockwise from north |
+| building.latitude, longitude | where point (0, 0) of the plan is on the map, in degrees. Both 0 means not set. Accurate to about 1 m |
+| building.heading | which way "up" on the plan faces, in degrees clockwise from north |
 | source.file | picture or SVG it came from |
 | source.pixelsPerMetre | picture scale used |
 | source.rectified | true if the photo was straightened |
@@ -74,18 +74,19 @@ Example: `unity/Assets/Wayforge/Samples/square.wfb`
 | boundary | ids of the walls around it |
 | confidence | 0 to 1 |
 
-## Navigation (filled by wf_graph: `wf_cli build` / `wf_cli graph`, or `wf_build_graph` in the DLL)
+## Navigation (filled in by `wf_cli build`, `wf_cli graph` or `wf_build_graph` in the DLL)
 | Item | Fields |
 |---|---|
 | node | id, pos [x, y], room, kind (room, door, corridor, stair, lift, exit, poi) |
 | edge | a, b (node ids), cost, stepFree, via (door id) |
 | link (between levels) | a, b, kind (stair, lift, ramp), stepFree, cost |
 
-- Node ids are only unique inside one level, so links (and routes) name a node as `"LEVEL:NODE"`, e.g. `"L2:n100045"`.
-- A door with a room on one side only leads outside: its node kind is `exit`.
-- Links are made automatically: each stair (or lift) room is linked to the stair (or lift) room in
-  the same place (within 3 m) on the next floor up. Lift links are `stepFree: true`, stair links are not.
-- The graph is rebuilt from walls, doors and rooms every time, so it is safe to delete nodes, edges and links.
+- Node ids are only unique on their own floor, so links and routes write them as `"LEVEL:NODE"`, e.g. `"L2:n100045"`.
+- A door with a room on only one side leads outside, so its node kind is `exit`.
+- Links are made for you: a stair room is linked to the stair room in the same spot (within 3 m) on
+  the floor above, and the same for lifts. Lift links are step-free, stair links are not.
+- The paths are worked out again from the walls, doors and rooms every time, so nodes, edges and
+  links can be deleted safely.
 
 ## Other
 | Item | Fields |

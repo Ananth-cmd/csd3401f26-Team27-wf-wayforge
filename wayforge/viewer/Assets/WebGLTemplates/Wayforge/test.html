@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<!--
+  test.html - manual test page for the viewer contract (docs/viewer.md).
+
+  Load a .wfb, then try every command; events from the viewer appear in the log.
+  Serve the build folder over HTTP (WebGL does not run from file://), e.g.
+    python -m http.server 8000   (in the build folder)  ->  http://localhost:8000/test.html
+
+  Author: Ananthan Elangovan (ananthan.e@digipen.edu)
+  AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
+  Copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wayforge Viewer - test page</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body class="test-page">
+  <aside>
+    <h1>Viewer test page</h1>
+    <div id="status">Loading viewer...</div>
+
+    <h2>Building</h2>
+    <div class="row"><input type="file" id="wfb-file" accept=".wfb,.json"></div>
+    <div class="row">
+      <input type="text" id="wfb-url" placeholder="or a .wfb URL">
+      <button id="wfb-load-url">Load URL</button>
+    </div>
+
+    <h2>Floors</h2>
+    <div class="row">
+      <select id="floor"><option value="">All floors</option></select>
+      <button id="floor-show">Show</button>
+    </div>
+    <div class="row">
+      <label>Spacing <input type="range" id="spacing" min="0" max="10" step="0.5" value="0"></label>
+      <label><input type="checkbox" id="cutaway"> Cut-away</label>
+      <label><input type="checkbox" id="labels" checked> Labels</label>
+    </div>
+
+    <h2>View</h2>
+    <div class="row">
+      <button data-view="3d">3D</button>
+      <button data-view="2d">2D (top-down)</button>
+      <button id="reset">Reset view</button>
+    </div>
+
+    <h2>Rooms</h2>
+    <div class="row">
+      <select id="room"><option value="">(room)</option></select>
+      <button id="highlight">Highlight</button>
+      <button id="focus">Zoom to</button>
+      <button id="unhighlight">Clear</button>
+    </div>
+
+    <h2>Route (wf_cli route JSON)</h2>
+    <textarea id="route" placeholder='{"steps":[{"level":"L1","x":2,"y":3}, ...]}'></textarea>
+    <div class="row">
+      <button id="route-show">Show route</button>
+      <label><input type="checkbox" id="route-animate" checked> Animate</label>
+      <button id="route-clear">Clear route</button>
+    </div>
+
+    <h2>Events</h2>
+    <div id="log"></div>
+  </aside>
+  <main><canvas id="viewer-canvas" tabindex="-1"></canvas></main>
+
+  <script src="viewer-build.js"></script>
+  <script src="wayforge-viewer.js"></script>
+  <script>
+    (async function () {
+      var $ = function (id) { return document.getElementById(id); };
+      var log = function (line) {
+        var el = $("log");
+        el.textContent += new Date().toLocaleTimeString() + "  " + line + "\n";
+        el.scrollTop = el.scrollHeight;
+      };
+
+      var viewer = await WayforgeViewer.create({
+        canvas: $("viewer-canvas"),
+        buildUrl: ".",
+        onProgress: function (p) { $("status").textContent = "Loading viewer... " + Math.round(p * 100) + "%"; }
+      });
+      $("status").textContent = "Ready (contract " + viewer.contract + "). Load a .wfb file.";
+      window.viewer = viewer;
+
+      viewer.on("*", function (name, data) { log(name + " " + JSON.stringify(data)); });
+
+      viewer.on("buildingLoaded", function (b) {
+        $("status").textContent = (b.name || "Building") + ": " + b.levels.length + " floor(s), " + b.links + " stair/lift link(s)";
+        var floor = $("floor"), room = $("room");
+        floor.length = 1; room.length = 1;
+        b.levels.forEach(function (l) {
+          floor.add(new Option(l.name + " (" + l.id + ")", l.id));
+          l.rooms.forEach(function (r) {
+            var label = l.id + ":" + r.id + (r.code ? " " + r.code : "") + (r.kind !== "unknown" ? " [" + r.kind + "]" : "");
+            room.add(new Option(label, l.id + ":" + r.id));
+          });
+        });
+      });
+      viewer.on("roomClicked", function (r) { $("room").value = r.level + ":" + r.id; });
+
+      $("wfb-file").addEventListener("change", async function (e) {
+        var file = e.target.files[0];
+        if (file) viewer.loadBuilding(await file.text());
+      });
+      $("wfb-load-url").onclick = function () { if ($("wfb-url").value) viewer.loadBuildingUrl($("wfb-url").value); };
+
+      $("floor-show").onclick = function () {
+        if ($("floor").value) viewer.showFloor($("floor").value); else viewer.showAllFloors();
+      };
+      $("spacing").oninput = function () { viewer.setFloorSpacing(this.value); };
+      $("cutaway").onchange = function () { viewer.setCutaway(this.checked); };
+      $("labels").onchange = function () { viewer.showLabels(this.checked); };
+
+      document.querySelectorAll("[data-view]").forEach(function (b) {
+        b.onclick = function () { viewer.setView(b.dataset.view); };
+      });
+      $("reset").onclick = function () { viewer.resetView(); };
+
+      $("highlight").onclick = function () { viewer.highlightRoom($("room").value); };
+      $("focus").onclick = function () { if ($("room").value) viewer.focusRoom($("room").value); };
+      $("unhighlight").onclick = function () { viewer.highlightRoom(""); };
+
+      $("route-show").onclick = function () {
+        try { viewer.showRoute($("route").value, { animate: $("route-animate").checked }); }
+        catch (err) { log("route JSON: " + err.message); }
+      };
+      $("route-clear").onclick = function () { viewer.clearRoute(); };
+    })().catch(function (err) {
+      document.getElementById("status").textContent = "The viewer could not start: " + err.message;
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
