@@ -20,7 +20,7 @@ export type Node = { id: string; label: string; level: number; pos: Vec2; kind: 
 export type EdgeKind = 'walk' | 'stairs' | 'lift'
 export type Edge = { from: string; to: string; kind: EdgeKind; bidirectional: boolean; blocked: boolean; extraCost: number }
 
-export type Poi = { id: string; name: string; code: string; node: string; category: string }
+export type Poi = { id: string; name: string; code: string; node: string; category: string; description: string; startingPoint: boolean }
 
 export type Building = {
   format: string
@@ -28,6 +28,7 @@ export type Building = {
   id: string
   name: string
   site: string
+  floorHeight: number
   illustrative: boolean
   units: 'm'
   levels: Level[]
@@ -37,20 +38,10 @@ export type Building = {
   pois: Poi[]
 }
 
-export type RouteStep = {
-  node: string
-  level: number
-  pos: Vec2
-  text: string // "Continue to Demo lift"
-  metres: number // distance of this leg
-  via?: 'stairs' | 'lift' // set when this step changes floor
-}
-
+// Same shape as the prototype's Route (BuildingDefinition.cs)
 export type Route = {
-  from: string
-  to: string
-  stepFree: boolean
-  metres: number
-  minutes: number
-  steps: RouteStep[] // steps[0] is the start
+  nodes: string[] // start ... destination (node ids)
+  passages: EdgeKind[] // how each leg is travelled (nodes.length - 1)
+  metres: number // total route cost in metres (includes lift wait penalty, like the prototype)
+  minutes: number // max(1, ceil(metres / 65))
 }

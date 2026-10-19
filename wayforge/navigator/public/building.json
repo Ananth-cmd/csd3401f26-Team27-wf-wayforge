@@ -4,6 +4,7 @@
  "id": "sit-demo",
  "name": "SIT - supplied models",
  "site": "SIT \u00b7 Campus navigation",
+ "floorHeight": 4.0,
  "illustrative": true,
  "units": "m",
  "levels": [
@@ -2365,105 +2366,81 @@
    "name": "Demo room A (Level 1)",
    "code": "L1-01",
    "node": "L1-01",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 1 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L1-02",
    "name": "Demo room B (Level 1)",
    "code": "L1-02",
    "node": "L1-02",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 1 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L1-03",
    "name": "Demo room C (Level 1)",
    "code": "L1-03",
    "node": "L1-03",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 1 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L2-01",
    "name": "Demo room A (Level 2)",
    "code": "L2-01",
    "node": "L2-01",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 2 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L2-02",
    "name": "Demo room B (Level 2)",
    "code": "L2-02",
    "node": "L2-02",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 2 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L2-03",
    "name": "Demo room C (Level 2)",
    "code": "L2-03",
    "node": "L2-03",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 2 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L3-01",
    "name": "Demo room A (Level 3)",
    "code": "L3-01",
    "node": "L3-01",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 3 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L3-02",
    "name": "Demo room B (Level 3)",
    "code": "L3-02",
    "node": "L3-02",
-   "category": "Rooms"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 3 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   },
   {
    "id": "L3-03",
    "name": "Demo room C (Level 3)",
    "code": "L3-03",
    "node": "L3-03",
-   "category": "Rooms"
-  },
-  {
-   "id": "L1-stairs",
-   "name": "Stairs (Level 1)",
-   "code": "L1-stairs",
-   "node": "L1-stairs",
-   "category": "Landmarks"
-  },
-  {
-   "id": "L1-lift",
-   "name": "Lift (Level 1)",
-   "code": "L1-lift",
-   "node": "L1-lift",
-   "category": "Landmarks"
-  },
-  {
-   "id": "L2-stairs",
-   "name": "Stairs (Level 2)",
-   "code": "L2-stairs",
-   "node": "L2-stairs",
-   "category": "Landmarks"
-  },
-  {
-   "id": "L2-lift",
-   "name": "Lift (Level 2)",
-   "code": "L2-lift",
-   "node": "L2-lift",
-   "category": "Landmarks"
-  },
-  {
-   "id": "L3-stairs",
-   "name": "Stairs (Level 3)",
-   "code": "L3-stairs",
-   "node": "L3-stairs",
-   "category": "Landmarks"
-  },
-  {
-   "id": "L3-lift",
-   "name": "Lift (Level 3)",
-   "code": "L3-lift",
-   "node": "L3-lift",
-   "category": "Landmarks"
+   "category": "Rooms",
+   "description": "Demo destination on your supplied Level 3 model. Room names, scale and floor transfers are illustrative.",
+   "startingPoint": true
   }
  ]
 }

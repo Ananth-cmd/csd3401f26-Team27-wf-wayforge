@@ -38,13 +38,11 @@ PASS = {0: 'walk', 1: 'stairs', 2: 'lift'}
 for m in re.finditer(r'- from: (\S+)\n\s+to: (\S+)\n\s+passage: (\d)\n\s+bidirectional: (\d)\n\s+blocked: (\d)\n\s+extraMetres: ([-\d.]+)', nav):
     e = {'from': m[1], 'to': m[2], 'kind': PASS[int(m[3])], 'bidirectional': m[4] == '1', 'blocked': m[5] == '1', 'extraCost': float(m[6])}
     (links if lvl[m[1]] != lvl[m[2]] else edges).append(e)
-pois = []
-for m in re.finditer(r'- id: (\S+)\n\s+name: (.+)\n\s+code: (\S+)\n\s+waypointId: (\S+)\n\s+category: (\S+)', nav):
-    pois.append({'id': m[1], 'name': m[2].strip(), 'code': m[3], 'node': m[4], 'category': m[5]})
-for n in nodes:  # stairs and lifts searchable as landmarks
-    if n['kind'] in ('stairs', 'lift'):
-        pois.append({'id': n['id'], 'name': f"{'Stairs' if n['kind'] == 'stairs' else 'Lift'} (Level {n['level'] + 1})", 'code': n['id'], 'node': n['id'], 'category': 'Landmarks'})
-b = {'format': 'wfb-json', 'version': 1, 'id': 'sit-demo', 'name': 'SIT - supplied models', 'site': 'SIT · Campus navigation',
+pois = []  # = Navigation.asset "places"
+for m in re.finditer(r'- id: (\S+)\n\s+name: (.+)\n\s+code: (\S+)\n\s+waypointId: (\S+)\n\s+category: (\S+)\n\s+description: ((?:.|\n)*?)\n\s+startingPoint: (\d)', nav):
+    pois.append({'id': m[1], 'name': m[2].strip(), 'code': m[3], 'node': m[4], 'category': m[5],
+                 'description': ' '.join(m[6].split()), 'startingPoint': m[7] == '1'})
+b = {'format': 'wfb-json', 'version': 1, 'id': 'sit-demo', 'name': 'SIT - supplied models', 'site': 'SIT · Campus navigation', 'floorHeight': FLOOR_H,
      'illustrative': True, 'units': 'm', 'levels': levels, 'nodes': nodes, 'edges': edges, 'links': links, 'pois': pois}
 json.dump(b, open(out, 'w'), indent=1)
 print(f"levels {len(levels)} walls {[len(l['walls']) for l in levels]} nodes {len(nodes)} edges {len(edges)} links {len(links)} pois {len(pois)}")
