@@ -10,9 +10,19 @@
  *
  * \author Katie Lim
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/api.js";
 import PlanPrep, { cropFile } from "../components/PlanPrep.jsx";
+import { autoCrop } from "../lib/autocrop.js";
+
+// smallest box that holds all the boxes (null ones are skipped)
+function union(boxes) {
+  const b = boxes.filter(Boolean);
+  if (!b.length) return null;
+  const x0 = Math.min(...b.map((c) => c.x)), y0 = Math.min(...b.map((c) => c.y));
+  const x1 = Math.max(...b.map((c) => c.x + c.w)), y1 = Math.max(...b.map((c) => c.y + c.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/svg+xml", "image/bmp"];
 
@@ -22,9 +32,13 @@ export default function UploadPage({ go }) {
   const [floorHeight, setFloorHeight] = useState("3.5");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
-  const [floors, setFloors] = useState([]); // [{file, url, w, h}]
+  // [{file, url, w, h, auto, crop}]  auto = the automatic guess (undefined while it's working,
+  // null if it found nothing), crop = this level's own crop when "same crop" is off
+  const [floors, setFloors] = useState([]);
   const [picked, setPicked] = useState(0);   // which picture is shown in the crop/measure view
-  const [crop, setCrop] = useState(null);    // {x,y,w,h} in picture pixels, used for every level
+  const [shared, setShared] = useState(true);       // one crop for every level (keeps floors lined up)
+  const [sharedCrop, setSharedCrop] = useState(null);
+  const [sharedEdited, setSharedEdited] = useState(false); // once you drag it, stop replacing it with the auto one
   const [scale, setScale] = useState(0);     // metres per pixel, 0 = let wf_cli use its default
   const [wfbFile, setWfbFile] = useState(null);
   const [step, setStep] = useState("");
@@ -48,7 +62,13 @@ export default function UploadPage({ go }) {
     // find out how big each picture is (needed for cropping)
     added.forEach((f) => {
       const img = new Image();
-      img.onload = () => setFloors((cur) => cur.map((x) => (x.url === f.url ? { ...x, w: img.naturalWidth, h: img.naturalHeight } : x)));
+      img.onload = () => {
+        setFloors((cur) => cur.map((x) => (x.url === f.url ? { ...x, w: img.naturalWidth, h: img.naturalHeight } : x)));
+        // then guess where the plan is on the sheet
+        autoCrop(f.url)
+          .catch(() => null)
+          .then((c) => setFloors((cur) => cur.map((x) => (x.url === f.url ? { ...x, auto: c, crop: c } : x))));
+      };
       img.src = f.url;
     });
   }
@@ -73,7 +93,24 @@ export default function UploadPage({ go }) {
     );
   }
 
-  const ready = mode === "wfb" ? !!wfbFile : floors.length > 0 && name.trim();
+  const pickedIndex = Math.min(picked, Math.max(0, floors.length - 1));
+  const current = floors[pickedIndex];
+  const autoBusy = floors.some((f) => f.auto === undefined);
+
+  // shared crop = a box around every level's plan, so nothing gets cut off on any floor
+  const autoUnion = useMemo(() => union(floors.map((f) => f.auto)), [floors]);
+  useEffect(() => { if (!sharedEdited) setSharedCrop(autoUnion); }, [autoUnion, sharedEdited]);
+
+  function changeCrop(c) {
+    if (shared) { setSharedCrop(c); setSharedEdited(true); }
+    else setFloors((cur) => cur.map((f, i) => (i === pickedIndex ? { ...f, crop: c } : f)));
+  }
+  function resetToAuto() {
+    if (shared) { setSharedEdited(false); setSharedCrop(autoUnion); }
+    else setFloors((cur) => cur.map((f, i) => (i === pickedIndex ? { ...f, crop: f.auto } : f)));
+  }
+
+  const ready = mode === "wfb" ? !!wfbFile : floors.length > 0 && name.trim() && !autoBusy;
 
   async function submit(e) {
     e.preventDefault();
@@ -82,8 +119,8 @@ export default function UploadPage({ go }) {
     try {
       let files = [];
       if (mode === "images") {
-        setStep(crop ? "Cropping the pictures" : "Uploading");
-        files = await Promise.all(floors.map((f) => cropFile(f, crop)));
+        setStep("Cropping the pictures");
+        files = await Promise.all(floors.map((f) => cropFile(f, shared ? sharedCrop : f.crop)));
       }
       const res = await api.createBuilding({
         name: name.trim(), floorHeight, latitude, longitude, scale,
@@ -140,11 +177,13 @@ export default function UploadPage({ go }) {
       <section className="split-detail">
         {mode === "images" ? (
           <>
-            {floors.length > 0 && (
+            {current && (
               <>
                 <h2>Get the plan ready</h2>
-                <PlanPrep floor={floors[Math.min(picked, floors.length - 1)]} crop={crop} onCrop={setCrop} scale={scale} onScale={setScale} />
-                <p className="muted small">The same crop and scale are used for every level, so upload pictures from one drawing set.</p>
+                <PlanPrep floor={current} crop={shared ? sharedCrop : current.crop} onCrop={changeCrop}
+                  onAuto={resetToAuto} autoBusy={autoBusy} shared={shared} onShared={setShared}
+                  levelLabel={`L${Math.min(picked, floors.length - 1) + 1}`} scale={scale} onScale={setScale} />
+                <p className="muted small">The scale is used for every level.</p>
               </>
             )}
             <h2>Levels</h2>

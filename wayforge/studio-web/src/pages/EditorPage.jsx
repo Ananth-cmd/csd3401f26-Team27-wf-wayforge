@@ -13,7 +13,7 @@ import { api } from "../api/api.js";
 import { parseWfb, toWfbText, clone, validate, summary, nextId } from "../lib/wfb.js";
 import PlanView from "../components/PlanView.jsx";
 import Viewer3D from "../components/Viewer3D.jsx";
-import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel, RoutePanel } from "../components/Inspector.jsx";
+import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel } from "../components/Inspector.jsx";
 
 const MERGE_MS = 800; // edits closer together than this (like typing) share one undo step
 
@@ -30,9 +30,7 @@ export default function EditorPage({ id, go }) {
   const [tool, setTool] = useState("select");
   const [centre, setCentre] = useState("2d");
   const [sheet, setSheet] = useState(null); // building | links | checks popout
-  const [routeOpen, setRouteOpen] = useState(false);
   const [showPaths, setShowPaths] = useState(false);
-  const [route, setRoute] = useState(null);
   const [busy, setBusy] = useState("");
   const [toast, setToast] = useState("");
   const undo = useRef([]), redo = useRef([]), lastEdit = useRef(0);
@@ -74,7 +72,6 @@ export default function EditorPage({ id, go }) {
     lastEdit.current = now;
     redo.current = [];
     put(next);
-    setRoute(null); // an old route might not be right any more
   }, []);
 
   const doUndo = useCallback(() => {
@@ -128,15 +125,7 @@ export default function EditorPage({ id, go }) {
     URL.revokeObjectURL(a.href);
   }
 
-  async function findRoute(from, to, stepFree) {
-    if (from == null) { setRoute(null); return; }
-    setBusy("route");
-    try {
-      const r = await api.route(id, text, from, to, stepFree);
-      setRoute(r);
-      if (r.ok) setLevelId(r.steps[0].level); // jump to where the route starts
-    } catch (e) { setRoute({ ok: false, error: e.message }); } finally { setBusy(""); }
-  }
+
 
   function addWall(a, b) {
     edit((d) => {
@@ -241,7 +230,7 @@ export default function EditorPage({ id, go }) {
 
       {geometryChanged && (
         <div className="banner">Walls or doors changed. Walking paths are rebuilt on the server when you save
-          (<code>wf_cli graph</code>){api.mode === "mock" ? "; the mock backend can't, so test routes still use the old paths" : ""}.</div>
+          (<code>wf_cli graph</code>).</div>
       )}
 
       <div className="ed-body">
@@ -274,17 +263,6 @@ export default function EditorPage({ id, go }) {
             <button role="tab" aria-selected={centre === "3d"} className={centre === "3d" ? "on" : ""} onClick={() => setCentre("3d")}>3D</button>
           </div>
 
-          <div className={"route-drop" + (routeOpen ? " open" : "")}>
-            <button className="route-toggle" onClick={() => setRouteOpen((o) => !o)} aria-expanded={routeOpen}>
-              {route?.ok ? "Route shown" : "Find route"}
-            </button>
-            {routeOpen && (
-              <div className="drop-body">
-                <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} />
-              </div>
-            )}
-          </div>
-
           {sheet && (
             <div className="sheet">
               <button className="sheet-close" onClick={() => setSheet(null)} aria-label="Close">Close</button>
@@ -296,11 +274,11 @@ export default function EditorPage({ id, go }) {
 
           {/* keep the 3D mounted once opened so Unity doesn't reload every time */}
           <div className="canvas" style={{ display: centre === "2d" ? "block" : "none" }}>
-            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths} route={route}
+            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths}
               onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} />
           </div>
           <Lazy3D show={centre === "3d"}>
-            <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked}
+            <Viewer3D wfbText={text} levelId={level.id} onRoomClicked={onRoomClicked}
               highlight={selection?.type === "room" ? `${level.id}:${selection.id}` : ""} />
           </Lazy3D>
         </main>

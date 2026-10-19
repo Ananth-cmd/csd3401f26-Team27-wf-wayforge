@@ -51,7 +51,6 @@ the server finds `wf_cli.exe` in `wayforge/build/...` by itself, or set `WF_CLI`
 | Building panel | building name, lat/lon, heading, floor names and heights |
 | Stairs/lifts | link a stair/lift room on one floor to one on another floor |
 | Checks | things to fix before publishing (duplicate codes, untagged rooms, no exit, no floor links, no location) |
-| Route | try a route between two room codes, or to `exit`, with step free option. It's drawn on the plan |
 | 3D preview | Ananth's Unity WebGL viewer, gets the building live as you edit. Click a room in 3D to select it |
 | Save / Download / Publish | Ctrl+S saves, Download gives you the `.wfb`, Publish sends it to the Navigator. Ctrl+Z / Ctrl+Y undo/redo |
 
@@ -76,7 +75,7 @@ Picking a room on the 2D plan highlights it in 3D, clicking a room in 3D selects
 
 Two columns. Buildings and New building: list/form on the left, preview on the right.
 Editor: levels on the left (top floor at the top, like lift buttons), the plan on the right on
-graph paper with a scale bar, 2D/3D switch and Find route on top of the plan, tools and the
+graph paper with a scale bar, 2D/3D switch on top of the plan, tools and the
 edit fields for whatever you picked along the bottom. Building details, stairs/lifts and checks
 open as a panel over the plan.
 

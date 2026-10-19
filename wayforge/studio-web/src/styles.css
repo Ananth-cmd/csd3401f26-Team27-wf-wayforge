@@ -296,3 +296,6 @@ ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
 .measure span { padding-bottom: 6px; }
 .stack li { cursor: pointer; }
 .stack li.on { background: var(--paper); box-shadow: inset 4px 0 0 var(--marker); }
+.prep-handle { fill: var(--marker); stroke: #1f2a36; pointer-events: none; }
+.prep-help { margin: 0; }
+.prep-bar label.check { font-size: 13px; color: var(--graphite); }

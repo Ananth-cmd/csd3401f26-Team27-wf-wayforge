@@ -42,19 +42,27 @@ fs.mkdirSync(DATA, { recursive: true });
 function findCli() {
   if (process.env.WF_CLI && fs.existsSync(process.env.WF_CLI)) return process.env.WF_CLI;
   const exe = process.platform === "win32" ? "wf_cli.exe" : "wf_cli";
-  // look through wayforge/build (where the CMake presets put things), newest first
   const root = path.resolve(HERE, "../../build");
+  // the usual places the CMake presets put it
+  for (const preset of ["desktop-release", "desktop", "vs2022/Release", "vs2022/Debug"]) {
+    for (const sub of ["Sandbox/wf_cli", "Sandbox/wf_cli/Release", "Sandbox/wf_cli/Debug"]) {
+      const p = path.join(root, preset, sub, exe);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  // otherwise look through wayforge/build. some folders can't be read, skip those instead of crashing
   const found = [];
   const walk = (dir, depth) => {
-    if (depth > 6 || !fs.existsSync(dir)) return;
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (depth > 6) return;
+    let entries = [];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p, depth + 1);
       else if (e.name === exe) found.push(p);
     }
   };
   walk(root, 0);
-  found.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
   return found[0] || null;
 }
 
@@ -300,6 +308,10 @@ http.createServer((req, res) => {
     if (!e.status) console.error(e);
     if (!res.headersSent) send(res, e.status || 500, { error: e.message });
   });
+}).on("error", (e) => {
+  // most likely something else is already using the port
+  console.error(e.code === "EADDRINUSE" ? `Port ${PORT} is already in use. Close the other server window, or run with PORT=8081` : e);
+  process.exit(1);
 }).listen(PORT, HOST, () => {
   console.log(`Wayforge Studio backend on http://${HOST}:${PORT}`);
   console.log(`  data:   ${DATA}`);
