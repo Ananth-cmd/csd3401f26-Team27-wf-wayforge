@@ -105,10 +105,14 @@ namespace wf::img {
 
     // --- component filtering (Tidy.cpp) ---------------------------------------------------
     // Erase ink components no larger than maxSizePx in width and height (text, fixtures,
-    // furniture, columns). removed = number of components erased.
-    Image8 removeSmallBlobs(const Image8& binary, int maxSizePx, int* removed = nullptr);
-    // Keep the component with the largest bounding box (the walls) and anything overlapping
-    // that box; erase the rest (dimension lines, title block). removed = components erased.
+    // furniture, columns). Components at least minLinePx long and 4x longer than wide are kept
+    // (dashes of dashed walls); 0 disables that. removed = number of components erased.
+    Image8 removeSmallBlobs(const Image8& binary, int maxSizePx, int* removed = nullptr, int minLinePx = 0);
+    // Erase a sheet border (and the title block joined to it) that has the drawing inside it, then
+    // keep the main components (diagonal >= 30% of the largest, stroke at least half as thick as
+    // the thickest), heavy components overlapping their union box and thin components centred
+    // inside one main box; erase the rest (dimension lines, site lines, title block).
+    // removed = components erased.
     Image8 keepMainDrawing(const Image8& binary, int* removed = nullptr);
 
     // --- drawing (Draw.cpp), for debug images --------------------------------------------

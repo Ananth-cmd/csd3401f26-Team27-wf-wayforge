@@ -53,6 +53,8 @@ const char* kHelp = R"(wf_cli - Wayforge engine on the command line
                                                  add navigation. The one command for a whole building.
       --name NAME            building name                (default: output file name)
       --floor-height M       metres between floors        (default 3.5)
+      --scale M1,M2,...      one scale per floor, for pictures zoomed differently
+      --no-align             keep floors where they are (default: line up stairs and lifts)
       --lat DEG --lon DEG --heading DEG   where the building is (for geolocation)
       plus every convert option below
 
@@ -65,6 +67,8 @@ const char* kHelp = R"(wf_cli - Wayforge engine on the command line
       --width M              real width of the drawing (sets the scale instead)
       --debug DIR            also save a picture of every step in DIR
       --keep-text --keep-arcs --no-stairs --no-lifts      turn clean-up steps off
+      --no-windows           do not look for windows in the drawing
+      --assume-windows       add evenly spaced windows on outside walls that have none
 
   wf_cli merge <out.wfb> <floor.wfb> ...         stack converted floors (sorted by elevation)
       --name NAME  --floor-height M (re-space floors in the given order)
@@ -110,7 +114,8 @@ struct Args {
     bool has(const std::string& k) const { return std::find(flags.begin(), flags.end(), k) != flags.end(); }
 };
 
-const std::vector<std::string> kSwitches = { "--keep-text", "--keep-arcs", "--no-stairs", "--no-lifts", "--step-free", "--json" };
+const std::vector<std::string> kSwitches = { "--keep-text", "--keep-arcs", "--no-stairs", "--no-lifts", "--no-align",
+                                             "--no-windows", "--assume-windows", "--step-free", "--json" };
 
 int fail(const std::string& msg) { std::cerr << "error: " << msg << "\n"; return 1; }
 int usage(const std::string& msg) { std::cerr << "usage: " << msg << "\n(run wf_cli --help)\n"; return 2; }
@@ -135,6 +140,8 @@ wf::read::ConvertOptions convertOptions(const Args& a) {
     o.removeArcs = !a.has("--keep-arcs");
     o.detectStairs = !a.has("--no-stairs");
     o.detectLifts = !a.has("--no-lifts");
+    o.detectWindows = !a.has("--no-windows");
+    o.assumeWindows = a.has("--assume-windows");
     return o;
 }
 
@@ -146,13 +153,15 @@ wf::Result<wf::Level> convertFloor(const fs::path& plan, wf::IdGenerator& ids, c
 }
 
 json reportJson(const wf::Level& l, const wf::read::ConvertReport& r) {
-    int corridors = 0, stairs = 0, lifts = 0;
+    int corridors = 0, stairs = 0, lifts = 0, windows = 0;
+    for (auto& o : l.openings) windows += o.type == wf::OpeningType::Window;
     for (auto& room : l.rooms) {
         corridors += room.kind == wf::RoomKind::Corridor;
         stairs += room.kind == wf::RoomKind::Stair;
         lifts += room.kind == wf::RoomKind::Lift;
     }
-    return { {"level", l.id}, {"walls", l.walls.size()}, {"doors", l.openings.size()}, {"rooms", l.rooms.size()},
+    return { {"level", l.id}, {"walls", l.walls.size()}, {"doors", static_cast<int>(l.openings.size()) - windows},
+             {"windows", windows}, {"rooms", l.rooms.size()},
              {"corridors", corridors}, {"stairRooms", stairs}, {"liftRooms", lifts},
              {"removed", { {"annotations", r.annotationsRemoved}, {"blobs", r.blobsRemoved}, {"arcs", r.arcsRemoved},
                            {"diagonals", r.diagonalsRemoved}, {"doorLeaves", r.leavesRemoved} }},
@@ -161,7 +170,8 @@ json reportJson(const wf::Level& l, const wf::read::ConvertReport& r) {
 }
 
 void printReport(const wf::Level& l, const wf::read::ConvertReport& r) {
-    std::cout << l.id << ": " << l.walls.size() << " walls, " << l.openings.size() << " doors, " << l.rooms.size() << " rooms"
+    std::cout << l.id << ": " << l.walls.size() << " walls, " << (l.openings.size() - r.windowsFound - r.windowsAssumed) << " doors, "
+              << r.windowsFound + r.windowsAssumed << " windows, " << l.rooms.size() << " rooms"
               << " (stairs " << r.stairs << ", lifts " << r.lifts << ")"
               << "  | removed: " << r.annotationsRemoved << " annotations, " << r.blobsRemoved << " text/furniture, "
               << r.arcsRemoved << " door-arc pieces, " << r.leavesRemoved << " door leaves\n";
@@ -247,11 +257,22 @@ void applyLocation(wf::Building& b, const Args& a) {
 int cmdBuild(const Args& a) {
     if (a.pos.size() < 2) return usage("wf_cli build <out.wfb> <floor1> [floor2 ...] [options]");
     const float floorHeight = a.num("--floor-height", 3.5f);
+    // --scale may list one value per floor ("0.054,0.054,0.05"); the last one repeats.
+    std::vector<float> scales;
+    if (auto v = a.get("--scale")) {
+        std::string s = *v;
+        for (size_t start = 0, comma; start <= s.size(); start = comma + 1) {
+            comma = s.find(',', start);
+            if (comma == std::string::npos) comma = s.size();
+            if (comma > start) scales.push_back(std::stof(s.substr(start, comma - start)));
+        }
+    }
     std::vector<wf::Level> floors;
     json summary = json::array();
     wf::IdGenerator ids;
     for (size_t i = 1; i < a.pos.size(); ++i) {
         wf::read::ConvertOptions o = convertOptions(a);
+        if (!scales.empty()) o.metresPerPixel = scales[std::min(i - 1, scales.size() - 1)];
         o.levelId = "L" + std::to_string(i);
         o.levelName.clear();
         o.elevation = floorHeight * static_cast<float>(i - 1);
@@ -262,6 +283,12 @@ int cmdBuild(const Args& a) {
         if (!a.has("--json")) printReport(*level, rep);
         summary.push_back(reportJson(*level, rep));
         floors.push_back(std::move(*level));
+    }
+    if (!a.has("--no-align")) {
+        const auto shifts = wf::read::alignFloors(floors);
+        for (size_t i = 1; i < shifts.size() && !a.has("--json"); ++i)
+            if (shifts[i].x != 0.f || shifts[i].y != 0.f)
+                std::cout << floors[i].id << " moved " << shifts[i].x << ", " << shifts[i].y << " m to line up with " << floors[i - 1].id << "\n";
     }
     wf::Building b = wf::read::assembleBuilding(std::move(floors), a.get("--name").value_or(stem(a.pos[0])));
     applyLocation(b, a);

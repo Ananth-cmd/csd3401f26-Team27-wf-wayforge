@@ -103,6 +103,7 @@
       resetView: function () { send("ResetView"); },
       setCutaway: function (on) { send("SetCutaway", on ? "true" : "false"); },
       showLabels: function (on) { send("ShowLabels", on ? "true" : "false"); },
+      showRoof: function (on) { send("ShowRoof", on ? "true" : "false"); },
 
       quit: function () { return instance.Quit(); }
     };

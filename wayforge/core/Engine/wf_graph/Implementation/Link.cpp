@@ -3,7 +3,7 @@
  * \brief Building-level navigation: exit doors and inter-floor links
  *
  * markExitDoors() turns the node of every door with a room on one side only
- * into an Exit node. linkFloors() links each stair / lift room to the room of
+ * into an Exit node; prepareNavigation() runs it on the ground floor only. linkFloors() links each stair / lift room to the room of
  * the same kind within maxOffset on the next floor up; lift links are
  * step-free. prepareNavigation() runs buildGraph() and both of the above.
  *
@@ -51,9 +51,14 @@ int markExitDoors(Level& level) {
         const Wall* w = level.findWall(o.wall);
         if (!w) continue;
         const Vec2 mid = openingPosition(*w, o);
-        // Probe both sides of the wall just past its thickness.
-        const Vec2 n = perp(w->direction()) * (w->thickness * 0.5f + 0.3f);
-        const bool sideA = insideAnyRoom(level, mid + n), sideB = insideAnyRoom(level, mid - n);
+        // Room on each side: probed 0.3, 0.7 and 1.2 m past the wall face.
+        const Vec2 n = perp(w->direction());
+        auto roomOn = [&](float sign) {
+            for (float d : {0.3f, 0.7f, 1.2f})
+                if (insideAnyRoom(level, mid + n * (sign * (w->thickness * 0.5f + d)))) return true;
+            return false;
+        };
+        const bool sideA = roomOn(1.f), sideB = roomOn(-1.f);
         if (sideA == sideB) continue;
         for (Node& node : level.nodes)
             if (node.kind == NodeKind::Door && distance(node.pos, mid) < 1e-3f) { node.kind = NodeKind::Exit; ++exits; }
@@ -112,7 +117,12 @@ NavStats prepareNavigation(Building& b, const GraphParams& p) {
     IdGenerator ids;
     ids.bump(100000);                                              // keep node ids clear of wall / room ids
     s.graph = buildGraph(b, ids, p);
-    for (Level& l : b.levels) s.exits += markExitDoors(l);
+    // Exit doors on the lowest floor only.
+    float ground = 0.f;
+    for (size_t i = 0; i < b.levels.size(); ++i)
+        if (i == 0 || b.levels[i].elevation < ground) ground = b.levels[i].elevation;
+    for (Level& l : b.levels)
+        if (l.elevation <= ground + 0.01f) s.exits += markExitDoors(l);
     linkFloors(b);
     s.links = static_cast<int>(b.links.size());
     return s;

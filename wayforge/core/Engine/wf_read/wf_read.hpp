@@ -42,7 +42,7 @@ namespace wf::read {
         float defaultThickness = 0.15f;   // thickness for walls drawn as 1 line
         // doors: a gap this wide between 2 walls in a line = door
         float minDoorWidth = 0.5f;
-        float maxDoorWidth = 1.6f;
+        float maxDoorWidth = 1.9f;        // includes double doors
         float collinearTol = 0.1f;        // how far off the line the 2nd wall can be
         // rooms
         float snap = 0.1f;                // wall ends closer than this get joined

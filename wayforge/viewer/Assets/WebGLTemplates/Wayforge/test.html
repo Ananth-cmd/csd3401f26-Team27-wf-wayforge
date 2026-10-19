@@ -38,6 +38,7 @@
       <label>Spacing <input type="range" id="spacing" min="0" max="10" step="0.5" value="0"></label>
       <label><input type="checkbox" id="cutaway"> Cut-away</label>
       <label><input type="checkbox" id="labels" checked> Labels</label>
+      <label><input type="checkbox" id="roof" checked> Roof</label>
     </div>
 
     <h2>View</h2>
@@ -115,6 +116,7 @@
       $("spacing").oninput = function () { viewer.setFloorSpacing(this.value); };
       $("cutaway").onchange = function () { viewer.setCutaway(this.checked); };
       $("labels").onchange = function () { viewer.showLabels(this.checked); };
+      $("roof").onchange = function () { viewer.showRoof(this.checked); };
 
       document.querySelectorAll("[data-view]").forEach(function (b) {
         b.onclick = function () { viewer.setView(b.dataset.view); };

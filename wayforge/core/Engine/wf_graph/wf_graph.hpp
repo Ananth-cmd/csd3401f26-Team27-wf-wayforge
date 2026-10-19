@@ -47,6 +47,8 @@ struct GraphParams {
     float stairPenalty    = 12.f;     // extra cost for a stair link
     float liftPenalty     = 25.f;     // extra cost for a lift link (waiting)
     bool  connectRoomsThroughDoors = true;   // room nodes only connect to the doors on their outline
+    float missingDoorReach   = 3.f;   // fallback edges: max distance from a disconnected room's outline to the node it joins
+    float missingDoorPenalty = 10.f;  // extra cost added to each fallback edge
 };
 
 // Summary returned after building; isolatedNodes > 0 usually means a room has no reachable door.
@@ -67,7 +69,7 @@ int markExitDoors(Level& level);
 // existing links are not duplicated. Returns the number of links added.
 int linkFloors(Building& building, float maxOffset = 3.f);
 struct NavStats { GraphStats graph; int exits = 0; int links = 0; };   // links: total after linking
-// buildGraph() with node ids from 100000, then markExitDoors() on every level and linkFloors().
+// buildGraph() with node ids from 100000, then markExitDoors() on the lowest level and linkFloors().
 NavStats prepareNavigation(Building& building, const GraphParams& p = {});
 
 // True if segment a-b crosses no wall of the level (openings let it through).

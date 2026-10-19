@@ -124,6 +124,21 @@ namespace Wayforge.Viewer
             return node != null;
         }
 
+        // Plan-space bounds of every wall on every level (x, y in metres).
+        public Rect PlanBounds()
+        {
+            bool any = false;
+            Vector2 min = Vector2.zero, max = Vector2.zero;
+            foreach (var l in levels)
+                foreach (var w in l.walls)
+                    foreach (var p in new[] { w.a, w.b })
+                    {
+                        if (!any) { min = max = p; any = true; }
+                        min = Vector2.Min(min, p); max = Vector2.Max(max, p);
+                    }
+            return any ? Rect.MinMaxRect(min.x, min.y, max.x, max.y) : new Rect(0, 0, 10, 10);
+        }
+
         // --- parsing --------------------------------------------------------------------------
 
         public static BuildingData Parse(string json)

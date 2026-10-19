@@ -23,6 +23,9 @@ wf_cli route tower.wfb L3-07 exit
 - `build` takes one picture per floor, bottom floor first. It converts each one, stacks them
   3.5 m apart, works out the walking paths, finds the exit doors and links the stairs and lifts
   between floors. The `.wfb` it writes can be used straight away by `route` and the apps.
+  Several buildings work too: draw them on the same sheet for each floor, with the bridges or
+  link corridors between them, and routes will go from one building to the other. A floor that
+  only one building has just shows that building.
 - `info` lists the floors, rooms, doors and links as JSON, so you can find room ids.
 - `tag` gives a room its type, code and name. Text on the blueprint is not read yet, so this is
   how rooms get named.
@@ -46,10 +49,19 @@ The `.wfb` format is described in [fileformat.md](fileformat.md).
 
 Options for pictures (`build` and `convert`):
 
-- `--scale M` metres per pixel (default 0.02, so 1 pixel = 2 cm)
+- `--scale M` metres per pixel (default 0.02, so 1 pixel = 2 cm). `build` also takes one scale
+  per floor, `--scale 0.054,0.054,0.05`, for screenshots that are zoomed differently
 - `--width M` the real width of the drawing, instead of a scale
 - `--debug DIR` also save a picture of each step
 - `--keep-text`, `--keep-arcs`, `--no-stairs`, `--no-lifts` turn clean-up steps off
+- `--no-windows` skips looking for windows in the drawing
+- `--assume-windows` puts evenly spaced windows on outside walls that have none. Use it for plans
+  that do not draw windows, or scans too small to show them. These windows are saved with a low
+  confidence so the editor can tell them apart
+- `--no-align` (`build` only) keeps each floor where it is. By default the floors are moved so
+  their stairs and lifts line up, which fixes screenshots that were cropped differently
+
+Exit doors are only looked for on the ground floor.
 
 ## 3. Route output
 
