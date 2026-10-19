@@ -84,9 +84,19 @@ sudo ln -sf /etc/nginx/sites-available/studio /etc/nginx/sites-enabled/studio
 sudo nginx -t
 sudo systemctl reload nginx
 
-sleep 1
 echo
 echo "== check"
-curl -s "http://127.0.0.1:$PORT_SITE/api/health" && echo
-IP=$(hostname -I | awk '{print $1}')
-echo "Done. Open http://$IP:$PORT_SITE"
+# give the backend a few seconds to start
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -sf "http://127.0.0.1:$PORT_SITE/api/health" >/dev/null; then break; fi
+  sleep 1
+done
+if curl -sf "http://127.0.0.1:$PORT_SITE/api/health"; then
+  echo
+  IP=$(hostname -I | awk '{print $1}')
+  echo "Done. Open http://$IP:$PORT_SITE"
+else
+  echo "The backend didn't start. Its last log lines:"
+  sudo journalctl -u wayforge-studio -n 25 --no-pager
+  exit 1
+fi

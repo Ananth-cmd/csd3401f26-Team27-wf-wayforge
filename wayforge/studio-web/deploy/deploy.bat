@@ -14,7 +14,7 @@ popd
 
 echo == packing (engine source + website + backend)
 if exist "%TEMP%\studio-upload.tgz" del "%TEMP%\studio-upload.tgz"
-tar -czf "%TEMP%\studio-upload.tgz" core studio-web/dist studio-web/server/server.mjs studio-web/src/lib studio-web/deploy || goto :fail
+tar -czf "%TEMP%\studio-upload.tgz" core studio-web/package.json studio-web/dist studio-web/server/server.mjs studio-web/src/lib studio-web/deploy || goto :fail
 
 echo == uploading
 scp "%TEMP%\studio-upload.tgz" %SERVER%:studio-upload.tgz || goto :fail
