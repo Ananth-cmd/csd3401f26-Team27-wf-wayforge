@@ -125,9 +125,9 @@ export function validate(doc) {
     }
     if (!(l.nodes || []).length) out.push({ level: l.id, type: "error", text: `${l.id} has no navigation points, rebuild it with wf_cli` });
   }
-  if (!exits) out.push({ type: "warn", text: "no room is marked as an exit, \"route to nearest exit\" won't work" });
+  if (!exits) out.push({ type: "warn", text: "no room is marked as an exit, the Navigator can't guide people out" });
   if (doc.levels.length > 1 && !(doc.links || []).length) {
-    out.push({ type: "warn", text: "there are no stairs/lifts linking the floors, routes can't change floor" });
+    out.push({ type: "warn", text: "there are no stairs/lifts linking the floors, the Navigator can't take people between levels" });
   }
   if (!doc.building.latitude && !doc.building.longitude) {
     out.push({ type: "warn", text: "building has no location (lat/lon), the Navigator map can't place it" });
