@@ -1,0 +1,13 @@
+# Only the viewer's own files are committed: Assets/ (code, shader, web page, tests),
+# Packages/manifest.json and ProjectSettings/ProjectVersion.txt.
+# Unity makes everything below again when the project is opened.
+
+*.meta
+.vsconfig
+Packages/packages-lock.json
+ProjectSettings/*
+!ProjectSettings/ProjectVersion.txt
+
+# made by ViewerBuild.cs (Wayforge > Set Up Viewer Scene)
+Assets/Viewer/Scenes/
+Assets/Viewer/Materials/
