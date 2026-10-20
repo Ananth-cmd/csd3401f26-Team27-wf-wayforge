@@ -29,8 +29,10 @@ wf_cli route tower.wfb L3-07 exit
 - `info` lists the floors, rooms, doors and links as JSON, so you can find room ids.
 - `tag` gives a room its type, code and name. Text on the blueprint is not read yet, so this is
   how rooms get named.
-- `route` finds the way between two rooms. `--step-free` only uses lifts. `exit` as the
-  destination means the nearest way out.
+- `route` finds the quickest way between two rooms, using stairs or lifts (the lift wait counts
+  once per ride, so short trips take the stairs and long ones the lift). `--step-free` only uses
+  lifts. `exit` as the destination means the nearest way out, by stairs only (by lift with
+  `--step-free`).
 
 The `.wfb` format is described in [fileformat.md](fileformat.md).
 

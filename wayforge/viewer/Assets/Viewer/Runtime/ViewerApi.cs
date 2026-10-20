@@ -58,9 +58,6 @@ namespace Wayforge.Viewer
 
         void Awake()
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            WebGLInput.captureAllKeyboardInput = false;     // leave the keyboard to the page's own inputs
-#endif
             if (cameraRig != null) cameraRig.Clicked += OnClicked;
         }
 
