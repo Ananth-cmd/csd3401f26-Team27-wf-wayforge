@@ -1,6 +1,9 @@
 // Port of CanvasNavigator.cs + Main.unity layout.
 // Every element sits at the same x/y/size as in the Unity scene's 390x844 design frame,
-// and the frame is scaled to the window like DesignFrame.cs.
+// Responsive (see layout below):
+//  - phone: frame fills the screen width; the map/list stretches or shrinks to fit the height,
+//    bottom buttons stick to the bottom.
+//  - desktop: the same screens in a left column (map removed) + a large map on the right.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Building, Poi, Route } from './types'
@@ -19,11 +22,24 @@ const icon = (n: string) => `${import.meta.env.BASE_URL}icons/${n}.png`
 type Box = { x: number; y: number; w: number; h: number }
 const box = ({ x, y, w, h }: Box) => ({ left: x, top: y, width: w, height: h })
 
-function T({ x, y, w, h, size, bold, color = 'ink', center, children }: Box & { size: number; bold?: boolean; color?: 'ink' | 'muted' | 'teal' | 'white' | 'mint'; center?: boolean; children: ReactNode }) {
-  return <div className={`t c-${color}${center ? ' center' : ''}`} style={{ ...box({ x, y, w, h }), fontSize: size, fontWeight: bold ? 700 : 400 }}>{children}</div>
+// Layout for the screen being rendered. Elements below the flexible block (map or list) move by
+// flexDelta; elements at the bottom of the frame (y >= 740) move by bottomDelta.
+const L = { flexEnd: Infinity, flexDelta: 0, bottomDelta: 0 }
+const adj = (y: number) => (y >= 740 ? y + L.bottomDelta : y >= L.flexEnd ? y + L.flexDelta : y)
+const top = (b: Box) => box({ ...b, y: adj(b.y) })
+
+// The flexible block on each screen (from Main.unity)
+const FLEX: Record<string, { y: number; h: number; kind: 'map' | 'list' } | undefined> = {
+  Home: { y: 438, h: 226, kind: 'map' }, Search: { y: 275, h: 515, kind: 'list' }, Confirm: { y: 112, h: 325, kind: 'map' },
+  Details: { y: 115, h: 310, kind: 'map' }, Route: { y: 325, h: 275, kind: 'map' }, Guide: { y: 235, h: 335, kind: 'map' },
+  Arrival: { y: 332, h: 260, kind: 'map' }, Saved: { y: 153, h: 580, kind: 'list' }, Settings: undefined,
+}
+
+function T({ x, y, w, h, size, bold, color = 'ink', center, inner, children }: Box & { size: number; bold?: boolean; color?: 'ink' | 'muted' | 'teal' | 'white' | 'mint'; center?: boolean; inner?: boolean; children: ReactNode }) {
+  return <div className={`t c-${color}${center ? ' center' : ''}`} style={{ ...(inner ? box : top)({ x, y, w, h }), fontSize: size, fontWeight: bold ? 700 : 400 }}>{children}</div>
 }
 function Btn({ kind, label, onClick, disabled, ...b }: Box & { kind: 'pri' | 'sec'; label: string; onClick: () => void; disabled?: boolean }) {
-  return <button className={kind} style={box(b)} disabled={disabled} onClick={onClick}>{label}</button>
+  return <button className={kind} style={top(b)} disabled={disabled} onClick={onClick}>{label}</button>
 }
 function Back({ onClick }: { onClick: () => void }) {
   return <button className="sec back" style={box({ x: 24, y: 32, w: 44, h: 44 })} onClick={onClick}>‹</button>
@@ -34,7 +50,7 @@ function Title({ children }: { children: ReactNode }) {
 // PlaceCard prefab, 342 x 78
 function Card({ title, subtitle, onClick, x = 24, y }: { title: string; subtitle: string; onClick: () => void; x?: number; y?: number }) {
   return (
-    <button className="card place" style={y === undefined ? { position: 'relative', width: 342, height: 78 } : box({ x, y, w: 342, h: 78 })} onClick={onClick}>
+    <button className="card place" style={y === undefined ? { position: 'relative', width: 342, height: 78 } : top({ x, y, w: 342, h: 78 })} onClick={onClick}>
       <span className="ib" />
       <img className="pin" src={icon('pin')} alt="" />
       <span className="pt">{title}</span>
@@ -45,7 +61,7 @@ function Card({ title, subtitle, onClick, x = 24, y }: { title: string; subtitle
 }
 function Toggle({ y, label, on, onChange }: { y: number; label: string; on: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button className="card toggle" style={box({ x: 24, y, w: 342, h: 48 })} onClick={() => { sound('toggle'); onChange(!on) }}>
+    <button className="card toggle" style={top({ x: 24, y, w: 342, h: 48 })} onClick={() => { sound('toggle'); onChange(!on) }}>
       <span className="cb">{on && <span className="cm" />}</span>
       <span className="tl">{label}</span>
     </button>
@@ -53,9 +69,9 @@ function Toggle({ y, label, on, onChange }: { y: number; label: string; on: bool
 }
 function Info({ y, heading, body }: { y: number; heading: string; body: string }) {
   return (
-    <div className="info" style={box({ x: 24, y, w: 342, h: 86 })}>
-      <T x={16} y={10} w={310} h={24} size={13} bold color="teal">{heading}</T>
-      <T x={16} y={36} w={310} h={43} size={12} color="muted">{body}</T>
+    <div className="info" style={top({ x: 24, y, w: 342, h: 86 })}>
+      <T inner x={16} y={10} w={310} h={24} size={13} bold color="teal">{heading}</T>
+      <T inner x={16} y={36} w={310} h={43} size={12} color="muted">{body}</T>
     </div>
   )
 }
@@ -80,21 +96,47 @@ export default function App() {
   const [floor, setFloor] = useState(0)
   const [place, setPlace] = useState<string | null>(null) // map.ShowPlace
   const [, bump] = useState(0) // re-render after saving
-  const [scale, setScale] = useState(1)
+  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight })
 
   useEffect(() => { loadBuilding().then(setB).catch(e => setErr(String(e))) }, [])
-  // DesignFrame.cs: scale the 390x844 frame to fit
   useLayoutEffect(() => {
-    const fit = () => setScale(Math.min(window.innerWidth / 390, window.innerHeight / 844))
+    const fit = () => setVp({ w: window.innerWidth, h: window.innerHeight })
     fit(); window.addEventListener('resize', fit); return () => window.removeEventListener('resize', fit)
   }, [])
+  // Escape = Back (the prototype's Android back button)
+  const backRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement && e.target.value)) backRef.current() }
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k)
+  }, [])
+
+  // ---- layout ----
+  const desktop = vp.w >= 900 && vp.w > vp.h * 1.1
+  const scale = desktop ? Math.min(1.1, Math.max(0.8, vp.h / 800)) : Math.min(vp.w / 390, 1.4)
+  const frameH = vp.h / scale // frame height in design pixels
+  const flex = FLEX[screen]
+  let flexDelta = 0
+  if (flex && desktop && flex.kind === 'map') flexDelta = -(flex.h + 8) // map moves to the right pane
+  else if (flex) flexDelta = Math.max((flex.kind === 'map' ? 150 : 160) - flex.h, frameH - 844)
+  L.flexEnd = flex ? flex.y + flex.h : Infinity
+  L.flexDelta = flexDelta
+  L.bottomDelta = Math.max(frameH - 844, flex ? flexDelta : 0)
+  const contentH = Math.max(frameH, 844 + L.bottomDelta)
   // UISounds: new screen / arriving
   const first = useRef(true)
-  useEffect(() => { if (first.current) { first.current = false; return } sound(screen === 'Arrival' ? 'arrive' : 'screen') }, [screen])
+  useEffect(() => {
+    document.querySelectorAll('.stage, .column').forEach(el => { el.scrollTop = 0 }) // new screen starts at the top
+    if (first.current) { first.current = false; return }
+    sound(screen === 'Arrival' ? 'arrive' : 'screen')
+  }, [screen])
 
+  let paneNode: ReactNode = null
   const frame = (children: ReactNode) => (
-    <div className="stage" onClickCapture={e => { if ((e.target as Element).closest('button:not(.toggle)')) sound('tap') }}>
-      <div className="frame" style={{ transform: `scale(${scale})` }}>{children}</div>
+    <div className={`stage${desktop ? ' desktop' : ''}`} onClickCapture={e => { if ((e.target as Element).closest('button:not(.toggle)')) sound('tap') }}>
+      <div className="column" style={{ width: 390 * scale, height: contentH * scale }}>
+        <div className="frame" style={{ height: contentH, transform: `scale(${scale})` }}>{children}</div>
+      </div>
+      {desktop && <div className="pane" style={{ left: 390 * scale }}>{paneNode}</div>}
     </div>
   )
   if (err) return frame(<T x={24} y={100} w={342} h={60} size={14} color="muted">Couldn't load the building. {err}</T>)
@@ -144,7 +186,8 @@ export default function App() {
   const toggleSaved = () => { if (!dest) return; pref.set(saveKey(dest), isSaved(dest) ? '0' : '1'); bump(x => x + 1) }
   const preferStepFree = (v: boolean) => { setStepFree(v); pref.set('wayforge.stepFree', v ? '1' : '0') }
   const prefer2D = (v: boolean) => { setTopDown(v); pref.set('wayforge.topDown', v ? '1' : '0') }
-  const back = () => {
+  backRef.current = () => back()
+  function back() {
     switch (screen) {
       case 'Confirm': show('Search'); break
       case 'Search': if (pickerBack === 'Guide' && route) guide(step); else show(pickerBack); break
@@ -154,12 +197,20 @@ export default function App() {
     }
   }
 
-  const map = (y: number, h: number, extra: { route?: Route | null; progress?: number } = {}) => (
+  const map = (y: number, h: number, extra: { route?: Route | null; progress?: number } = {}) => desktop ? null : (
     <MapView building={b} floor={floor} onFloor={setFloor} topDown={topDown} onToggleView={() => setTopDown(v => !v)}
-      place={place} x={24} y={y} w={342} h={h} {...extra} />
+      place={place} x={24} y={y} w={342} h={h + L.flexDelta} {...extra} />
   )
+  // desktop: one large map on the right showing whatever the current screen is about
+  const paneW = vp.w - 390 * scale - 24, paneH = vp.h - 48
+  const pane = desktop && paneW > 0 ? (
+    <MapView building={b} floor={floor} onFloor={setFloor} topDown={topDown} onToggleView={() => setTopDown(v => !v)}
+      place={screen === 'Confirm' ? pending?.node ?? place : place} x={0} y={0} w={paneW} h={paneH}
+      {...(screen === 'Route' ? { route } : screen === 'Guide' ? { route, progress: step } : {})} />
+  ) : null
+  paneNode = pane
   const bottomNav = (
-    <div className="card bottom" style={box({ x: 12, y: 762, w: 366, h: 66 })}>
+    <div className="card bottom" style={top({ x: 12, y: 762, w: 366, h: 66 })}>
       <button className="sec" style={box({ x: 8, y: 6, w: 114, h: 54 })} onClick={home}>Explore</button>
       <button className="sec" style={box({ x: 126, y: 6, w: 114, h: 54 })} onClick={() => show('Saved')}>Saved</button>
       <button className="sec" style={box({ x: 244, y: 6, w: 114, h: 54 })} onClick={() => show('Settings')}>Settings</button>
@@ -189,11 +240,11 @@ export default function App() {
         <Back onClick={back} />
         <Title>{pickingStart ? 'Your current location' : 'Your destination'}</Title>
         <T x={24} y={100} w={342} h={35} size={13} color="muted">Type a room name or code, then choose a place.</T>
-        <input className="card search" style={box({ x: 24, y: 145, w: 342, h: 56 })} placeholder="Search rooms or landmarks" value={query} onChange={e => setQuery(e.target.value)} />
+        <input className="card search" style={top({ x: 24, y: 145, w: 342, h: 56 })} placeholder="Search rooms or landmarks" value={query} onChange={e => setQuery(e.target.value)} />
         {['All', 'Rooms', 'Facilities', 'Food'].map((c, i) => (
           <Btn key={c} kind="sec" x={24 + i * 87} y={215} w={81} h={42} label={c} onClick={() => setCategory(c)} />
         ))}
-        <div className="list" style={box({ x: 24, y: 275, w: 342, h: 515 })}>
+        <div className="list" style={top({ x: 24, y: 275, w: 342, h: 515 + L.flexDelta })}>
           {places.map(p => <Card key={p.id} title={p.name} subtitle={subtitle(p)} onClick={() => selectPlace(p)} />)}
         </div>
         {places.length === 0 && <T x={30} y={300} w={330} h={70} size={16} color="muted">No matching places. Try another name or code.</T>}
@@ -245,24 +296,24 @@ export default function App() {
       return frame(<>
         <Back onClick={back} />
         <Title>Follow your route</Title>
-        <div className="banner" style={box({ x: 24, y: 100, w: 342, h: 120 })}>
-          <T x={20} y={15} w={302} h={58} size={20} bold color="white">
+        <div className="banner" style={top({ x: 24, y: 100, w: 342, h: 120 })}>
+          <T inner x={20} y={15} w={302} h={58} size={20} bold color="white">
             {change ? `Take the ${route.passages[step] === 'lift' ? 'lift' : 'stairs'} to ${nextFloor}` : `Continue to ${label(nextId)}`}
           </T>
-          <T x={20} y={79} w={302} h={30} size={13} color="mint">
+          <T inner x={20} y={79} w={302} h={30} size={13} color="mint">
             {change ? 'Confirm once you reach the next floor.' : `${Math.ceil(dist(b, hereId, nextId))} m along the highlighted path`}
           </T>
         </div>
         {map(235, 335, { route, progress: step })}
         <T x={24} y={585} w={342} h={26} size={11} bold color="muted">STEP {step + 1} OF {total} · CONFIRMED BY YOU</T>
-        <div className="bar" style={box({ x: 24, y: 625, w: 342, h: 12 })}><div style={{ width: `${(step / total) * 100}%` }} /></div>
+        <div className="bar" style={top({ x: 24, y: 625, w: 342, h: 12 })}><div style={{ width: `${(step / total) * 100}%` }} /></div>
         <Btn kind="pri" x={24} y={694} w={342} h={56} label={change ? `I'm on ${nextFloor} →` : `I'm at ${label(nextId)} →`} onClick={nextStep} />
         <Btn kind="sec" x={24} y={762} w={342} h={54} label="I'm lost / update my location" onClick={chooseStart} />
       </>)
     }
 
     case 'Arrival': return frame(dest && <>
-      <div className="badge" style={box({ x: 148, y: 65, w: 94, h: 94 })}><img src={icon('check')} alt="" /></div>
+      <div className="badge" style={top({ x: 148, y: 65, w: 94, h: 94 })}><img src={icon('check')} alt="" /></div>
       <T x={24} y={180} w={342} h={48} size={32} bold center>You've arrived.</T>
       <T x={24} y={238} w={342} h={35} size={23} bold center>{dest.name}</T>
       <T x={24} y={279} w={342} h={26} size={14} color="muted" center>{subtitle(dest)}</T>
@@ -278,7 +329,7 @@ export default function App() {
         <Back onClick={back} />
         <Title>Your saved places</Title>
         <T x={24} y={100} w={342} h={35} size={14} color="muted">Keep your everyday destinations close.</T>
-        <div className="list" style={box({ x: 24, y: 153, w: 342, h: 580 })}>
+        <div className="list" style={top({ x: 24, y: 153, w: 342, h: 580 + L.flexDelta })}>
           {places.map(p => <Card key={p.id} title={p.name} subtitle={subtitle(p)} onClick={() => details(p)} />)}
         </div>
         {places.length === 0 && <T x={24} y={200} w={342} h={95} size={17} color="muted">No saved places yet. Open a place and tap Save this place.</T>}
