@@ -1,0 +1,9 @@
+node_modules
+dist
+.env.local
+# Ananth's Unity WebGL build gets copied here, it's big so don't commit it
+public/viewer/*
+!public/viewer/README.md
+
+# buildings made by the Studio server (uploads + .wfb files)
+server/data
