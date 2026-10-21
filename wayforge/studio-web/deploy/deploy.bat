@@ -20,10 +20,10 @@ echo == uploading
 scp "%TEMP%\studio-upload.tgz" %SERVER%:studio-upload.tgz || goto :fail
 
 echo == installing on the server
-ssh %SERVER% "mkdir -p ~/wayforge && rm -rf ~/wayforge/studio-web/dist && tar -xzf ~/studio-upload.tgz -C ~/wayforge && sed -i 's/\r$//' ~/wayforge/studio-web/deploy/setup-vm.sh && bash ~/wayforge/studio-web/deploy/setup-vm.sh" || goto :fail
+ssh %SERVER% "mkdir -p ~/wayforge && rm -rf ~/wayforge/studio-web/dist && tar -xzf ~/studio-upload.tgz -C ~/wayforge && sed -i 's/\r$//' ~/wayforge/studio-web/deploy/*.sh && bash ~/wayforge/studio-web/deploy/setup-vm.sh" || goto :fail
 
 echo.
-echo Done. Open http://51.79.243.238:5000
+echo Done. Open https://wayforgestudio.duckdns.org
 exit /b 0
 
 :fail
