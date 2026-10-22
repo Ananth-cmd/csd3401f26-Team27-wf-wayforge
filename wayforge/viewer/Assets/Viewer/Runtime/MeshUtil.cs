@@ -3,7 +3,7 @@
  * \brief Polygon maths and mesh building for the viewer
  *
  * Centroid() and Triangulate() (ear clipping) handle any simple room
- * outline, including L and U shapes. MeshBuilder collects vertices and
+ * outline, including L and U shapes and rings joined to their hole by a cut. MeshBuilder collects vertices and
  * triangles with flat normals: AddWallBox() for one wall piece, AddSlab()
  * for an extruded room outline, AddBox() for axis-aligned boxes (stairs,
  * lift shafts, markers). ToWorld() maps plan (x, y) at height h to Unity
@@ -72,6 +72,17 @@ namespace Wayforge.Viewer
             return new Vector2(cx, cy) / (6f * area);
         }
 
+        // Even-odd point-in-polygon test.
+        public static bool Contains(Vector2[] poly, Vector2 p)
+        {
+            bool inside = false;
+            for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+                if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                    p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+                    inside = !inside;
+            return inside;
+        }
+
         public static Rect Bounds(Vector2[] p)
         {
             if (p == null || p.Length == 0) return new Rect();
@@ -104,6 +115,8 @@ namespace Wayforge.Viewer
                     foreach (int k in idx)
                     {
                         if (k == ia || k == ib || k == ic) continue;
+                        // Skip points on a triangle corner (corners repeated by a hole cut).
+                        if (p[k] == a || p[k] == b || p[k] == c) continue;
                         if (InTriangle(p[k], a, b, c)) { empty = false; break; }
                     }
                     if (!empty) continue;

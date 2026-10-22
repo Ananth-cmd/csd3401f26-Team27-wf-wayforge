@@ -1,26 +1,50 @@
 /*!
  * \file read.cpp
- * \brief the 3 steps that turn lines into walls, doors and rooms
+ * \brief the steps that turn lines into walls, doors, windows and rooms
  *
  * pairWalls      - pairs up lines side by side into thick walls
  * bridgeDoorGaps - joins 2 walls with a door sized gap + adds a door
  * findRooms      - every closed loop of walls becomes a room
  * interpret() runs all 3 in order.
  *
- * \author Katie Lim
+ * detectWindows() samples the ink across each wall every 5 cm. A sample is a
+ * window sample if it crosses 3 or more separate ink lines (frame and glass
+ * lines), or if the wall is drawn solid and the ink there is under 45% of the
+ * wall's usual thickness. Outer walls use at least the thickness of the
+ * floor's outer walls (75th percentile). Runs of window samples 0.5-5 m long
+ * that do not overlap a door become Window openings. Door openings in a solid
+ * wall whose gap is mostly crossed by thin lines are classed as windows; on
+ * outer walls, those whose gap is almost entirely filled with ink as thick as
+ * the wall are removed.
  *
- * Contribution: Katie Lim 100%
+ * addAssumedWindows() places evenly spaced windows on outside walls (a room
+ * on one side only) without windows, with confidence 0.3.
+ *
+ * Both are called by convertImage (Convert.cpp) after the rooms are found;
+ * wf_graph::lineOfSight ignores windows.
+ *
+ * \author Katie Lim
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Katie Lim 55%, Ananthan Elangovan 45%
+ *   Katie Lim
  *   - all 3 steps and interpret()
  *   - confidence scores so unsure stuff can be checked by hand
+ *   Ananthan Elangovan
+ *   - Window detection from ink profiles across walls; door / window classification of wall gaps
+ *   - Assumed windows on outside walls
  *
- * AI declaration: used Claude to help write and debug the code and comments.
+ * AI declaration: used Claude to help write and debug the code and comments (Katie Lim).
+ * Claude Opus was used as a support tool for debugging and build infrastructure (Ananthan Elangovan).
  *
- * \date 2026-09-10
+ * \date 2026-09-10, 2026-10-19
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
  */
 
 #include "wf_read/wf_read.hpp"
+#include "wf_read/Convert.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace wf::read {
 namespace {
@@ -243,6 +267,211 @@ Result<ReadStats> interpret(const std::vector<vec::Segment>& segments, Level& le
     for (auto& r : level.rooms) if (r.confidence < 0.7f) ++stats.lowConfidence;
     if (level.rooms.empty()) stats.notes.push_back("no closed rooms found: check the plan has closed wall loops, or lower --snap");
     return stats;
+}
+
+// --- windows ------------------------------------------------------------------------------
+
+namespace {
+
+    struct Profile { int runs = 0; float longest = 0.f; };
+
+    // Ink lines crossed by the line through c along n, from -reach to +reach metres.
+    Profile profileAt(const img::Image8& ink, float mpp, Vec2 c, Vec2 n, float reach) {
+        Profile p;
+        const float H = static_cast<float>(ink.height);
+        const float step = mpp * 0.7f;
+        bool inRun = false;
+        float runStart = 0.f;
+        for (float t = -reach; t <= reach + 1e-4f; t += step) {
+            const Vec2 q = c + n * t;
+            const int x = static_cast<int>(q.x / mpp), y = static_cast<int>(H - q.y / mpp);
+            const bool on = ink.inside(x, y) && ink.at(x, y) < 128;
+            if (on && !inRun) { inRun = true; runStart = t; }
+            if ((!on || t + step > reach + 1e-4f) && inRun) {
+                inRun = false; ++p.runs;
+                p.longest = std::max(p.longest, t - runStart);
+            }
+        }
+        return p;
+    }
+
+    bool overlapsOpening(const Level& level, const Wall& w, float s0, float s1, float margin) {
+        for (const Opening& o : level.openings)
+            if (o.wall == w.id && s0 < o.offset + o.width + margin && s1 > o.offset - margin) return true;
+        return false;
+    }
+
+    bool hasWindow(const Level& level, const Wall& w, float s0, float s1) {
+        for (const Opening& o : level.openings)
+            if (o.wall == w.id && o.type == OpeningType::Window && s0 < o.offset + o.width && s1 > o.offset) return true;
+        return false;
+    }
+
+    bool insideAnyRoom(const Level& level, Vec2 p) {
+        for (const Room& r : level.rooms)
+            if (r.polygon.size() >= 3 && pointInPolygon(p, r.polygon)) return true;
+        return false;
+    }
+
+    const Room* roomAt(const Level& level, Vec2 p) {
+        for (const Room& r : level.rooms)
+            if (r.polygon.size() >= 3 && pointInPolygon(p, r.polygon)) return &r;
+        return nullptr;
+    }
+
+    // True when the wall has a room on one side of its midpoint only, probed 0.3, 0.7 and 1.2 m
+    // past each face.
+    bool outerWall(const Level& level, const Wall& w) {
+        const Vec2 d = w.direction(), n{ -d.y, d.x }, mid = (w.a + w.b) * 0.5f;
+        auto roomOn = [&](float sign) {
+            for (float t : { 0.3f, 0.7f, 1.2f })
+                if (insideAnyRoom(level, mid + n * (sign * (w.thickness * 0.5f + t)))) return true;
+            return false;
+        };
+        return roomOn(1.f) != roomOn(-1.f);
+    }
+
+    // Value at fraction q (0..1) of the sorted values; 0 when empty.
+    float quantile(std::vector<float> v, float q) {
+        if (v.empty()) return 0.f;
+        const size_t k = std::min(v.size() - 1, static_cast<size_t>(q * static_cast<float>(v.size())));
+        std::nth_element(v.begin(), v.begin() + k, v.end());
+        return v[k];
+    }
+
+    Opening makeWindow(IdGenerator& ids, const Wall& w, float offset, float width, const WindowParams& p, float confidence) {
+        Opening o;
+        o.id = ids.next("o");
+        o.wall = w.id;
+        o.type = OpeningType::Window;
+        o.offset = offset;
+        o.width = width;
+        o.sill = p.sill;
+        o.height = p.height;
+        o.confidence = confidence;
+        return o;
+    }
+
+} // namespace
+
+int detectWindows(Level& level, const img::Image8& ink, float mpp, IdGenerator& ids, const WindowParams& p) {
+    const float step = 0.05f;
+    auto reachOf = [](const Wall& w) { return std::max(0.35f, w.thickness + 0.15f); };
+
+    // Usual ink thickness per wall (median of the longest run per sample) and of the floor's outer
+    // walls (75th percentile over all their samples).
+    std::vector<std::vector<Profile>> profiles(level.walls.size());
+    std::vector<float> usualOf(level.walls.size(), 0.f);
+    std::vector<bool> outer(level.walls.size(), false);
+    std::vector<float> outerSamples;
+    for (size_t k = 0; k < level.walls.size(); ++k) {
+        const Wall& w = level.walls[k];
+        const float len = w.length();
+        if (len < 0.1f) continue;
+        const Vec2 d = w.direction(), n{ -d.y, d.x };
+        auto& prof = profiles[k];
+        for (float s = 0.f; s <= len; s += step) prof.push_back(profileAt(ink, mpp, w.a + d * s, n, reachOf(w)));
+        std::vector<float> longest;
+        for (const auto& q : prof) if (q.runs > 0) longest.push_back(q.longest);
+        usualOf[k] = quantile(longest, 0.5f);
+        outer[k] = outerWall(level, w);
+        if (outer[k]) outerSamples.insert(outerSamples.end(), longest.begin(), longest.end());
+    }
+    const float outerUsual = quantile(outerSamples, 0.75f);
+
+    std::vector<Opening> found;
+    int converted = 0;
+    for (size_t k = 0; k < level.walls.size(); ++k) {
+        const Wall& w = level.walls[k];
+        const float len = w.length();
+        if (len < p.minWidth || usualOf[k] <= 0.f) continue;
+        const Vec2 d = w.direction(), n{ -d.y, d.x };
+        const float reach = reachOf(w);
+        const auto& prof = profiles[k];
+        // Reference thickness: at least the floor's outer wall thickness for outer walls.
+        const float usual = outer[k] ? std::max(usualOf[k], outerUsual) : usualOf[k];
+        const bool solid = usual >= p.solidWall;
+
+        auto isWindow = [&](const Profile& q) {
+            if (q.runs >= 3) return true;
+            return solid && q.runs >= 1 && q.longest < usual * 0.45f;
+        };
+        // Door openings in a solid wall: classed as windows when at least 60% of the samples are
+        // thin; on outer walls, removed when at least 80% are filled to the wall thickness.
+        std::vector<std::string> filled;
+        if (solid)
+            for (Opening& o : level.openings) {
+                if (o.wall != w.id || o.type != OpeningType::Door) continue;
+                int thin = 0, full = 0, total = 0;
+                for (float s = o.offset; s <= o.offset + o.width; s += step, ++total) {
+                    const Profile q = profileAt(ink, mpp, w.a + d * s, n, reach);
+                    if (q.runs >= 2 || (q.runs >= 1 && q.longest < usual * 0.45f)) ++thin;
+                    else if (q.runs >= 1 && q.longest >= usual * 0.8f) ++full;
+                }
+                if (total > 0 && thin >= total * 0.6f) {
+                    o.type = OpeningType::Window; o.sill = p.sill; o.height = p.height;
+                    ++converted;
+                } else if (outer[k] && total > 0 && full >= total * 0.8f) {
+                    filled.push_back(o.id);
+                }
+            }
+        std::erase_if(level.openings, [&](const Opening& o) { return std::find(filled.begin(), filled.end(), o.id) != filled.end(); });
+        // Runs of window samples, allowing single-sample breaks.
+        size_t i = 0;
+        while (i < prof.size()) {
+            if (!isWindow(prof[i])) { ++i; continue; }
+            size_t j = i;
+            while (j + 1 < prof.size() && (isWindow(prof[j + 1]) || (j + 2 < prof.size() && isWindow(prof[j + 2])))) ++j;
+            const float s0 = static_cast<float>(i) * step, s1 = static_cast<float>(j + 1) * step;
+            if (s1 - s0 >= p.minWidth && s1 - s0 <= p.maxWidth && !overlapsOpening(level, w, s0, s1, 0.2f))
+                found.push_back(makeWindow(ids, w, s0, std::min(s1, len) - s0, p, 0.8f));
+            i = j + 1;
+        }
+    }
+    level.openings.insert(level.openings.end(), found.begin(), found.end());
+    return static_cast<int>(found.size()) + converted;
+}
+
+int addAssumedWindows(Level& level, IdGenerator& ids, const WindowParams& p) {
+    const float step = 0.25f;
+    std::vector<Opening> added;
+    for (const Wall& w : level.walls) {
+        const float len = w.length();
+        if (len < p.assumedWidth + 1.f) continue;
+        const Vec2 d = w.direction(), n{ -d.y, d.x };
+        const float probe = w.thickness * 0.5f + 0.3f;
+        // Stretches of the wall with a room on one side only (an outside wall).
+        auto outside = [&](float s) {
+            const Vec2 c = w.a + d * s;
+            const Vec2 l = c + n * probe, r = c - n * probe;
+            const bool inL = insideAnyRoom(level, l), inR = insideAnyRoom(level, r);
+            if (inL == inR) return false;
+            const Room* room = roomAt(level, inL ? l : r);
+            return room && room->kind != RoomKind::Stair && room->kind != RoomKind::Lift;
+        };
+        float s = 0.f;
+        while (s < len) {
+            if (!outside(s)) { s += step; continue; }
+            float e = s;
+            while (e + step <= len && outside(e + step)) e += step;
+            // Evenly spaced windows inside [s, e], away from the stretch ends.
+            const float start = s + p.assumedMargin, end = e - p.assumedMargin;
+            const float pitch = p.assumedWidth + p.assumedGap;
+            const int count = end - start >= p.assumedWidth ? static_cast<int>((end - start + p.assumedGap) / pitch) : 0;
+            if (count > 0 && !hasWindow(level, w, s, e)) {
+                const float used = count * pitch - p.assumedGap;
+                const float first = start + (end - start - used) * 0.5f;
+                for (int k = 0; k < count; ++k) {
+                    const float o = first + k * pitch;
+                    if (!overlapsOpening(level, w, o, o + p.assumedWidth, 0.3f))
+                        added.push_back(makeWindow(ids, w, o, p.assumedWidth, p, 0.3f));
+                }
+            }
+            s = e + step;
+        }
+    }
+    level.openings.insert(level.openings.end(), added.begin(), added.end());
+    return static_cast<int>(added.size());
 }
 
 } // namespace wf::read

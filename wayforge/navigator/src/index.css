@@ -1,0 +1,92 @@
+/* Colours and sizes taken from Main.unity and the UI prefabs */
+:root {
+  --bg: #f4f7f7;
+  --ink: #102e2b;
+  --muted: #617873;
+  --teal: #006b5e;
+  --mint: #ddf1e9;
+  --mint-text: #cbece0;
+  --map: #eaf1ef;
+  --icon-bg: #f4f8f7;
+  --radius: 18px; /* Rounded.png 9-slice border */
+  font-family: Arial, 'Liberation Sans', Helvetica, sans-serif; /* Unity's default UI font */
+  color: var(--ink);
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; padding: 0; }
+
+/* Layout: the 390-wide design frame is scaled to the column width (see App.tsx) */
+.stage { position: fixed; inset: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.column { position: relative; margin: 0 auto; }
+.frame { position: absolute; left: 0; top: 0; width: 390px; background: var(--bg); transform-origin: 0 0; }
+.stage.desktop { overflow: hidden; }
+.stage.desktop .column { margin: 0; height: 100% !important; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.pane { position: fixed; top: 24px; right: 24px; bottom: 24px; }
+.pane .map { box-shadow: 0 1px 3px rgba(16, 46, 43, 0.08); }
+.frame > *, .card > *, .info > *, .banner > *, .map > button, .bottom > * { position: absolute; }
+.map { position: absolute; }
+button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+/* Desktop: hover feedback and keyboard focus */
+@media (hover: hover) {
+  .pri:hover:not(:disabled) { filter: brightness(1.12); }
+  .sec:hover { filter: brightness(0.96); }
+  .card.place:hover, .card.toggle:hover { box-shadow: 0 2px 10px rgba(16, 46, 43, 0.1); }
+}
+button:focus-visible, input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+/* Text = middle-left (or middle-center) aligned like Unity Text */
+.t { display: flex; align-items: center; line-height: 1.15; }
+.t.center { justify-content: center; text-align: center; }
+.c-ink { color: var(--ink); } .c-muted { color: var(--muted); } .c-teal { color: var(--teal); }
+.c-white { color: #fff; } .c-mint { color: var(--mint-text); }
+
+/* Primarybutton / Secondarybutton prefabs */
+.pri, .sec { border: none; border-radius: var(--radius); font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-align: center; }
+.pri { background: var(--teal); color: #fff; }
+.pri:disabled { background: #7fb2a9; color: rgba(255, 255, 255, 0.6); cursor: default; }
+.sec { background: var(--mint); color: var(--teal); }
+.pri:active:not(:disabled), .sec:active { filter: brightness(0.82); }
+.back { font-size: 26px; line-height: 1; padding-bottom: 3px; }
+
+/* PlaceCard prefab */
+.card { background: #fff; border: none; border-radius: var(--radius); text-align: left; }
+.place .ib { left: 14px; top: 17px; width: 44px; height: 44px; border-radius: 12px; background: var(--icon-bg); }
+.place .pin { left: 25px; top: 28px; width: 22px; height: 22px; }
+.place .pt { left: 72px; top: 12px; width: 234px; height: 32px; display: flex; align-items: center; font-size: 15px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.place .ps { left: 72px; top: 46px; width: 234px; height: 21px; display: flex; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.place .chev { left: 315px; top: 30px; width: 18px; height: 18px; }
+.place:active { filter: brightness(0.96); }
+
+/* Toggle rows */
+.toggle .cb { left: 13px; top: 12px; width: 24px; height: 24px; border-radius: 6px; background: var(--mint); }
+.toggle .cm { position: absolute; left: 5px; top: 5px; width: 14px; height: 14px; border-radius: 3px; background: var(--teal); }
+.toggle .tl { left: 50px; top: 0; width: 280px; height: 48px; display: flex; align-items: center; font-size: 14px; color: var(--ink); }
+
+.info { background: var(--mint); border-radius: var(--radius); }
+.banner { background: var(--teal); border-radius: var(--radius); }
+.badge { background: var(--mint); border-radius: 24px; }
+.badge img { position: absolute; left: 29px; top: 29px; width: 36px; height: 36px; }
+.bar { background: var(--mint); border-radius: 6px; overflow: hidden; }
+.bar div { height: 100%; background: var(--teal); border-radius: 6px; transition: width 0.25s; }
+.search { padding: 0 16px; font-size: 16px; outline: none; }
+.search::placeholder { color: var(--muted); font-size: 14px; }
+.list { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; scrollbar-width: none; }
+.list::-webkit-scrollbar { display: none; }
+.list > * { flex: none; }
+
+/* MapPanel prefab + BuildingMap */
+.map { background: var(--map); border-radius: var(--radius); overflow: hidden; }
+.map svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.map .chip { font-size: 15px; }
+.m-floor { fill: #b3cbc5; stroke: #a3bdb6; stroke-width: 0.03; }
+.m-wall { stroke: #8fb8aa; stroke-width: 0.03; stroke-linejoin: round; }
+.m-wall.s0 { fill: #e4f2ed; }
+.m-wall.s1 { fill: #bcdacf; }
+.m-wall.s2 { fill: #a9cdc0; }
+.m-route { stroke: var(--teal); stroke-linecap: round; }
+.m-here { fill: var(--teal); stroke: #fff; stroke-width: 0.12; }
+.m-dest { fill: #f5a35c; stroke: #fff; stroke-width: 0.12; }

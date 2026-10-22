@@ -11,7 +11,7 @@
  *   HighlightRoom(ref)        FocusRoom(ref)       ref = room id, code or "L2:r5"; "" clears
  *   ShowRoute(json)           ClearRoute()         route JSON from wf_cli route
  *   SetView("2d" | "3d")      ResetView()          SetCutaway("true" | "false")
- *   ShowLabels("true" | "false")
+ *   ShowLabels("true" | "false")   ShowRoof("true" | "false")
  *
  * Events back to the page: ready, buildingLoaded, floorChanged, roomClicked,
  * routeShown, error. WebBridge (below) sends them: in a WebGL build through
@@ -58,9 +58,6 @@ namespace Wayforge.Viewer
 
         void Awake()
         {
-#if UNITY_WEBGL && !UNITY_EDITOR
-            WebGLInput.captureAllKeyboardInput = false;     // leave the keyboard to the page's own inputs
-#endif
             if (cameraRig != null) cameraRig.Clicked += OnClicked;
         }
 
@@ -130,6 +127,8 @@ namespace Wayforge.Viewer
         [Preserve] public void SetCutaway(string on) => building.SetCutaway(IsTrue(on));
 
         [Preserve] public void ShowLabels(string on) => building.SetLabelsVisible(IsTrue(on));
+
+        [Preserve] public void ShowRoof(string on) => building.SetRoof(IsTrue(on));
 
         [Preserve] public void SetView(string mode)
         {

@@ -6,22 +6,27 @@
  * keyed by "LEVEL:NODE", then runs A* from the start node to one goal
  * (findRoute) or to the nearest of many goals (findEgress = any exit).
  * Step-free routing is a single filter: edges and links marked not
- * step-free are skipped while searching.
+ * step-free are skipped while searching. The lift wait is added once per
+ * ride: the search state records whether a node was reached in a lift.
  *
  * Links: wf_api::wf_route / wf_route_to_room / wf_egress call findRoute /
  * findEgress; nodeForRoom and nearestNode turn a room code or a tap position
  * into the start/goal node. The Route returned feeds Instructions.cpp.
  *
  * \author Joel Chua (c.jialiang@digipen.edu)
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
  *
- * Contribution: Joel Chua 100%
+ * Contribution: Joel Chua 85%, Ananthan Elangovan 15%
+ *   Joel Chua
  *   - Building-wide flattened graph with stair / lift penalties
  *   - A* with a multi-goal heuristic (egress) and step-free filtering
  *   - Room-code and nearest-position lookups
+ *   Ananthan Elangovan
+ *   - Lift wait charged once per ride (in-lift search state)
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
  *
- * \date 2026-09-24
+ * \date 2026-09-24, 2026-10-20
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
  */
 
@@ -46,8 +51,8 @@ std::optional<Ref> parseRef(std::string_view ref) {
 // Join a level id and node id back into "L5:n3".
 std::string makeRef(const std::string& level, const std::string& node) { return level + ":" + node; }
 
-// One outgoing connection: where it goes, what it costs, and whether it's step-free.
-struct Adj { std::string to; float cost; bool stepFree; };
+// One outgoing connection: target, cost, step-free flag and lift-link flag.
+struct Adj { std::string to; float cost; bool stepFree; bool lift = false; };
 
 // Flatten the whole building into one adjacency map keyed by "L:n".
 struct FlatGraph {
@@ -70,11 +75,12 @@ struct FlatGraph {
         for (const Link& lk : b.links) {
             if (!nodes.count(lk.a) || !nodes.count(lk.b)) continue;   // skip links to nodes that no longer exist
             float cost = lk.cost;
-            // Make sure a stair or lift is never cheaper than its penalty (time to climb / wait).
+            // Stair links cost at least stairPenalty. Lift links cost their travel time; liftPenalty
+            // is added once per ride in search().
             if (lk.kind == LinkKind::Stair) cost = std::max(cost, gp.stairPenalty);
-            if (lk.kind == LinkKind::Lift)  cost = std::max(cost, gp.liftPenalty);
-            adj[lk.a].push_back({lk.b, cost, lk.stepFree});
-            adj[lk.b].push_back({lk.a, cost, lk.stepFree});
+            const bool lift = lk.kind == LinkKind::Lift;
+            adj[lk.a].push_back({lk.b, cost, lk.stepFree, lift});
+            adj[lk.b].push_back({lk.a, cost, lk.stepFree, lift});
         }
     }
     // Straight-line 3D distance between two nodes (level elevation gives the height).
@@ -100,33 +106,46 @@ Result<Route> search(const Building& b, const std::string& start, const std::uno
         return best;
     };
 
-    using QItem = std::pair<float, std::string>;                  // f, node
+    // Search state: node plus in-lift flag. A lift link from an on-foot state adds liftPenalty; a
+    // lift link from an in-lift state adds travel time only. Keys: "L:n" on foot, "L:n|lift" in a lift.
+    const float liftWait = GraphParams{}.liftPenalty;
+    auto stateOf = [](const std::string& ref, bool inLift) { return inLift ? ref + "|lift" : ref; };
+    auto refOf = [](const std::string& state) {
+        const size_t bar = state.find('|');
+        return bar == std::string::npos ? state : state.substr(0, bar);
+    };
+
+    using QItem = std::pair<float, std::string>;                  // f, state
     // std::greater makes it a min-heap: the lowest f (cost so far + estimate) comes out first.
     std::priority_queue<QItem, std::vector<QItem>, std::greater<QItem>> open;
     std::unordered_map<std::string, float>       gScore;          // best known cost from start
-    std::unordered_map<std::string, std::string> cameFrom;        // previous node on that best path
-    std::unordered_map<std::string, bool>        cameStepFree;    // was the edge into this node step-free?
+    std::unordered_map<std::string, std::string> cameFrom;        // previous state on that best path
+    std::unordered_map<std::string, bool>        cameStepFree;    // was the edge into this state step-free?
     gScore[start] = 0.f;
     open.push({h(start), start});
-    std::string reached;                                          // the goal we got to (empty = none)
+    std::string reached;                                          // the goal state we got to (empty = none)
 
     while (!open.empty()) {
         auto [f, cur] = open.top(); open.pop();
-        if (goals.count(cur)) { reached = cur; break; }           // first goal popped is the cheapest
-        // A node can be queued more than once; skip copies whose cost has since been beaten.
-        if (f > gScore[cur] + h(cur) + 1e-3f) continue;           // stale entry
-        auto it = g.adj.find(cur);
+        const std::string curRef = refOf(cur);
+        if (goals.count(curRef)) { reached = cur; break; }        // first goal popped is the cheapest
+        // A state can be queued more than once; skip copies whose cost has since been beaten.
+        if (f > gScore[cur] + h(curRef) + 1e-3f) continue;        // stale entry
+        const bool inLift = cur != curRef;
+        auto it = g.adj.find(curRef);
         if (it == g.adj.end()) continue;                          // dead end, no connections
         for (const Adj& a : it->second) {
             if (opt.stepFreeOnly && !a.stepFree) continue;      // the whole accessibility feature: one filter
-            const float tentative = gScore[cur] + a.cost;
-            auto gs = gScore.find(a.to);
-            // First time seeing this neighbour, or found a cheaper way to it: record and queue it.
+            if (opt.noLifts && a.lift) continue;
+            const float tentative = gScore[cur] + a.cost + (a.lift && !inLift ? liftWait : 0.f);
+            const std::string next = stateOf(a.to, a.lift);
+            auto gs = gScore.find(next);
+            // First time seeing this state, or found a cheaper way to it: record and queue it.
             if (gs == gScore.end() || tentative < gs->second) {
-                gScore[a.to] = tentative;
-                cameFrom[a.to] = cur;
-                cameStepFree[a.to] = a.stepFree;
-                open.push({tentative + h(a.to), a.to});
+                gScore[next] = tentative;
+                cameFrom[next] = cur;
+                cameStepFree[next] = a.stepFree;
+                open.push({tentative + h(a.to), next});
             }
         }
     }
@@ -137,12 +156,13 @@ Result<Route> search(const Building& b, const std::string& start, const std::uno
     std::vector<std::string> chain;
     for (std::string n = reached; ; n = cameFrom[n]) { chain.push_back(n); if (n == start) break; }
     std::reverse(chain.begin(), chain.end());
-    for (const auto& ref : chain) {
+    for (const auto& state : chain) {
+        const std::string ref = refOf(state);
         const Node* n = g.nodes[ref];
-        RouteStep s; s.level = g.levelOf[ref]->id; s.node = n->id; s.pos = n->pos; s.kind = n->kind; s.cumulativeCost = gScore[ref];
+        RouteStep s; s.level = g.levelOf[ref]->id; s.node = n->id; s.pos = n->pos; s.kind = n->kind; s.cumulativeCost = gScore[state];
         route.steps.push_back(s);
         // One non-step-free edge anywhere makes the whole route not step-free.
-        if (ref != start && !cameStepFree[ref]) route.stepFree = false;
+        if (state != start && !cameStepFree[state]) route.stepFree = false;
     }
     route.totalCost = gScore[reached];
     return route;
@@ -163,7 +183,10 @@ Result<Route> findEgress(const Building& b, std::string_view fromRef, const Rout
     std::unordered_set<std::string> exits;
     for (const Level& l : b.levels) for (const Node& n : l.nodes) if (n.kind == NodeKind::Exit) exits.insert(makeRef(l.id, n.id));
     if (exits.empty()) return Result<Route>::fail("egress: the building has no exit nodes (tag a room as 'exit')");
-    return search(b, std::string(fromRef), exits, opt);
+    // Egress: stairs only; lifts allowed when stepFreeOnly.
+    RouteOptions egress = opt;
+    egress.noLifts = !opt.stepFreeOnly;
+    return search(b, std::string(fromRef), exits, egress);
 }
 
 std::optional<std::string> nodeForRoom(const Building& b, std::string_view codeOrId) {
