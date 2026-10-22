@@ -73,7 +73,15 @@ namespace Wayforge.Viewer.EditorTools
             var marker = MakeMaterial("Marker", standard, Color.white);
             var line = MakeMaterial("RouteLine", Shader.Find("Unlit/Color"), new Color(1f, 0.42f, 0.08f));
             var label = MakeMaterial("Label", AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/Label.shader"), Color.white);
-            foreach (var m in new[] { wall, floor, stair, lift, marker }) m.SetFloat("_Glossiness", 0.1f);
+            var exterior = MakeMaterial("ExteriorWall", standard, new Color(0.80f, 0.74f, 0.64f));
+            var frame = MakeMaterial("Frame", standard, new Color(0.24f, 0.26f, 0.29f));
+            var door = MakeMaterial("Door", standard, new Color(0.55f, 0.38f, 0.24f));
+            var roof = MakeMaterial("Roof", standard, new Color(0.42f, 0.44f, 0.47f));
+            var ground = MakeMaterial("Ground", standard, new Color(0.52f, 0.58f, 0.48f));
+            var glass = MakeMaterial("Glass", standard, new Color(0.62f, 0.80f, 0.92f, 0.35f));
+            MakeTransparent(glass);
+            glass.SetFloat("_Glossiness", 0.9f);
+            foreach (var m in new[] { wall, floor, stair, lift, marker, exterior, frame, door, roof, ground }) m.SetFloat("_Glossiness", 0.1f);
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -86,7 +94,7 @@ namespace Wayforge.Viewer.EditorTools
             var camGo = new GameObject("Main Camera") { tag = "MainCamera" };
             var cam = camGo.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.12f, 0.13f, 0.16f);
+            cam.backgroundColor = new Color(0.66f, 0.78f, 0.90f);   // sky
             cam.fieldOfView = 45f;
             var rig = camGo.AddComponent<CameraRig>();
 
@@ -94,7 +102,9 @@ namespace Wayforge.Viewer.EditorTools
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
             light.intensity = 0.65f;
-            light.shadows = LightShadows.None;                     // no shadow maps: cheaper on phones
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = 0.55f;
+            QualitySettings.shadowDistance = 250f;
             lightGo.transform.rotation = Quaternion.Euler(55f, -35f, 0f);
 
             var viewerGo = new GameObject("WayforgeViewer");       // name used by SendMessage from the page
@@ -106,6 +116,12 @@ namespace Wayforge.Viewer.EditorTools
             Set(building, "floorMaterial", floor);
             Set(building, "stairMaterial", stair);
             Set(building, "liftMaterial", lift);
+            Set(building, "exteriorWallMaterial", exterior);
+            Set(building, "glassMaterial", glass);
+            Set(building, "frameMaterial", frame);
+            Set(building, "doorMaterial", door);
+            Set(building, "roofMaterial", roof);
+            Set(building, "groundMaterial", ground);
             Set(building, "labelFont", Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
             Set(building, "labelMaterial", label);
             Set(route, "lineMaterial", line);
@@ -119,6 +135,20 @@ namespace Wayforge.Viewer.EditorTools
             ConfigurePlayer();
             AssetDatabase.SaveAssets();
             Debug.Log("[viewer] scene set up: " + ScenePath);
+        }
+
+        // Standard shader in Transparent mode (the keywords and blend state its inspector would set).
+        static void MakeTransparent(Material m)
+        {
+            m.SetFloat("_Mode", 3f);
+            m.SetInt("_SrcBlend", (int)BlendMode.One);
+            m.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+            m.SetInt("_ZWrite", 0);
+            m.DisableKeyword("_ALPHATEST_ON");
+            m.DisableKeyword("_ALPHABLEND_ON");
+            m.EnableKeyword("_ALPHAPREMULTIPLY_ON");
+            m.renderQueue = (int)RenderQueue.Transparent;
+            EditorUtility.SetDirty(m);
         }
 
         static Material MakeMaterial(string name, Shader shader, Color colour)

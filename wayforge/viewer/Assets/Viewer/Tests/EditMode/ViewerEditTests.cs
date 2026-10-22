@@ -161,10 +161,35 @@ namespace Wayforge.Viewer.Tests
             var walls = view.GetComponentsInChildren<MeshFilter>().Where(f => f.name == "Walls").ToArray();
             Assert.AreEqual(2, walls.Length);
             Assert.That(walls.All(w => w.sharedMesh.vertexCount > 0));
-            Assert.AreEqual(3f, walls[0].sharedMesh.bounds.max.y, 1e-3f, "L1 walls reach the ceiling");
+            Assert.AreEqual(3.5f - 0.15f, walls[0].sharedMesh.bounds.max.y, 1e-3f, "L1 walls reach the L2 slab");
             Assert.IsNotNull(view.transform.Find("Building/Stairs and lifts/Stairs"));
             Assert.IsNotNull(view.transform.Find("Building/Stairs and lifts/Lifts"));
             Assert.AreEqual(4, view.GetComponentsInChildren<TextMesh>().Length, "every room has a code label");
+        }
+
+        [Test]
+        public void View_WindowsDoorsRoofAndGround()
+        {
+            Views(out var view, out _);
+            view.Show(BuildingData.Parse(TestBuilding.Wfb));
+            MeshFilter Part(string level, string name) => view.transform.Find($"Building/Level {level}/{name}").GetComponent<MeshFilter>();
+
+            Assert.Greater(Part("L1", "Exterior walls").sharedMesh.vertexCount, 0, "outer box walls are exterior");
+            Assert.Greater(Part("L1", "Walls").sharedMesh.vertexCount, 0, "the dividing wall is interior");
+            var glass = Part("L1", "Glass").sharedMesh;
+            Assert.Greater(glass.vertexCount, 0, "the window gets a glass pane");
+            Assert.AreEqual(0.9f, glass.bounds.min.y, 1e-3f, "pane starts at the sill");
+            Assert.Greater(Part("L1", "Frames").sharedMesh.vertexCount, 0);
+            Assert.Greater(Part("L1", "Doors").sharedMesh.vertexCount, 0, "the door gets a leaf");
+            Assert.IsNotNull(view.transform.Find("Building/Ground"));
+
+            var roof = Part("L2", "Roof").gameObject;
+            Assert.IsTrue(roof.activeSelf, "roofs show in the full view");
+            view.SetCutaway(true);
+            Assert.IsFalse(roof.activeSelf, "and hide in cut-away");
+            view.SetCutaway(false);
+            view.SetRoof(false);
+            Assert.IsFalse(roof.activeSelf);
         }
 
         [Test]

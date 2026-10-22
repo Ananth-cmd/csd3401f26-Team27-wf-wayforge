@@ -207,7 +207,9 @@ namespace Wayforge.Viewer.Tests
             var go = new GameObject("WayforgeViewer");
             building = go.AddComponent<BuildingView>();
             route = go.AddComponent<RouteView>();
-            foreach (var f in new[] { "wallMaterial", "floorMaterial", "stairMaterial", "liftMaterial" }) SetField(building, f, Mat());
+            foreach (var f in new[] { "wallMaterial", "floorMaterial", "stairMaterial", "liftMaterial", "exteriorWallMaterial",
+                                      "glassMaterial", "frameMaterial", "doorMaterial", "roofMaterial", "groundMaterial" })
+                SetField(building, f, Mat());
             SetField(route, "lineMaterial", Mat());
             SetField(route, "markerMaterial", Mat());
             return go;

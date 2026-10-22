@@ -74,8 +74,8 @@ namespace {
 
     // Common tail for images and SVGs (segments cleaned, in metres): remove remaining arc pieces
     // and door leaves, interpret walls / openings / rooms, tag stair and lift rooms.
-    Result<Level> finishFloor(std::vector<vec::Segment> segs, std::vector<vec::SymbolRegion> stairs, std::vector<vec::SymbolRegion> lifts,
-                              IdGenerator& ids, const ConvertOptions& opt, ConvertReport* rep) {
+    Result<Level> finishFloor(std::vector<vec::Segment> segs, const std::vector<vec::SymbolRegion>& stairs,
+                              const std::vector<vec::SymbolRegion>& lifts, IdGenerator& ids, const ConvertOptions& opt, ConvertReport* rep) {
         int diag = 0, leaves = 0;
         // clean() snaps anything within 8 degrees of the grid, so a short segment still 5+ degrees
         // off cannot be an axis-aligned wall.
@@ -103,6 +103,62 @@ namespace {
         return level;
     }
 
+    // Replace a floor's rooms with rooms found in the image, then drop lines that are not walls of
+    // this floor and tag stair / lift rooms.
+    void usePictureRooms(Level& level, std::vector<Room> rooms, const std::vector<vec::SymbolRegion>& stairs,
+                         const std::vector<vec::SymbolRegion>& lifts, ReadStats& stats) {
+        level.rooms = std::move(rooms);
+        // Remove walls more than 1 m from every room: lower roof edges and site lines drawn
+        // around upper-floor plans.
+        auto nearRoom = [&](Vec2 p) {
+            for (const Room& room : level.rooms) {
+                if (pointInPolygon(p, room.polygon)) return true;
+                for (size_t k = 0; k < room.polygon.size(); ++k)
+                    if (distancePointToSegment(p, room.polygon[k], room.polygon[(k + 1) % room.polygon.size()]) < 1.0f) return true;
+            }
+            return false;
+        };
+        std::erase_if(level.walls, [&](const Wall& w) {
+            return !nearRoom((w.a + w.b) * 0.5f) && !nearRoom(w.a) && !nearRoom(w.b);
+        });
+        // Remove walls over 2 m with a room beside less than a quarter of their length (page
+        // frames, lot lines and site walls that run out from the building).
+        auto inRoom = [&](Vec2 p) {
+            for (const Room& room : level.rooms)
+                if (pointInPolygon(p, room.polygon)) return true;
+            return false;
+        };
+        std::erase_if(level.walls, [&](const Wall& w) {
+            const float len = w.length();
+            if (len < 2.f) return false;
+            const Vec2 d = (w.b - w.a) / len;
+            const Vec2 side = Vec2{-d.y, d.x} * (w.thickness * 0.5f + 0.4f);
+            int samples = 0, beside = 0;
+            for (float s = 0.25f; s < len; s += 0.5f, ++samples) {
+                const Vec2 p = w.a + d * s;
+                if (inRoom(p + side) || inRoom(p - side)) ++beside;
+            }
+            return beside * 4 < samples;
+        });
+        // Remove free-standing pieces under 2 m (underlines, stray marks): neither end within
+        // 0.3 m of another wall.
+        auto joined = [&](const Wall& w, Vec2 p) {
+            for (const Wall& v : level.walls)
+                if (&v != &w && distancePointToSegment(p, v.a, v.b) < 0.3f) return true;
+            return false;
+        };
+        std::vector<std::string> loose;
+        for (const Wall& w : level.walls)
+            if (w.length() < 2.f && !joined(w, w.a) && !joined(w, w.b)) loose.push_back(w.id);
+        std::erase_if(level.walls, [&](const Wall& w) { return std::find(loose.begin(), loose.end(), w.id) != loose.end(); });
+        std::erase_if(level.openings, [&](const Opening& o) { return level.findWall(o.wall) == nullptr; });
+        stats.openings = static_cast<int>(level.openings.size());
+        stats.rooms = static_cast<int>(level.rooms.size());
+        stats.corridors = static_cast<int>(std::count_if(level.rooms.begin(), level.rooms.end(),
+            [](const Room& room) { return room.kind == RoomKind::Corridor; }));
+        tagSymbolRooms(level, stairs, lifts);
+    }
+
 } // namespace
 
 Result<Level> convertImage(const std::filesystem::path& path, IdGenerator& ids, const ConvertOptions& opt, ConvertReport* rep) {
@@ -124,6 +180,13 @@ Result<Level> convertImage(const std::filesystem::path& path, IdGenerator& ids, 
     float mpp = opt.metresPerPixel > 0.f ? opt.metresPerPixel / shrink
               : opt.widthMetres > 0.f   ? opt.widthMetres / static_cast<float>(grey.width)
               : 0.02f / shrink;
+    // Upscale images coarser than minPixelsPerMetre.
+    if (opt.minPixelsPerMetre > 0.f && mpp * opt.minPixelsPerMetre > 1.05f) {
+        const float grow = mpp * opt.minPixelsPerMetre;
+        grey = img::resize(grey, static_cast<int>(grey.width * grow), static_cast<int>(grey.height * grow));
+        mpp /= grow;
+        r->imageWidth = grey.width; r->imageHeight = grey.height;
+    }
     saveDebug(opt, r, "1_grey.png", grey);
 
     // 2. threshold; window converted from metres to an odd pixel count
@@ -134,7 +197,8 @@ Result<Level> convertImage(const std::filesystem::path& path, IdGenerator& ids, 
 
     // 3. remove annotations outside the building, then small components inside it
     if (opt.removeAnnotations) ink = img::keepMainDrawing(ink, &r->annotationsRemoved);
-    if (opt.removeText) ink = img::removeSmallBlobs(ink, static_cast<int>(std::lround(opt.maxBlobMetres / mpp)), &r->blobsRemoved);
+    if (opt.removeText) ink = img::removeSmallBlobs(ink, static_cast<int>(std::lround(opt.maxBlobMetres / mpp)), &r->blobsRemoved,
+                                                   static_cast<int>(std::lround(0.4f / mpp)));
     saveDebug(opt, r, "3_tidy.png", ink);
 
     // 4. skeleton and runs. Arcs are not removed at run level: the tracer often joins an arc to
@@ -165,9 +229,41 @@ Result<Level> convertImage(const std::filesystem::path& path, IdGenerator& ids, 
         saveDebug(opt, r, "5_lines.png", lines);
     }
 
-    // 6. door leaves, walls / openings / rooms
-    auto level = finishFloor(std::move(segs), std::move(stairs), std::move(lifts), ids, opt, r);
+    // 6. door leaves, walls / openings / rooms; then rooms and windows from the image
+    auto level = finishFloor(std::move(segs), stairs, lifts, ids, opt, r);
     if (!level) return level;
+    if (opt.roomsFromPicture) {
+        // Remove walls inside a stair symbol (the well line between two flights).
+        std::erase_if(level->walls, [&](const Wall& w) {
+            for (const auto& s : stairs) {
+                Rect box = s.box;
+                box.expand(box.min - Vec2{ 0.15f, 0.15f });
+                box.expand(box.max + Vec2{ 0.15f, 0.15f });
+                if (box.contains(w.a) && box.contains(w.b)) return true;
+            }
+            return false;
+        });
+        std::erase_if(level->openings, [&](const Opening& o) { return level->findWall(o.wall) == nullptr; });
+        // Room mask: the ink with stair and lift symbols blanked and every wall of the floor drawn
+        // in (doorways and window gaps sealed).
+        img::Image8 mask = ink;
+        for (const auto* list : { &stairs, &lifts })
+            for (const auto& sym : *list) {
+                Rect box;
+                box.expand(px(sym.box.min));
+                box.expand(px(sym.box.max));
+                const int x0 = std::max(0, static_cast<int>(box.min.x)), x1 = std::min(mask.width - 1, static_cast<int>(box.max.x));
+                const int y0 = std::max(0, static_cast<int>(box.min.y)), y1 = std::min(mask.height - 1, static_cast<int>(box.max.y));
+                for (int y = y0; y <= y1; ++y)
+                    for (int x = x0; x <= x1; ++x) mask.pixels[static_cast<size_t>(y) * mask.width + x] = 255;
+            }
+        const int width = std::max(2, static_cast<int>(std::lround(0.08f / mpp)));
+        for (const Wall& w : level->walls) img::drawLine(mask, px(w.a), px(w.b), 0, width);
+        auto rooms = roomsFromInk(mask, mpp, {}, ids, opt.rooms);
+        if (!rooms.empty()) usePictureRooms(*level, std::move(rooms), stairs, lifts, r->read);
+    }
+    if (opt.detectWindows) r->windowsFound = detectWindows(*level, ink, mpp, ids, opt.windows);
+    if (opt.assumeWindows) r->windowsAssumed = addAssumedWindows(*level, ids, opt.windows);
     if (!opt.debugDir.empty()) saveDebug(opt, r, "6_rooms.png", drawFloor(*level, grey.width, grey.height, px));
     return level;
 }
@@ -182,18 +278,32 @@ Result<Level> convertSvg(const std::filesystem::path& path, float metresPerUnit,
     auto segs = vec::clean(vec::scale(svg->segments, mpu, {}, true, svg->height));
     std::vector<vec::SymbolRegion> stairs, lifts;
     findSymbols(segs, opt, stairs, lifts);
-    return finishFloor(std::move(segs), std::move(stairs), std::move(lifts), ids, opt, r);
+    return finishFloor(std::move(segs), stairs, lifts, ids, opt, r);
 }
 
 void tagSymbolRooms(Level& level, const std::vector<vec::SymbolRegion>& stairs, const std::vector<vec::SymbolRegion>& lifts) {
+    int added = 0;
     auto tag = [&](const vec::SymbolRegion& s, RoomKind kind) {
-        for (Room& room : level.rooms) {
-            if (room.polygon.size() < 3 || !pointInPolygon(s.centre, room.polygon)) continue;
-            // A symbol inside a corridor or a large hall does not define the room.
-            if (room.kind == RoomKind::Corridor || room.area > 80.f) return;
-            room.kind = kind;
+        // Smallest room containing the symbol centre.
+        Room* host = nullptr;
+        for (Room& room : level.rooms)
+            if (room.polygon.size() >= 3 && pointInPolygon(s.centre, room.polygon) && (!host || room.area < host->area)) host = &room;
+        // A stairwell or lift shaft: a room up to 80 m^2 (up to 30 m^2 if shaped like a corridor).
+        if (host && host->kind != RoomKind::Stair && host->kind != RoomKind::Lift && host->area <= 80.f &&
+            (host->kind != RoomKind::Corridor || host->area <= 30.f)) {
+            host->kind = kind;
             return;
         }
+        if (!host || host->kind == RoomKind::Stair || host->kind == RoomKind::Lift) return;
+        // Open stair or lift standing in a corridor or hall: the symbol box is the room.
+        Room r;
+        r.id = "rs" + std::to_string(++added);
+        r.polygon = { s.box.min, { s.box.max.x, s.box.min.y }, s.box.max, { s.box.min.x, s.box.max.y } };
+        r.centroid = s.centre;
+        r.area = s.box.size().x * s.box.size().y;
+        r.kind = kind;
+        r.confidence = 0.6f;
+        level.rooms.push_back(std::move(r));
     };
     for (const auto& s : stairs) tag(s, RoomKind::Stair);
     for (const auto& l : lifts)  tag(l, RoomKind::Lift);
@@ -210,6 +320,63 @@ void renumberLevel(Level& level, IdGenerator& ids) {
     // Nodes refer to the old room ids; the graph is rebuilt by wf_graph after assembly.
     level.nodes.clear();
     level.edges.clear();
+}
+
+void translateLevel(Level& level, Vec2 d) {
+    for (Wall& w : level.walls) { w.a = w.a + d; w.b = w.b + d; }
+    for (Room& r : level.rooms) { for (auto& p : r.polygon) p = p + d; r.centroid = r.centroid + d; }
+    for (Node& n : level.nodes) n.pos = n.pos + d;
+}
+
+std::vector<Vec2> alignFloors(std::vector<Level>& floors, float tolerance) {
+    struct Anchor { Vec2 pos; RoomKind kind; };
+    auto anchors = [](const Level& l) {
+        std::vector<Anchor> out;
+        for (const Room& r : l.rooms)
+            if (r.kind == RoomKind::Stair || r.kind == RoomKind::Lift) out.push_back({ r.centroid, r.kind });
+        return out;
+    };
+    std::vector<Vec2> shifts(floors.size(), Vec2{});
+    for (size_t i = 1; i < floors.size(); ++i) {
+        const auto below = anchors(floors[i - 1]), here = anchors(floors[i]);
+        // Total length of walls whose midpoint, shifted by t, lies within 0.3 m of a wall below.
+        auto wallOverlap = [&](Vec2 t) {
+            float sum = 0.f;
+            for (const Wall& w : floors[i].walls) {
+                const Vec2 mid = (w.a + w.b) * 0.5f + t;
+                for (const Wall& v : floors[i - 1].walls)
+                    if (distancePointToSegment(mid, v.a, v.b) < 0.3f) { sum += w.length(); break; }
+            }
+            return sum;
+        };
+        // Candidate shifts: every same-kind pair of stair / lift rooms. Chosen: most matched rooms,
+        // then the smallest shift with at least 80% of the largest wall overlap.
+        struct Candidate { Vec2 t; int count; float overlap; };
+        std::vector<Candidate> candidates;
+        int bestCount = 0;
+        for (const Anchor& a : below)
+            for (const Anchor& b : here) {
+                if (a.kind != b.kind) continue;
+                const Vec2 t = a.pos - b.pos;
+                int count = 0;
+                for (const Anchor& h : here)
+                    for (const Anchor& l : below)
+                        if (l.kind == h.kind && distance(h.pos + t, l.pos) < tolerance) { ++count; break; }
+                if (count == 0 || count < bestCount) continue;
+                bestCount = count;
+                candidates.push_back({ t, count, wallOverlap(t) });
+            }
+        if (bestCount == 0) continue;
+        float maxOverlap = 0.f;
+        for (const Candidate& c : candidates) if (c.count == bestCount) maxOverlap = std::max(maxOverlap, c.overlap);
+        Vec2 best{};
+        float bestLength = 1e30f;
+        for (const Candidate& c : candidates)
+            if (c.count == bestCount && c.overlap >= 0.8f * maxOverlap && length(c.t) < bestLength) { bestLength = length(c.t); best = c.t; }
+        translateLevel(floors[i], best);
+        shifts[i] = best;
+    }
+    return shifts;
 }
 
 Building assembleBuilding(std::vector<Level> floors, const std::string& name) {

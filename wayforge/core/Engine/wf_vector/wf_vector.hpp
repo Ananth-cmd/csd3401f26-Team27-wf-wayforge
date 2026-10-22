@@ -143,7 +143,7 @@ namespace wf::vec {
     // minLength each way. Removes the arms (and collinear pieces of split arms). One region per lift.
     std::vector<SymbolRegion> detectLifts(std::vector<Segment>& segs, float minLength = 0.8f);
     // Find stair flights: at least minTreads parallel segments of similar length, spaced evenly
-    // minGap..maxGap apart. Removes the treads. One region per flight.
+    // minGap..maxGap apart. Removes the treads. Flights side by side are merged into one region.
     std::vector<SymbolRegion> detectStairs(std::vector<Segment>& segs, int minTreads = 5, float minGap = 0.15f, float maxGap = 0.5f);
     // Remove door leaves: a minWidth..maxWidth segment with a free end, hinged on a wall end that
     // is followed by a gap of about the same width and then a collinear wall.
