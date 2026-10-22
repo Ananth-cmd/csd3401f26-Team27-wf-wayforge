@@ -1,16 +1,21 @@
 # \file build.yml
-# \brief Wayforge CI: builds and tests the C++ core on every push and pull request
+# \brief Wayforge CI: builds and tests the C++ core and the websites on every push and pull request
 #
 # Jobs:
 #   golden-checker : checks tools/compare_golden.py against tools/testdata/ (fast, Python only)
 #   desktop        : build the C++ core on Ubuntu + Windows, run CTest, smoke-run wf_cli,
 #                    then run every golden-file test in data/golden/
-#   android        : build libwayforge.so for arm64-v8a with the NDK
 #   docker         : build + test inside the team's Ubuntu 24.04 container (Dockerfile /
 #                    docker-compose.yml at the repo root) - same as `docker compose run --rm test`
+#   web            : build the Studio website (wayforge/studio-web) and check both backends parse
 #
 # Order: golden-checker runs first; desktop and docker only start if it passes,
-# so a broken checker can't make the golden tests pass by mistake.
+# so a broken checker can't make the golden tests pass by mistake. web is independent
+# of all three and runs straight away.
+#
+# The project used to ship an Android app, so there was a job here that cross-compiled
+# libwayforge.so for the NDK. It went when the product became a website; the old phone
+# app is kept as a prototype in wayforge/android-prototype and is not built by CI.
 #
 # \author Joel Chua (c.jialiang@digipen.edu)
 #
@@ -18,10 +23,11 @@
 #   - Multi-OS desktop build + CTest + wf_cli smoke run + golden-file tests
 #   - Self-test job for the golden checker
 #   - Docker job so CI and the team's container build the same way
+#   - Web job for the Studio website and the two Node backends
 #
 # AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
 #
-# \date 2026-09-15
+# \date 2026-10-21
 # \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
 #
 name: build
@@ -127,19 +133,45 @@ jobs:
       - name: Build + test in container
         run: docker compose run --rm -T test   # -T: no terminal on CI runners
 
-  # ------------------------------------------------------------------ android
-  # Cross-compile the Unity plugin (libwayforge.so) and upload it as a downloadable artifact.
-  android:
+  # ------------------------------------------------------------------ web
+  # Build the two websites. Runs on its own (no C++ needed), so it finishes early
+  # and a broken website is reported even while the core build is still going.
+  web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-      # GitHub's Ubuntu runners come with the Android NDK; point the build script at it.
-      - name: Build libwayforge.so (arm64-v8a)
-        run: ANDROID_NDK="$ANDROID_NDK_LATEST_HOME" bash ./core/script_build_android.sh
-      # Uploaded file appears on the run's summary page.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"                 # studio-web asks for Node 18+; 20 is the current LTS
+          cache: npm                         # reuse ~/.npm between runs so npm ci is quick
+          cache-dependency-path: wayforge/studio-web/package-lock.json
+
+      # Studio website (Katie, wayforge/studio-web): React + Vite.
+      # npm ci installs exactly what package-lock.json pins, and fails if the two
+      # files disagree - so a dependency added without the lockfile turns CI red.
+      - name: Install Studio dependencies
+        working-directory: wayforge/studio-web
+        run: npm ci
+
+      # The Unity WebGL viewer isn't in the repo; vite.config.js skips dist/viewer when
+      # it is missing, so this builds fine without Unity on the runner.
+      - name: Build the Studio website
+        working-directory: wayforge/studio-web
+        run: npm run build
+
+      # The backends have no npm packages and no tests yet, so just check Node can
+      # parse them - that catches a typo before it reaches the VM.
+      - name: Check the Studio backend parses
+        working-directory: wayforge/studio-web
+        run: node --check server/server.mjs
+
+      - name: Check the site 2 backend parses
+        working-directory: site2
+        run: node --check server/server.mjs
+
+      # The built site appears on the run's summary page, ready to drop on the VM.
+      # path: is relative to the repo root, not to working-directory above.
       - uses: actions/upload-artifact@v4
         with:
-          name: libwayforge-android-arm64-v8a
-          path: wayforge/unity/Assets/Wayforge/Plugins/Android/libs/arm64-v8a/libwayforge.so
+          name: studio-web-dist
+          path: wayforge/studio-web/dist
