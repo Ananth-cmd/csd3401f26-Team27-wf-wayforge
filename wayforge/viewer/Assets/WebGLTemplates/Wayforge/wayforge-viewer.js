@@ -36,6 +36,18 @@
     return typeof value === "string" ? value : JSON.stringify(value);
   }
 
+  // Key events from the page's text fields stop propagating at the <html> element: after the page's
+  // own handlers, before the viewer's document and window listeners.
+  function isTextField(el) {
+    if (!el) return false;
+    var tag = el.tagName;
+    return el.isContentEditable || tag === "TEXTAREA" || tag === "SELECT" ||
+           (tag === "INPUT" && !/^(button|checkbox|radio|range|submit|reset|file|color)$/i.test(el.type || ""));
+  }
+  ["keydown", "keyup", "keypress"].forEach(function (type) {
+    document.documentElement.addEventListener(type, function (e) { if (isTextField(e.target)) e.stopPropagation(); });
+  });
+
   async function create(options) {
     var canvas = options.canvas;
     var base = (options.buildUrl || ".").replace(/\/+$/, "");
@@ -103,6 +115,7 @@
       resetView: function () { send("ResetView"); },
       setCutaway: function (on) { send("SetCutaway", on ? "true" : "false"); },
       showLabels: function (on) { send("ShowLabels", on ? "true" : "false"); },
+      showRoof: function (on) { send("ShowRoof", on ? "true" : "false"); },
 
       quit: function () { return instance.Quit(); }
     };

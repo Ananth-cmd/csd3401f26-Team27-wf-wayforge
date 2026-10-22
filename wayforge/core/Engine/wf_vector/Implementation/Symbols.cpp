@@ -6,10 +6,12 @@
  * up a symbol so wf_read does not turn them into walls:
  *   - removeShortDiagonals: short segments off the building grid (door swing
  *     arcs, which the tracer splits into short pieces)
- *   - detectLifts:  two crossing diagonals (lift shaft X)
- *   - detectStairs: a run of evenly spaced parallel treads of similar length
+ *   - detectLifts:  two crossing diagonals (lift shaft X), each rebuilt from
+ *     collinear pieces first
+ *   - detectStairs: a run of evenly spaced parallel treads of similar length;
+ *     flights side by side (dog-leg stairs) are merged
  *   - removeDoorLeaves: a door-width segment hanging off a wall end next to
- *     a door-width gap in that wall
+ *     a door-width gap in that wall (or a gap twice as wide: double doors)
  * detectLifts / detectStairs return the symbol regions so the containing
  * rooms can be tagged (wf_read::tagSymbolRooms).
  *
@@ -79,46 +81,67 @@ std::vector<SymbolRegion> detectLifts(std::vector<Segment>& segs, float minLengt
     std::vector<SymbolRegion> lifts;
     if (segs.empty()) return lifts;
     const float axis = dominantAngle(segs);
-    // Candidate arms: slanted roughly 45 degrees to the grid. Arms may be half-diagonals
-    // (the tracer splits an X at its centre), so allow half the minimum length.
+
+    // 1. Diagonal segments (25+ degrees off the grid), any length.
     std::vector<size_t> diag;
-    for (size_t i = 0; i < segs.size(); ++i) {
-        const float off = radToDeg(offGrid(segs[i].angle(), axis));
-        if (off >= 25.f && segs[i].length() >= minLength * 0.5f) diag.push_back(i);
-    }
-    std::vector<uint8_t> drop(segs.size(), 0);
+    for (size_t i = 0; i < segs.size(); ++i)
+        if (segs[i].length() >= 0.05f && offGrid(segs[i].angle(), axis) >= degToRad(25.f)) diag.push_back(i);
+
+    // 2. Join collinear pieces: angle within 15 degrees, gap up to 0.8 m, shorter piece within
+    //    0.15 m of the longer piece's line.
+    std::vector<size_t> parent(diag.size());
+    for (size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+    auto root = [&](size_t i) { while (parent[i] != i) i = parent[i] = parent[parent[i]]; return i; };
     for (size_t a = 0; a < diag.size(); ++a) {
         for (size_t b = a + 1; b < diag.size(); ++b) {
             const Segment& A = segs[diag[a]]; const Segment& B = segs[diag[b]];
-            if (drop[diag[a]] || drop[diag[b]]) continue;
-            if (lineAngleDiff(A.angle(), B.angle()) < degToRad(60.f)) continue;   // an X crosses at about 90 degrees
+            if (lineAngleDiff(A.angle(), B.angle()) > degToRad(15.f)) continue;
+            const float gap = std::min({ distance(A.a, B.a), distance(A.a, B.b), distance(A.b, B.a), distance(A.b, B.b) });
+            if (gap > 0.8f) continue;
+            const Segment& L = A.length() >= B.length() ? A : B;
+            const Segment& S = A.length() >= B.length() ? B : A;
+            if (distancePointToLine(S.a, L.a, L.b) > 0.15f || distancePointToLine(S.b, L.a, L.b) > 0.15f) continue;
+            parent[root(a)] = root(b);
+        }
+    }
+
+    // 3. One arm per chain, along its longest piece, spanning all its pieces.
+    struct Arm { Segment s; std::vector<size_t> members; };
+    std::vector<Arm> arms;
+    {
+        std::vector<std::vector<size_t>> groups(diag.size());
+        for (size_t i = 0; i < diag.size(); ++i) groups[root(i)].push_back(diag[i]);
+        for (auto& g : groups) {
+            if (g.empty()) continue;
+            size_t longest = g[0];
+            float covered = 0.f;
+            for (size_t k : g) { covered += segs[k].length(); if (segs[k].length() > segs[longest].length()) longest = k; }
+            const Vec2 o = segs[longest].a, d = segs[longest].direction();
+            float lo = 1e30f, hi = -1e30f;
+            for (size_t k : g) for (const Vec2& p : { segs[k].a, segs[k].b }) { lo = std::min(lo, dot(p - o, d)); hi = std::max(hi, dot(p - o, d)); }
+            const float span = hi - lo;
+            if (span < minLength || covered < span * 0.4f) continue;     // shorter than minLength or under 40% covered
+            arms.push_back({ Segment{ o + d * lo, o + d * hi }, g });
+        }
+    }
+
+    // 4. Lift: two arms crossing at 60+ degrees, 10-90% along each arm.
+    std::vector<uint8_t> used(arms.size(), 0), drop(segs.size(), 0);
+    for (size_t a = 0; a < arms.size(); ++a) {
+        for (size_t b = a + 1; b < arms.size() && !used[a]; ++b) {
+            if (used[b]) continue;
+            const Segment& A = arms[a].s; const Segment& B = arms[b].s;
+            if (lineAngleDiff(A.angle(), B.angle()) < degToRad(60.f)) continue;
             float t, u;
-            if (!crossing(A, B, t, u) || t < -0.05f || t > 1.05f || u < -0.05f || u > 1.05f) continue;
-            const Vec2 x = A.a + (A.b - A.a) * t;
-            // Collect every diagonal passing within 0.3 m of the crossing.
-            SymbolRegion r; r.centre = x;
-            std::vector<Segment> arms;
-            for (size_t k : diag) {
-                if (drop[k] || distancePointToSegment(x, segs[k].a, segs[k].b) > 0.3f) continue;
-                drop[k] = 1; arms.push_back(segs[k]);
-                r.box.expand(segs[k].a); r.box.expand(segs[k].b);
-            }
-            // Arms split by a door drawn across them: also take collinear diagonal pieces
-            // within twice the arm reach of the crossing.
-            float reach = 0.f;
-            for (const Segment& arm : arms) reach = std::max({ reach, distance(x, arm.a), distance(x, arm.b) });
-            for (size_t k = 0; k < segs.size(); ++k) {
-                if (drop[k] || offGrid(segs[k].angle(), axis) < degToRad(25.f)) continue;
-                if (distance(x, segs[k].a) > reach * 2.f && distance(x, segs[k].b) > reach * 2.f) continue;
-                for (const Segment& arm : arms) {
-                    if (lineAngleDiff(arm.angle(), segs[k].angle()) > degToRad(5.f)) continue;
-                    if (distancePointToLine(segs[k].a, arm.a, arm.b) > 0.1f || distancePointToLine(segs[k].b, arm.a, arm.b) > 0.1f) continue;
-                    drop[k] = 1;
-                    r.box.expand(segs[k].a); r.box.expand(segs[k].b);
-                    break;
-                }
-            }
-            if (r.box.size().x >= minLength && r.box.size().y >= minLength) lifts.push_back(r);
+            if (!crossing(A, B, t, u) || t < 0.1f || t > 0.9f || u < 0.1f || u > 0.9f) continue;
+            SymbolRegion r;
+            r.centre = A.a + (A.b - A.a) * t;
+            for (const Vec2& p : { A.a, A.b, B.a, B.b }) r.box.expand(p);
+            if (r.box.size().x < minLength || r.box.size().y < minLength) continue;
+            used[a] = used[b] = 1;
+            for (size_t k : arms[a].members) drop[k] = 1;
+            for (size_t k : arms[b].members) drop[k] = 1;
+            lifts.push_back(r);
         }
     }
     segs = keepUnmarked(segs, drop);
@@ -171,11 +194,36 @@ std::vector<SymbolRegion> detectStairs(std::vector<Segment>& segs, int minTreads
                 used[ci] = 1; drop[c[ci].idx] = 1;
                 r.box.expand(segs[c[ci].idx].a); r.box.expand(segs[c[ci].idx].b);
             }
+            // Box extended 0.12 m past the first and last tread.
+            for (size_t ci : { chain.front(), chain.back() })
+                for (float sgn : { -1.f, 1.f }) {
+                    r.box.expand(segs[c[ci].idx].a + n * (0.12f * sgn));
+                    r.box.expand(segs[c[ci].idx].b + n * (0.12f * sgn));
+                }
             r.centre = r.box.centre();
             stairs.push_back(r);
         }
     }
     segs = keepUnmarked(segs, drop);
+
+    // Merge flights side by side (under 0.6 m apart, overlapping by half their length) into one
+    // stair.
+    auto overlap = [](float a0, float a1, float b0, float b1) { return std::min(a1, b1) - std::max(a0, b0); };
+    for (bool merged = true; merged; ) {
+        merged = false;
+        for (size_t i = 0; i < stairs.size() && !merged; ++i)
+            for (size_t j = i + 1; j < stairs.size() && !merged; ++j) {
+                const Rect &a = stairs[i].box, &b = stairs[j].box;
+                const float ox = overlap(a.min.x, a.max.x, b.min.x, b.max.x), oy = overlap(a.min.y, a.max.y, b.min.y, b.max.y);
+                const bool sideX = ox > -0.6f && oy >= 0.5f * std::min(a.size().y, b.size().y);
+                const bool sideY = oy > -0.6f && ox >= 0.5f * std::min(a.size().x, b.size().x);
+                if (!sideX && !sideY) continue;
+                stairs[i].box.expand(b.min); stairs[i].box.expand(b.max);
+                stairs[i].centre = stairs[i].box.centre();
+                stairs.erase(stairs.begin() + static_cast<std::ptrdiff_t>(j));
+                merged = true;
+            }
+    }
     return stairs;
 }
 
@@ -214,7 +262,24 @@ std::vector<Segment> removeDoorLeaves(const std::vector<Segment>& in, float minW
                     if (lineAngleDiff(B.angle(), A.angle()) > degToRad(5.f)) continue;
                     if (distancePointToLine(B.a, A.a, A.b) > 0.12f || distancePointToLine(B.b, A.a, A.b) > 0.12f) continue;
                     const float g = std::min(dot(B.a - jamb, out), dot(B.b - jamb, out));
-                    if (g >= len * 0.75f && g <= len * 1.3f) { drop[i] = 1; ++count; break; }
+                    // Single door: gap 0.75-1.5 times the leaf length.
+                    const bool single = g >= len * 0.75f && g <= len * 1.5f;
+                    // Double door: gap 1.6-2.5 times the leaf length, with a matching leaf on the
+                    // far jamb on the same side.
+                    bool pair = false;
+                    if (!single && g >= len * 1.6f && g <= len * 2.5f) {
+                        const Vec2 jamb2 = jamb + out * g, side = tip - hinge;
+                        for (size_t k = 0; k < in.size() && !pair; ++k) {
+                            if (k == i || k == a || k == b) continue;
+                            const Segment& M = in[k];
+                            const float ml = M.length();
+                            if (ml < len * 0.75f || ml > len * 1.33f || lineAngleDiff(M.angle(), L.angle()) > degToRad(10.f)) continue;
+                            const bool fromA = distance(M.a, jamb2) < 2.f * touch, fromB = distance(M.b, jamb2) < 2.f * touch;
+                            if (!fromA && !fromB) continue;
+                            pair = dot((fromA ? M.b - M.a : M.a - M.b), side) > 0.f;
+                        }
+                    }
+                    if (single || pair) { drop[i] = 1; ++count; break; }
                 }
             }
         }

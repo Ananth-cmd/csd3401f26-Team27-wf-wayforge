@@ -63,6 +63,7 @@ None of these return anything. If something goes wrong you get an `error` event.
 | `setFloorSpacing(m)` | pull the floors apart by m metres (0 to 20) to see inside |
 | `setCutaway(true)` | cut the walls at 1.2 m so you can look into rooms from above |
 | `showLabels(true)` | room labels on / off |
+| `showRoof(true)` | roofs on / off. They only show with all floors, no cut-away and no spacing |
 | `highlightRoom(ref)` | colour a room yellow. `ref` is a room id, code or `"L2:r45"`. `""` clears it |
 | `focusRoom(ref)` | highlight a room and move the camera to it |
 | `showRoute(route)` | draw a route (see below). `showRoute(route, { animate: false })` turns off the moving dot |
@@ -133,7 +134,13 @@ built-in render pipeline and only a few packages so the download stays small.
 
 The scene, materials and WebGL settings are made by `ViewerBuild.cs`, so they are not in git. They
 get created the first time you open the project, or with `Wayforge > Set Up Viewer Scene`. Run that
-again if you change `ViewerBuild.cs`. `.meta` files and the default `ProjectSettings` are also left
+again if you change `ViewerBuild.cs`.
+
+What gets drawn for each floor: floor slab, inside walls (grey), outside walls (stone colour), window
+glass with frames, open door leaves, lintels over doors, and a roof over every room that has no
+floor above it. Walls go from this floor's slab up to the next one. There is also a ground slab
+around the building. Sill heights, materials and facades are not on a floor plan, so the viewer
+uses the same defaults everywhere (windows 0.9 m up and 1.4 m tall). `.meta` files and the default `ProjectSettings` are also left
 out (see `viewer/.gitignore`).
 
 ## 7. Build and test

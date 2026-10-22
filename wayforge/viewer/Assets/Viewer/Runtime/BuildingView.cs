@@ -46,6 +46,12 @@ namespace Wayforge.Viewer
         [SerializeField] Material floorMaterial;
         [SerializeField] Material stairMaterial;
         [SerializeField] Material liftMaterial;
+        [SerializeField] Material exteriorWallMaterial;
+        [SerializeField] Material glassMaterial;
+        [SerializeField] Material frameMaterial;
+        [SerializeField] Material doorMaterial;
+        [SerializeField] Material roofMaterial;
+        [SerializeField] Material groundMaterial;
         [SerializeField] Font labelFont;               // set by the scene setup so WebGL builds include it
         [SerializeField] Material labelMaterial;       // Wayforge/Label: depth-tested text (falls back to the font's own)
 
@@ -59,12 +65,14 @@ namespace Wayforge.Viewer
         public float FloorSpacing { get; private set; }   // extra metres between floors (exploded view)
         public RoomData Highlighted { get; private set; }
         public bool LabelsVisible { get; private set; } = true;
+        public bool RoofVisible { get; private set; } = true;   // roofs show in the full building view only
 
         class LevelView
         {
             public LevelData data;
             public GameObject root;
-            public MeshFilter walls;
+            public MeshFilter walls, exterior, glass, frames, doors, roof;
+            public float storey;                           // floor-to-floor height (top floor: ceiling + 0.3 m)
             public GameObject labels;
             public readonly Dictionary<RoomData, Renderer> floors = new Dictionary<RoomData, Renderer>();
         }
@@ -73,7 +81,7 @@ namespace Wayforge.Viewer
         readonly List<Transform> _labels = new List<Transform>();
         readonly Dictionary<RoomData, Color> _baseColour = new Dictionary<RoomData, Color>();
         readonly List<Object> _owned = new List<Object>();   // meshes and materials made here, freed in Clear()
-        GameObject _root, _connectors;
+        GameObject _root, _connectors, _ground;
         Font _font;
         Material _labelMat;
 
@@ -98,10 +106,12 @@ namespace Wayforge.Viewer
                 var lv = new LevelView { data = level, root = new GameObject("Level " + level.id) };
                 lv.root.transform.SetParent(_root.transform, false);
 
-                var walls = new GameObject("Walls");
-                walls.transform.SetParent(lv.root.transform, false);
-                lv.walls = walls.AddComponent<MeshFilter>();
-                walls.AddComponent<MeshRenderer>().sharedMaterial = wallMaterial;
+                lv.walls = AddPart(lv.root.transform, "Walls", wallMaterial, true);
+                lv.exterior = AddPart(lv.root.transform, "Exterior walls", exteriorWallMaterial != null ? exteriorWallMaterial : wallMaterial, true);
+                lv.glass = AddPart(lv.root.transform, "Glass", glassMaterial != null ? glassMaterial : wallMaterial, false);
+                lv.frames = AddPart(lv.root.transform, "Frames", frameMaterial != null ? frameMaterial : wallMaterial, true);
+                lv.doors = AddPart(lv.root.transform, "Doors", doorMaterial != null ? doorMaterial : wallMaterial, true);
+                lv.roof = AddPart(lv.root.transform, "Roof", roofMaterial != null ? roofMaterial : wallMaterial, true);
 
                 var rooms = new GameObject("Rooms");
                 rooms.transform.SetParent(lv.root.transform, false);
@@ -117,6 +127,14 @@ namespace Wayforge.Viewer
                 }
                 _levels.Add(lv);
             }
+            for (int i = 0; i < _levels.Count; i++)
+            {
+                var l = _levels[i].data;
+                _levels[i].storey = i + 1 < _levels.Count
+                    ? Mathf.Max(l.ceilingHeight, _levels[i + 1].data.elevation - l.elevation)
+                    : l.ceilingHeight + 0.3f;
+            }
+            BuildGround();
             BuildWalls();
             ApplyLayout();
         }
@@ -126,7 +144,7 @@ namespace Wayforge.Viewer
             if (_root != null) MeshUtil.Kill(_root);
             foreach (var o in _owned) if (o != null) MeshUtil.Kill(o);
             _owned.Clear();
-            _root = null; _connectors = null;
+            _root = null; _connectors = null; _ground = null;
             _levels.Clear(); _labels.Clear(); _baseColour.Clear();
             Building = null; Highlighted = null;
         }
@@ -189,22 +207,70 @@ namespace Wayforge.Viewer
             if (_labelMat != null && _font != null && _labelMat != _font.material) MeshUtil.Kill(_labelMat);
         }
 
-        // Rebuilt when the cut-away mode changes (wall height differs).
+        static MeshFilter AddPart(Transform parent, string name, Material mat, bool shadows)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = mat;
+            if (!shadows) mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            return go.AddComponent<MeshFilter>();
+        }
+
+        void SetMesh(MeshFilter mf, MeshBuilder mb, string name)
+        {
+            if (mf.sharedMesh != null) { _owned.Remove(mf.sharedMesh); MeshUtil.Kill(mf.sharedMesh); }
+            mf.sharedMesh = mb.ToMesh(name);
+            _owned.Add(mf.sharedMesh);
+        }
+
+        // False when a room lies on both sides of the wall, probed 0.7 m past each face at a quarter,
+        // half and three quarters of its length.
+        static bool IsExterior(LevelData level, WallData w)
+        {
+            Vector2 d = w.Direction;
+            Vector2 n = new Vector2(-d.y, d.x) * (w.thickness * 0.5f + 0.7f);
+            bool InRoom(Vector2 p)
+            {
+                foreach (var r in level.rooms)
+                    if (r.polygon.Length >= 3 && MeshUtil.Contains(r.polygon, p)) return true;
+                return false;
+            }
+            foreach (float t in new[] { 0.25f, 0.5f, 0.75f })
+            {
+                Vector2 p = Vector2.Lerp(w.a, w.b, t);
+                if (InRoom(p + n) && InRoom(p - n)) return false;
+            }
+            return true;
+        }
+
+        // Walls, window glass and frames, door leaves and roofs of every level. Rebuilt when the
+        // cut-away mode changes.
         void BuildWalls()
         {
-            foreach (var lv in _levels)
+            for (int li = 0; li < _levels.Count; li++)
             {
+                var lv = _levels[li];
                 var level = lv.data;
-                float top = Cutaway ? Mathf.Min(CutawayHeight, level.ceilingHeight) : level.ceilingHeight;
-                var mb = new MeshBuilder();
+                bool topFloor = li + 1 == _levels.Count;
+                float wallTop = topFloor ? lv.storey : lv.storey - SlabThickness;     // up to the next floor's slab
+                float top = Cutaway ? Mathf.Min(CutawayHeight, wallTop) : wallTop;
+                float y0 = level.elevation - SlabThickness;                       // down to the slab bottom
+                float floorY = level.elevation;
+                var inner = new MeshBuilder();
+                var outer = new MeshBuilder();
+                var glass = new MeshBuilder();
+                var frames = new MeshBuilder();
+                var doors = new MeshBuilder();
+
                 foreach (var w in level.walls)
                 {
                     float len = w.Length;
                     if (len < 1e-4f) continue;
-                    Vector2 dir = w.Direction;
+                    Vector2 dir = w.Direction, n = new Vector2(-dir.y, dir.x);
                     float ext = w.thickness * 0.5f;                       // overlap at the ends to close corners
                     Vector2 At(float s) => w.a + dir * s;
-                    float y0 = level.elevation;
+                    var mb = IsExterior(level, w) ? outer : inner;
 
                     var openings = level.openings.FindAll(o => o.wall == w.id);
                     openings.Sort((p, q) => p.offset.CompareTo(q.offset));
@@ -212,24 +278,90 @@ namespace Wayforge.Viewer
                     foreach (var o in openings)
                     {
                         float s0 = Mathf.Clamp(o.offset, 0f, len), s1 = Mathf.Clamp(o.offset + o.width, 0f, len);
-                        if (s0 > cursor) mb.AddWallBox(At(cursor), At(s0), w.thickness, y0, y0 + top);
+                        if (s1 - s0 < 0.05f) continue;
+                        if (s0 > cursor) mb.AddWallBox(At(cursor), At(s0), w.thickness, y0, floorY + top);
                         if (o.type == "window")
                         {
-                            mb.AddWallBox(At(s0), At(s1), w.thickness, y0, y0 + Mathf.Min(o.sill, top));
-                            mb.AddWallBox(At(s0), At(s1), w.thickness, y0 + o.sill + o.height, y0 + top);
+                            float sill = floorY + Mathf.Min(o.sill, top), head = floorY + Mathf.Min(o.sill + o.height, top);
+                            mb.AddWallBox(At(s0), At(s1), w.thickness, y0, sill);
+                            mb.AddWallBox(At(s0), At(s1), w.thickness, head, floorY + top);
+                            if (head > sill + 0.05f)
+                            {
+                                glass.AddWallBox(At(s0), At(s1), 0.02f, sill, head);
+                                const float bar = 0.05f;
+                                float depth = Mathf.Min(w.thickness, 0.1f);
+                                frames.AddWallBox(At(s0), At(s0 + bar), depth, sill, head);
+                                frames.AddWallBox(At(s1 - bar), At(s1), depth, sill, head);
+                                frames.AddWallBox(At(s0), At(s1), depth, sill, sill + bar);
+                                frames.AddWallBox(At(s0), At(s1), depth, head - bar, head);
+                                if (s1 - s0 > 1.0f) { float m = (s0 + s1) * 0.5f; frames.AddWallBox(At(m - bar * 0.5f), At(m + bar * 0.5f), depth, sill, head); }
+                            }
                         }
                         else
                         {
-                            mb.AddWallBox(At(s0), At(s1), w.thickness, y0 + o.height, y0 + top);   // lintel
+                            float head = floorY + Mathf.Min(o.height, top);
+                            mb.AddWallBox(At(s0), At(s1), w.thickness, head, floorY + top);   // lintel
+                            mb.AddWallBox(At(s0), At(s1), w.thickness, y0, floorY);           // under the floor line
+                            if (o.type == "door" && head > floorY + 0.1f)
+                            {
+                                // Leaves standing open at 90 degrees; openings over 1.3 m get a pair.
+                                float span = s1 - s0;
+                                bool pair = span > 1.3f;
+                                float leaf = pair ? span * 0.5f : span;
+                                const float t = 0.04f;
+                                Vector2 h0 = At(s0) + dir * t;
+                                doors.AddWallBox(h0, h0 + n * leaf, t, floorY, head - 0.02f);
+                                if (pair) { Vector2 h1 = At(s1) - dir * t; doors.AddWallBox(h1, h1 + n * leaf, t, floorY, head - 0.02f); }
+                            }
                         }
                         cursor = Mathf.Max(cursor, s1);
                     }
-                    if (cursor < len + ext) mb.AddWallBox(At(cursor), At(len + ext), w.thickness, y0, y0 + top);
+                    if (cursor < len + ext) mb.AddWallBox(At(cursor), At(len + ext), w.thickness, y0, floorY + top);
                 }
-                if (lv.walls.sharedMesh != null) { _owned.Remove(lv.walls.sharedMesh); MeshUtil.Kill(lv.walls.sharedMesh); }
-                lv.walls.sharedMesh = mb.ToMesh("Walls " + level.id);
-                _owned.Add(lv.walls.sharedMesh);
+
+                // Roof slab over every room at the top of the storey (within the next floor's slab
+                // where that floor covers the room).
+                var roof = new MeshBuilder();
+                float roofTop = topFloor ? floorY + lv.storey + 0.1f : floorY + lv.storey - SlabThickness;
+                foreach (var r in level.rooms)
+                    if (r.polygon.Length >= 3) roof.AddSlab(r.polygon, MeshUtil.Triangulate(r.polygon), roofTop - 0.2f, roofTop);
+
+                SetMesh(lv.walls, inner, "Walls " + level.id);
+                SetMesh(lv.exterior, outer, "Exterior walls " + level.id);
+                SetMesh(lv.glass, glass, "Glass " + level.id);
+                SetMesh(lv.frames, frames, "Frames " + level.id);
+                SetMesh(lv.doors, doors, "Doors " + level.id);
+                SetMesh(lv.roof, roof, "Roof " + level.id);
             }
+            UpdateRoofs();
+        }
+
+        // Ground slab under the whole building, 30 m past its edges.
+        void BuildGround()
+        {
+            if (groundMaterial == null || Building.levels.Count == 0) return;
+            var b = Building.PlanBounds();
+            float y = Building.levels[0].elevation - SlabThickness - 0.02f;
+            var mb = new MeshBuilder();
+            mb.AddBox(new Vector3(b.xMin - 30f, y - 0.1f, b.yMin - 30f), new Vector3(b.xMax + 30f, y, b.yMax + 30f));
+            _ground = new GameObject("Ground");
+            _ground.transform.SetParent(_root.transform, false);
+            var mesh = mb.ToMesh("Ground");
+            _owned.Add(mesh);
+            _ground.AddComponent<MeshFilter>().sharedMesh = mesh;
+            _ground.AddComponent<MeshRenderer>().sharedMaterial = groundMaterial;
+        }
+
+        void UpdateRoofs()
+        {
+            bool show = RoofVisible && VisibleLevel == null && !Cutaway && FloorSpacing < 0.01f;
+            foreach (var lv in _levels) lv.roof.gameObject.SetActive(show);
+        }
+
+        public void SetRoof(bool on)
+        {
+            RoofVisible = on;
+            UpdateRoofs();
         }
 
         // Stair flights and lift shafts for every link between two levels.
@@ -345,6 +477,7 @@ namespace Wayforge.Viewer
             }
             BuildConnectors();
             _connectors.SetActive(VisibleLevel == null);
+            UpdateRoofs();
         }
 
         // Highlight a room (null clears). The previous room gets its own colour back.

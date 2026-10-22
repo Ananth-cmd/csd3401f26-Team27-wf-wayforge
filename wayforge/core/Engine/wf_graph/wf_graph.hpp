@@ -45,8 +45,10 @@ struct GraphParams {
     float wallClearance   = 0.15f;    // a walk line closer than this to a wall counts as blocked
     float maxEdgeLength   = 12.f;     // do not connect nodes further apart than this (keeps the graph sparse)
     float stairPenalty    = 12.f;     // extra cost for a stair link
-    float liftPenalty     = 25.f;     // extra cost for a lift link (waiting)
+    float liftPenalty     = 25.f;     // extra cost for boarding a lift (waiting), once per ride
     bool  connectRoomsThroughDoors = true;   // room nodes only connect to the doors on their outline
+    float missingDoorReach   = 3.f;   // fallback edges: max distance from a disconnected room's outline to the node it joins
+    float missingDoorPenalty = 10.f;  // extra cost added to each fallback edge
 };
 
 // Summary returned after building; isolatedNodes > 0 usually means a room has no reachable door.
@@ -67,7 +69,7 @@ int markExitDoors(Level& level);
 // existing links are not duplicated. Returns the number of links added.
 int linkFloors(Building& building, float maxOffset = 3.f);
 struct NavStats { GraphStats graph; int exits = 0; int links = 0; };   // links: total after linking
-// buildGraph() with node ids from 100000, then markExitDoors() on every level and linkFloors().
+// buildGraph() with node ids from 100000, then markExitDoors() on the lowest level and linkFloors().
 NavStats prepareNavigation(Building& building, const GraphParams& p = {});
 
 // True if segment a-b crosses no wall of the level (openings let it through).
@@ -92,11 +94,13 @@ struct Route {
 
 struct RouteOptions {
     bool stepFreeOnly = false;                 // filter out edges/links with stepFree == false before searching
+    bool noLifts = false;                      // filter out lift links (set by findEgress unless stepFreeOnly)
 };
 
 // A* with straight-line distance as the heuristic. nodeRef = "L5:n3".
 Result<Route> findRoute(const Building& b, std::string_view fromRef, std::string_view toRef, const RouteOptions& opt = {});
-// Same search, target set = every exit node in the building; returns the cheapest.
+// Same search, target set = every exit node in the building; returns the cheapest. Uses stairs
+// only, unless opt.stepFreeOnly.
 Result<Route> findEgress(const Building& b, std::string_view fromRef, const RouteOptions& opt = {});
 // Helper: node ref of a room's node, e.g. roomNode(b, "E2-05-12") -> "L5:n1"
 std::optional<std::string> nodeForRoom(const Building& b, std::string_view roomCodeOrId);
