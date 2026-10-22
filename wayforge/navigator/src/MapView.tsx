@@ -51,7 +51,8 @@ export default function MapView({ building, floor, onFloor, topDown, onToggleVie
   const proj = (p: V3) => { const r = rel(p); return [dot(r, right), -dot(r, up)] as Vec2 }
   const pt = (p: V3) => proj(p).join(',')
 
-  const aspect = Math.min(3, Math.max(0.3, w / h))
+  // w and h are 0 until the map has been laid out; 0 / 0 = NaN would break the svg viewBox
+  const aspect = w > 0 && h > 0 ? Math.min(3, Math.max(0.3, w / h)) : 1
   const ortho = (bounds.radius * 1.05 * zoom) / Math.min(1, aspect)
   const vh = ortho * 2, vw = vh * aspect
 

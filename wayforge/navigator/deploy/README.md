@@ -1,12 +1,10 @@
 # Putting the Navigator on the team server
 
 The Navigator is site 2 on the team server `team27@51.79.243.238`. People open
-**https://navigation.duckdns.org** (no login: it's the public site). The old address
-http://51.79.243.238:5001 still works, without https.
+**https://navigation.duckdns.org** (no login: it's the public site).
 
 ```
 browser --> nginx :443 (https) --> /var/www/site2/current  (the built website, navigator/dist)
-              (or :5001 http)  \--> /api --> site2-backend :8081 (placeholder, the Navigator doesn't use it yet)
 ```
 
 `navigation.duckdns.org` is a free DuckDNS name pointing at the server, with a Let's Encrypt
@@ -14,8 +12,8 @@ certificate that renews by itself (same setup as the Studio, see `studio-web/dep
 The nginx config is in `site2/deploy/` in the repo root.
 
 The Navigator runs entirely in the browser today: it loads `building.json` and works out routes
-itself (`src/api.ts`), so the server only hands out files. nginx and the backend service were set
-up once from `site2/deploy/` in the repo root.
+itself (`src/api.ts`), so the server only hands out files (no backend). nginx was set up once
+from `site2/deploy/` in the repo root.
 
 ## Deploy (Windows)
 
