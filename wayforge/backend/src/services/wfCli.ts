@@ -11,6 +11,20 @@ const cliPath = path.join(
     "build/desktop/Sandbox/wf_cli/Debug/wf_cli.exe"
 );
 
+
+export class WfCliResponseError extends Error {
+
+    constructor(
+        public readonly details: {
+            ok: false;
+            error: string;
+        }
+    ) {
+        super(details.error);
+        this.name = "WfCliResponseError";
+    }
+}
+
 // Run a Wayforge CLI command and return its JSON output.
 export function runWfCli(args: string[]): Promise<unknown> {
 
@@ -34,18 +48,32 @@ export function runWfCli(args: string[]): Promise<unknown> {
                     return;
                 }
 
+                
                 if (error) {
-                    const message =
+
+                    // Check whether wf_cli returned a structured error.
+                    if (
                         typeof result === "object" &&
                         result !== null &&
+                        "ok" in result &&
+                        result.ok === false &&
                         "error" in result &&
                         typeof result.error === "string"
-                            ? result.error
-                            : stderr.trim() || error.message;
+                    ) {
+                        reject(new WfCliResponseError({
+                            ok: false,
+                            error: result.error
+                        }));
+                        return;
+                    }
 
-                    reject(new Error(message));
+                    // Other failures, such as a crashed executable.
+                    reject(new Error(
+                        stderr.trim() || error.message
+                    ));
                     return;
                 }
+
 
                 resolve(result);
             }

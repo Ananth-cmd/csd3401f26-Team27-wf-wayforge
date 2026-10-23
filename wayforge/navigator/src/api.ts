@@ -3,7 +3,73 @@
 // Later: swap the bodies for fetch() calls to #4's backend. Keep the signatures.
 import type { Building, EdgeKind, Route } from './types'
 
-export async function loadBuilding(id = 'sit-demo'): Promise<Building> {
+
+// Address of the Wayforge backend.
+// Can be changed later when the backend is deployed.
+// The 2 wall map u see now on the website is dummy values for .wfb file, need wait for studo website to produce actual .wfb for the map 
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:3000";
+
+
+// Load a published building through the Wayforge backend.
+export async function loadBuilding(
+  id = "backend-integration-test"
+): Promise<Building> {
+
+  const response = await fetch(
+    `${API_URL}/api/navigator/${encodeURIComponent(id)}/building`
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to load building (HTTP ${response.status})`
+    );
+  }
+
+  return await response.json() as Building;
+}
+
+// Calculate a route using the C++ Wayforge engine.
+export async function getRoute(
+  b: Building,
+  start: string,
+  end: string,
+  stepFree: boolean
+): Promise<Route | null> {
+
+  // Prepare the navigation request.
+  const params = new URLSearchParams({
+    from: start,
+    to: end,
+    stepFree: stepFree ? "1" : "0"
+  });
+
+  // Ask our backend to calculate the route.
+  const response = await fetch(
+    `${API_URL}/api/navigator/${encodeURIComponent(b.id)}/route?${params}`
+  );
+
+  // Handle invalid destinations or navigation failures.
+  if (!response.ok) {
+    const result: unknown = await response.json().catch(() => null);
+
+    const message =
+      typeof result === "object" &&
+      result !== null &&
+      "error" in result &&
+      typeof result.error === "string"
+        ? result.error
+        : `Failed to calculate route (HTTP ${response.status})`;
+
+    throw new Error(message);
+  }
+
+  // Return the Navigator-compatible route.
+  return await response.json() as Route;
+}
+
+//old one
+/*export async function loadBuilding(id = 'sit-demo'): Promise<Building> {
   // later: const res = await fetch(`${API_URL}/buildings/${id}`)
   const res = await fetch(`${import.meta.env.BASE_URL}building.json`)
   if (!res.ok) throw new Error(`Could not load building ${id}`)
@@ -13,7 +79,7 @@ export async function loadBuilding(id = 'sit-demo'): Promise<Building> {
 export async function getRoute(b: Building, start: string, end: string, stepFree: boolean): Promise<Route | null> {
   // later: return (await fetch(`${API_URL}/route?building=${b.id}&from=${start}&to=${end}&stepFree=${stepFree}`)).json()
   return findRoute(b, start, end, stepFree)
-}
+}*/
 
 // Port of RoutePlanner.Find (android-prototype BuildingDefinition.cs)
 export function findRoute(b: Building, start: string, end: string, stepFree: boolean): Route | null {
