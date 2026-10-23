@@ -6,9 +6,8 @@
 #
 # what goes in ~/backups/vm-backup-<date>.tgz:
 #   - the Studio buildings          ~/wayforge/studio-web/server/data
-#   - site 2's data, if it exists   ~/site2/server/data
-#   - nginx site configs            /etc/nginx/sites-available
-#   - the backend services          /etc/systemd/system/wayforge-studio.service, site2-backend.service
+#   - nginx site configs            /etc/nginx/sites-available, /etc/nginx/snippets
+#   - the backend service           /etc/systemd/system/wayforge-studio.service
 # the login file (studio.htpasswd) is NOT included, only root can read it.
 #
 # keeps the newest 14 backups. These still live ON the VM, so copy them to your PC now and
@@ -24,13 +23,12 @@ OUT="$HOME/backups"
 mkdir -p "$OUT"
 FILE="$OUT/vm-backup-$(date -u +%Y%m%d-%H%M).tgz"
 
-# only back up the paths that exist (site 2 may not be set up yet)
+# only back up the paths that exist (e.g. before the first deploy there is no data yet)
 PATHS=()
 for p in "$HOME/wayforge/studio-web/server/data" \
-         "$HOME/site2/server/data" \
          /etc/nginx/sites-available \
-         /etc/systemd/system/wayforge-studio.service \
-         /etc/systemd/system/site2-backend.service; do
+         /etc/nginx/snippets \
+         /etc/systemd/system/wayforge-studio.service; do
   [ -e "$p" ] && PATHS+=("$p")
 done
 

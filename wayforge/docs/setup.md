@@ -59,16 +59,7 @@ Build the core first (step 3), so `wayforge.dll` is in `unity/Assets/Wayforge/Pl
 Then open `unity/` in Unity Hub and go to `Wayforge > Studio`. The sidebar shows `core 0.1.0` once a plan is loaded. If the Import / Open buttons are greyed out, the dll is missing.
 
 
-## 6. Android library
-
-```
-export ANDROID_NDK=$HOME/Android/Sdk/ndk/<version>     (set ANDROID_NDK=... on Windows)
-./core/script_build_android.sh
-```
-Writes `unity/Assets/Wayforge/Plugins/Android/libs/arm64-v8a/libwayforge.so`. Unity picks it up
-when you switch the build target to Android.
-
-## 7. Push to GitHub
+## 6. Push to GitHub
 
 ```
 git init
@@ -81,4 +72,5 @@ git remote add origin https://github.com/<you>/wayforge.git
 git branch -M main
 git push -u origin main
 ```
-The Actions tab will show the Ubuntu, Windows and Android jobs from `.github/workflows/build.yml`.
+The Actions tab will show the golden-checker, desktop (Ubuntu + Windows), docker and web jobs
+from `.github/workflows/build.yml`.

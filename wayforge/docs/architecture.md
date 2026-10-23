@@ -70,8 +70,7 @@ SVG files skip steps 3 and the start of 4. Saved `.wfb` files are loaded by wf_d
 
 - CMake builds everything. Libraries are downloaded automatically (`core/cmake/ImportDependencies.cmake`).
 - `script_build_and_run.bat` builds, runs the tests and copies the DLL into Unity.
-- `script_build_android.sh` builds the Android library.
-- GitHub Actions builds and tests on every push (Windows, Ubuntu, Docker).
+- GitHub Actions builds and tests on every push (Windows, Ubuntu, Docker, and the websites).
 
 ## Folders
 wayforge/

@@ -11,7 +11,7 @@
 #   4. runs the backend (studio-web/server/server.mjs) as a service that starts by itself
 #   5. makes the team login the first time (password saved in ~/studio-login.txt, never printed)
 #   6. points nginx at the website and /api at the backend, behind that login, on
-#      https://wayforgestudio.duckdns.org (443) and the old http://51.79.243.238:5000
+#      https://wayforgestudio.duckdns.org (443 only, no plain-http copy on 5000 any more)
 #      (only GET /api/published stays open, the Navigator reads it)
 #   7. gets the free https certificate from Let's Encrypt the first time (renews by itself)
 #   8. nightly backup of the buildings + server config into ~/backups (deploy/backup-vm.sh)
@@ -22,7 +22,6 @@ set -euo pipefail
 
 ROOT="$HOME/wayforge"
 WEB="$ROOT/studio-web"
-PORT_SITE=5000      # what people open (5000-5050 are open on the team server)
 PORT_API=8080       # the backend, only nginx talks to it
 LOGIN_FILE=/etc/nginx/studio.htpasswd   # team login for the site (made in step 5)
 LOGIN_USER=studio
@@ -89,8 +88,7 @@ sudo chown root:www-data "$LOGIN_FILE"
 sudo chmod 640 "$LOGIN_FILE"
 
 echo "== 6/8 nginx"
-# the site itself (login, website, /api) is one snippet, used by both the http :5000 server
-# and the https :443 server, so the two can't drift apart.
+# the site itself (login, website, /api) is kept in a snippet, included by the https server.
 sudo tee /etc/nginx/snippets/studio-site.conf >/dev/null <<CONF
 root /var/www/studio;
 index index.html;
@@ -118,9 +116,10 @@ location /api/published {
 CONF
 
 # writes the studio config:
-#   :5000  plain http, the old address (http://51.79.243.238:5000), still works
 #   :80    Let's Encrypt's certificate checks, and sends everyone else to https
 #   :443   https, only once the certificate exists (before that nginx would refuse the config)
+# (the old plain-http copy on :5000 was removed, so the login never travels unencrypted and
+#  fewer ports are open)
 write_nginx() {
   local https="" redirect="return 404;"
   if sudo test -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
@@ -138,11 +137,6 @@ server {
 }"
   fi
   sudo tee /etc/nginx/sites-available/studio >/dev/null <<CONF
-server {
-    listen $PORT_SITE;
-    include snippets/studio-site.conf;
-}
-
 server {
     listen 80;
     listen [::]:80;
@@ -192,8 +186,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 if curl -sf "http://127.0.0.1:$PORT_API/api/health"; then
   echo
-  IP=$(hostname -I | awk '{print $1}')
-  echo "Done. Open https://$DOMAIN  (or http://$IP:$PORT_SITE)"
+  echo "Done. Open https://$DOMAIN"
 else
   echo "The backend didn't start. Its last log lines:"
   sudo journalctl -u wayforge-studio -n 25 --no-pager

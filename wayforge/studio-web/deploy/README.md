@@ -2,11 +2,11 @@
 
 The server is `team27@51.79.243.238` (Ubuntu 24.04). People open
 **https://wayforgestudio.duckdns.org** and log in with the team login (see "Team login" below).
-The old address http://51.79.243.238:5000 still works, but without https.
+(The old plain-http address on port 5000 was removed, so the login is never sent unencrypted.)
 
 ```
 browser --> nginx :443 (https) --> /var/www/studio (the website, studio-web/dist)
-              (or :5000 http)  \--> /api --> node server.mjs :8080 (only reachable from the server itself)
+                               \--> /api --> node server.mjs :8080 (only reachable from the server itself)
                                                  \--> /usr/local/bin/wf_cli (built on the server from wayforge/core)
 ```
 
@@ -43,7 +43,7 @@ things and builds `wf_cli`; after that it's quick. Run it again whenever you wan
 3. copies the website to `/var/www/studio`
 4. runs the backend as a service called `wayforge-studio` (starts by itself, restarts if it crashes)
 5. makes the team login, the first time only
-6. sets nginx port 5000: website + `/api` to the backend, all behind the team login
+6. sets nginx (https, port 443): website + `/api` to the backend, all behind the team login
    (except `GET /api/published`, which the Navigator reads without logging in)
 7. sets up the nightly backup (`backup-vm.sh`)
 
@@ -64,12 +64,11 @@ sudo htpasswd /etc/nginx/studio.htpasswd studio   type the new password twice
 ```
 
 and update `~/studio-login.txt` (or delete that file once everyone has the password). No reload is
-needed. Log in on the https address: on the old http://51.79.243.238:5000 the password travels
-unencrypted.
+needed.
 
 ## Backups
 
-Every night at 03:00 Singapore time the server saves the buildings, site 2's data and the
+Every night at 03:00 Singapore time the server saves the buildings and the
 nginx/service configs to `~/backups/vm-backup-<date>.tgz` and keeps the newest 14. Those are still
 on the server, so copy them to your PC regularly:
 
