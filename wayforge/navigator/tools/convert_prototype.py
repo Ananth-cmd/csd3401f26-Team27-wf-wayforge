@@ -42,7 +42,7 @@ pois = []  # = Navigation.asset "places"
 for m in re.finditer(r'- id: (\S+)\n\s+name: (.+)\n\s+code: (\S+)\n\s+waypointId: (\S+)\n\s+category: (\S+)\n\s+description: ((?:.|\n)*?)\n\s+startingPoint: (\d)', nav):
     pois.append({'id': m[1], 'name': m[2].strip(), 'code': m[3], 'node': m[4], 'category': m[5],
                  'description': ' '.join(m[6].split()), 'startingPoint': m[7] == '1'})
-b = {'format': 'wfb-json', 'version': 1, 'id': 'sit-demo', 'name': 'SIT - supplied models', 'site': 'SIT · Campus navigation', 'floorHeight': FLOOR_H,
+b = {'format': 'wfb-json', 'version': 1, 'id': 'sit-demo', 'name': 'SIT Campus', 'site': 'Indoor visitor navigation', 'floorHeight': FLOOR_H,
      'illustrative': True, 'units': 'm', 'levels': levels, 'nodes': nodes, 'edges': edges, 'links': links, 'pois': pois}
 json.dump(b, open(out, 'w'), indent=1)
 print(f"levels {len(levels)} walls {[len(l['walls']) for l in levels]} nodes {len(nodes)} edges {len(edges)} links {len(links)} pois {len(pois)}")
