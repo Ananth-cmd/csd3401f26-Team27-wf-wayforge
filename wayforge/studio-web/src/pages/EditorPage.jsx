@@ -20,6 +20,10 @@ const MERGE_MS = 800; // edits closer together than this (like typing) share one
 // just the walls and doors, to tell if the shape of the building changed
 const geometryKey = (doc) => JSON.stringify(doc.levels.map((l) => [l.walls, l.openings]));
 
+// where people open a published building in the Navigator (Shri's site). ?b= picks the building
+const NAVIGATOR_URL = import.meta.env.VITE_NAVIGATOR_URL || "https://navigation.duckdns.org/";
+export const navigatorLink = (id) => `${NAVIGATOR_URL}?b=${encodeURIComponent(id)}`;
+
 export default function EditorPage({ id, go }) {
   const [info, setInfo] = useState(null);
   const [doc, setDoc] = useState(null);
@@ -29,7 +33,15 @@ export default function EditorPage({ id, go }) {
   const [selection, setSelection] = useState(null);
   const [tool, setTool] = useState("select");
   const [centre, setCentre] = useState("2d");
-  const [sheet, setSheet] = useState(null); // building | links | checks popout
+  // what wf_cli said when the building was made (UploadPage leaves it here). shows once
+  const [buildLog] = useState(() => {
+    try {
+      const t = sessionStorage.getItem("wf.buildlog." + id);
+      sessionStorage.removeItem("wf.buildlog." + id);
+      return t ? JSON.parse(t) : null;
+    } catch { return null; }
+  });
+  const [sheet, setSheet] = useState(buildLog ? "summary" : null); // building | links | checks | route | summary popout
   const [showPaths, setShowPaths] = useState(false);
   const [route, setRoute] = useState(null);
   const [blueprint, setBlueprint] = useState(true);   // show the uploaded picture under the plan
@@ -128,7 +140,7 @@ export default function EditorPage({ id, go }) {
     try {
       const res = await api.publishBuilding(id);
       setInfo((i) => ({ ...i, ...res }));
-      flash(`Published version ${res.version}`);
+      flash(`Published version ${res.version}. The Navigator has it now.`);
     } catch (e) { flash("Publish failed: " + e.message); } finally { setBusy(""); }
   }
 
@@ -212,6 +224,7 @@ export default function EditorPage({ id, go }) {
         l.openings = (l.openings || []).filter((o) => o.wall !== selection.id); // its doors go too
       } else if (selection.type === "room") {
         l.rooms = l.rooms.filter((r) => r.id !== selection.id);
+        l.anchors = (l.anchors || []).filter((a) => a.id !== "a-" + selection.id); // its starting point too
       } else if (selection.type === "opening") {
         l.openings = l.openings.filter((o) => o.id !== selection.id);
       }
@@ -295,6 +308,7 @@ export default function EditorPage({ id, go }) {
           <button className="quiet" onClick={download} title="Download the .wfb file">Download</button>
           <button onClick={save} disabled={!dirty || busy === "save"} title="Ctrl+S">{busy === "save" ? "Saving..." : dirty ? "Save" : "Saved"}</button>
           <button className="primary" onClick={publish} disabled={busy === "publish"}>{busy === "publish" ? "Publishing..." : "Publish"}</button>
+          {info?.publishedAt && <a className="button" href={navigatorLink(id)} target="_blank" rel="noreferrer">Open in Navigator</a>}
         </div>
       </header>
 
@@ -336,6 +350,13 @@ export default function EditorPage({ id, go }) {
           {sheet && (
             <div className="sheet">
               <button className="sheet-close" onClick={() => setSheet(null)} aria-label="Close">Close</button>
+              {sheet === "summary" && (
+                <div>
+                  <h2>Build summary</h2>
+                  <ul className="checks">{buildLog.map((t, i) => <li key={i}>{t}</li>)}</ul>
+                  <p className="muted small">Check the rooms in orange, they are the ones the engine wasn't sure about.</p>
+                </div>
+              )}
               {sheet === "building" && <BuildingPanel doc={doc} onChange={edit} current={level.id} onPick={setLevelId} />}
               {sheet === "route" && <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} dirty={dirty} />}
               {sheet === "links" && <LinksPanel doc={doc} onChange={edit} />}

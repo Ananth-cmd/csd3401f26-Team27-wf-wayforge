@@ -127,6 +127,8 @@ export default function UploadPage({ go }) {
         floors: files,
         wfbFile: mode === "wfb" ? wfbFile : null,
       }, setStep);
+      // keep wf_cli's summary so the editor can show it once
+      if (res.log) { try { sessionStorage.setItem("wf.buildlog." + res.id, JSON.stringify(res.log)); } catch { /* private mode */ } }
       go(`/b/${res.id}`);
     } catch (err) {
       setError(err.message);

@@ -15,6 +15,8 @@
 #      (only GET /api/published stays open, the Navigator reads it)
 #   7. gets the free https certificate from Let's Encrypt the first time (renews by itself)
 #   8. nightly backup of the buildings + server config into ~/backups (deploy/backup-vm.sh)
+#   9. (step 5 in the log) Kervin's API (wayforge/backend) as a service on 127.0.0.1:3000, and
+#      https://navigation.duckdns.org/api sent to it, so the Navigator reads what the Studio publishes
 #
 # safe to run again after uploading a new version, it just updates everything.
 # an existing login, certificate and backups are kept.
@@ -28,25 +30,25 @@ LOGIN_USER=studio
 DOMAIN=wayforgestudio.duckdns.org       # https address (DuckDNS name pointing at this server)
 ACME_ROOT=/var/www/letsencrypt          # where certbot puts its domain-check files
 
-echo "== 1/8 packages"
+echo "== 1/9 packages"
 sudo apt-get update -qq
 sudo apt-get install -y -qq build-essential cmake ninja-build git ca-certificates nodejs nginx certbot >/dev/null
 node -v
 
-echo "== 2/8 building wf_cli (first time takes a few minutes)"
+echo "== 2/9 building wf_cli (first time takes a few minutes)"
 cmake -S "$ROOT/core" -B "$ROOT/build/linux-release" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DWF_BUILD_TESTS=OFF -DWF_BUILD_VIEWER=OFF >/dev/null
 cmake --build "$ROOT/build/linux-release" --target wf_cli
 sudo install -m 755 "$ROOT/build/linux-release/Sandbox/wf_cli/wf_cli" /usr/local/bin/wf_cli
 wf_cli --version
 
-echo "== 3/8 website"
+echo "== 3/9 website"
 sudo mkdir -p /var/www/studio
 sudo rm -rf /var/www/studio/*
 sudo cp -r "$WEB/dist/." /var/www/studio/
 sudo chmod -R a+rX /var/www/studio
 
-echo "== 4/8 backend service"
+echo "== 4/9 backend service"
 mkdir -p "$WEB/server/data"
 sudo tee /etc/systemd/system/wayforge-studio.service >/dev/null <<UNIT
 [Unit]
@@ -71,7 +73,54 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now wayforge-studio >/dev/null
 sudo systemctl restart wayforge-studio
 
-echo "== 5/8 team login"
+echo "== 5/9 API for the Navigator (wayforge/backend, Kervin's)"
+# it reads published buildings from the Studio backend (127.0.0.1:$PORT_API) and runs wf_cli for
+# routes. only nginx talks to it. tsx runs the TypeScript straight away, no build step.
+API="$ROOT/backend"
+PORT_NAV_API=3000
+if [ -f "$API/package.json" ]; then
+  ( cd "$API" && npm ci --no-audit --no-fund --loglevel=error )
+  sudo tee /etc/systemd/system/wayforge-api.service >/dev/null <<UNIT
+[Unit]
+Description=Wayforge API for the Navigator (reads published buildings, routes with wf_cli)
+After=network.target wayforge-studio.service
+
+[Service]
+User=$USER
+WorkingDirectory=$API
+Environment=PORT=$PORT_NAV_API
+Environment=HOST=127.0.0.1
+Environment=WF_CLI=/usr/local/bin/wf_cli
+Environment=STUDIO_API_URL=http://127.0.0.1:$PORT_API
+ExecStart=$API/node_modules/.bin/tsx src/server.ts
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now wayforge-api >/dev/null
+  sudo systemctl restart wayforge-api
+
+  # the Navigator site (Joel's nginx-site2 config) gets /api from this service. same site, so no
+  # CORS and no http calls from an https page. read-only: GET only
+  sudo tee /etc/nginx/snippets/site2-api.conf >/dev/null <<CONF
+location /api/ {
+    limit_except GET { deny all; }
+    proxy_pass http://127.0.0.1:$PORT_NAV_API;
+    proxy_read_timeout 60s;
+}
+CONF
+  if [ -f /etc/nginx/snippets/site2-site.conf ] && ! grep -q 'site2-api.conf' /etc/nginx/snippets/site2-site.conf; then
+    echo 'include snippets/site2-api.conf;   # /api -> wayforge-api (added by studio-web/deploy/setup-vm.sh)' | sudo tee -a /etc/nginx/snippets/site2-site.conf >/dev/null
+  fi
+  sudo nginx -t && sudo systemctl reload nginx
+else
+  echo "no backend/ uploaded, skipping (deploy.bat packs it)"
+fi
+
+echo "== 6/9 team login"
 # first time only: make a random password, store its hash for nginx and the password itself in
 # ~/studio-login.txt (only team27 can read it). Change it later with:
 #   sudo htpasswd /etc/nginx/studio.htpasswd studio      (needs: sudo apt install apache2-utils)
@@ -87,7 +136,7 @@ fi
 sudo chown root:www-data "$LOGIN_FILE"
 sudo chmod 640 "$LOGIN_FILE"
 
-echo "== 6/8 nginx"
+echo "== 7/9 nginx"
 # the site itself (login, website, /api) is kept in a snippet, included by the https server.
 sudo tee /etc/nginx/snippets/studio-site.conf >/dev/null <<CONF
 root /var/www/studio;
@@ -153,7 +202,7 @@ CONF
 sudo mkdir -p "$ACME_ROOT"
 write_nginx
 
-echo "== 7/8 https certificate for $DOMAIN"
+echo "== 8/9 https certificate for $DOMAIN"
 # first time only: get a free certificate from Let's Encrypt (it checks we own the domain by
 # fetching a file from $ACME_ROOT over port 80). certbot's own timer renews it automatically;
 # the hook below reloads nginx after each renewal so the new certificate is used.
@@ -168,7 +217,7 @@ sudo install -d /etc/letsencrypt/renewal-hooks/deploy
 printf '#!/bin/sh\nsystemctl reload nginx\n' | sudo tee /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh >/dev/null
 sudo chmod 755 /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
 
-echo "== 8/8 nightly backup"
+echo "== 9/9 nightly backup"
 # runs deploy/backup-vm.sh every night at 19:00 server time (UTC) = 03:00 Singapore time.
 # grep -v drops the old line first, so running setup again doesn't add a second one.
 # (|| true: with no crontab yet, crontab -l and grep both "fail", which is fine here)
@@ -186,6 +235,16 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 if curl -sf "http://127.0.0.1:$PORT_API/api/health"; then
   echo
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -sf "http://127.0.0.1:3000/api/health" >/dev/null; then break; fi
+    sleep 1
+  done
+  if curl -sf "http://127.0.0.1:3000/api/published" >/dev/null; then
+    echo "Navigator API ok: $(curl -s http://127.0.0.1:3000/api/published | head -c 200)"
+  else
+    echo "The Navigator API didn't start. Its last log lines:"
+    sudo journalctl -u wayforge-api -n 25 --no-pager || true
+  fi
   echo "Done. Open https://$DOMAIN"
 else
   echo "The backend didn't start. Its last log lines:"

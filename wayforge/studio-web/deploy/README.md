@@ -8,7 +8,18 @@ The server is `team27@51.79.243.238` (Ubuntu 24.04). People open
 browser --> nginx :443 (https) --> /var/www/studio (the website, studio-web/dist)
                                \--> /api --> node server.mjs :8080 (only reachable from the server itself)
                                                  \--> /usr/local/bin/wf_cli (built on the server from wayforge/core)
+
+Navigator (Shri's site, https://navigation.duckdns.org):
+browser --> nginx :443 --> /var/www/site2/current (navigator/dist)
+                       \--> /api --> Kervin's API, backend/src/server.ts :3000 (service wayforge-api)
+                                         \--> Studio backend :8080 /api/published (what was published)
+                                         \--> wf_cli (routes)
 ```
+
+So publishing in the Studio is all it takes: the Navigator asks for the building every time it
+opens, so it gets the newest published version straight away. The Studio's "Open in Navigator"
+button opens `https://navigation.duckdns.org/?b=<building id>`; without `?b=` the Navigator opens
+the building published most recently.
 
 ## HTTPS
 
@@ -31,7 +42,7 @@ Command Prompt:
 C:\Users\katie\Documents\SIT\wf-wayforge\wayforge\studio-web\deploy\deploy.bat
 ```
 
-It builds the site, uploads it and runs `setup-vm.sh` on the server. The server only accepts SSH
+It builds the Studio and the Navigator, uploads them and runs `setup-vm.sh` on the server. The server only accepts SSH
 keys (no password), so your PC's key has to be on the server first - ask someone who can already
 log in to add your `id_ed25519.pub` line. The first time takes a few minutes because it installs
 things and builds `wf_cli`; after that it's quick. Run it again whenever you want to update the server.
@@ -46,6 +57,11 @@ things and builds `wf_cli`; after that it's quick. Run it again whenever you wan
 6. sets nginx (https, port 443): website + `/api` to the backend, all behind the team login
    (except `GET /api/published`, which the Navigator reads without logging in)
 7. sets up the nightly backup (`backup-vm.sh`)
+8. (step 5 in its log) installs Kervin's API from `~/wayforge/backend` (`npm ci`), runs it as a
+   service called `wayforge-api` on 127.0.0.1:3000, and adds `/api` to the Navigator's nginx site
+   (`/etc/nginx/snippets/site2-api.conf`, GET only). It also puts the Navigator website live
+   (`deploy.bat` builds `navigator/dist` too), the same way `navigator\deploy\deploy.bat` does, so
+   one run updates both sites. The built Navigator calls `/api` on its own site (`navigator/src/api.ts`).
 
 ## Team login
 
@@ -87,6 +103,9 @@ sudo journalctl -u wayforge-studio -n 50     its last 50 log lines
 sudo systemctl restart wayforge-studio       restart it
 curl http://127.0.0.1:8080/api/health        should say {"ok":true,...} (straight to the backend, no login)
 ls ~/wayforge/studio-web/server/data         the buildings people made
+sudo systemctl status wayforge-api           is the Navigator's API running?
+sudo journalctl -u wayforge-api -n 50        its last 50 log lines
+curl http://127.0.0.1:3000/api/published     what the Navigator can see
 ls ~/backups                                 the nightly backups
 ```
 

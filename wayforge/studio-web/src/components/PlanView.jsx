@@ -217,6 +217,8 @@ export default function PlanView({
   const levelShown = moving ? { ...level, walls: wallsShown } : level;
   const selWall = selection?.type === "wall" && tool === "select" ? wallsShown.find((w) => w.id === selection.id) : null;
 
+  const starts = new Set((level.anchors || []).map((a) => a.id));
+
   return (
     <div className="plan-wrap">
     <button className="fit-btn" onClick={fit} title="Fit the whole level in view">Fit to screen</button>
@@ -334,12 +336,14 @@ export default function PlanView({
       </g>
 
       {/* labels last so nothing covers them. outside the flip, so y is negated by hand */}
+      {/* (rooms marked as a starting point get a small "start point" line) */}
       {(level.rooms || []).map((r) => {
         const c = r.centroid || r.polygon[0];
         return (
           <text key={r.id} x={c[0]} y={-c[1]} fontSize={font} className="label" textAnchor="middle">
             <tspan x={c[0]} dy="-0.2em" fontWeight="600">{r.code || r.id}</tspan>
             {r.name && <tspan x={c[0]} dy="1.15em" fontSize={font * 0.8}>{r.name}</tspan>}
+            {starts.has("a-" + r.id) && <tspan x={c[0]} dy="1.15em" fontSize={font * 0.7} className="start-tag">start point</tspan>}
           </text>
         );
       })}

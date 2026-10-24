@@ -68,8 +68,13 @@ Runs `wf_cli route <saved file> <from> <to> [--step-free]` and returns its JSON 
 
 ## For the Navigator side (not used by the Studio)
 
-* `GET /api/published` - list of published buildings (id, name, lat, lon, version)
+* `GET /api/published` - list of published buildings (id, name, lat, lon, version, publishedAt)
 * `GET /api/published/:id/wfb` - the published `.wfb`
+
+Kervin's API (`wayforge/backend`) reads these two and turns them into what the Navigator uses
+(`/api/navigator/:id/building` and `/route`). Rooms ticked as "Starting point" in the editor are
+saved as level `anchors` (id `a-<room id>`, at the middle of the room); the API marks those rooms as
+starting points. With none ticked, the Navigator lets people start from exits/lobbies (or any room).
 
 ## Open questions for the team
 * Login: do we do company accounts for M2 or one shared login for now?

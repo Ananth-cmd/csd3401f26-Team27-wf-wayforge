@@ -26,7 +26,9 @@ import { tmpdir } from "os";
 import path from "path";
 
 const app = express();
-const PORT = 3000;
+// PORT and HOST can be set on the team server, defaults stay the same for local testing.
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "127.0.0.1";
 
 // Katie's Studio backend, configurable for deployment.
 const STUDIO_API_URL =
@@ -382,6 +384,6 @@ app.get(
 );
 
 // Start the backend server.
-app.listen(PORT, "127.0.0.1", () => {
-    console.log(`Wayforge backend running at http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`Wayforge backend running at http://${HOST}:${PORT}`);
 });

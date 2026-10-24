@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/api.js";
 import { parseWfb } from "../lib/wfb.js";
 import MiniPlan from "../components/MiniPlan.jsx";
+import { navigatorLink } from "./EditorPage.jsx";
 
 const when = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 const statusText = (b) => (b.status === "published" ? `Published v${b.version}` : b.status === "changed" ? "Edited since publish" : "Draft");
@@ -88,6 +89,7 @@ export default function BuildingsPage({ go }) {
               </div>
               <div className="row-buttons">
                 <button className="primary" onClick={() => go(`/b/${b.id}`)}>Open editor</button>
+                {b.publishedAt && <a className="button" href={navigatorLink(b.id)} target="_blank" rel="noreferrer">Open in Navigator</a>}
                 <button className="quiet danger" onClick={() => remove(b)}>Delete</button>
               </div>
             </div>

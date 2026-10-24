@@ -7,14 +7,29 @@ import type { Building, EdgeKind, Route } from './types'
 // Address of the Wayforge backend.
 // Can be changed later when the backend is deployed.
 // The 2 wall map u see now on the website is dummy values for .wfb file, need wait for studo website to produce actual .wfb for the map 
+// On the team server it's empty (.env.production), so it calls /api on the same site.
 const API_URL =
-  import.meta.env.VITE_API_URL || "http://127.0.0.1:3000";
+  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3000";
+
+// Which building to open: ?b=<id> in the address (the Studio's "Open in Navigator" button adds it),
+// otherwise the one published most recently in the Studio.
+async function chooseBuilding(): Promise<string> {
+  const fromUrl = new URLSearchParams(window.location.search).get("b");
+  if (fromUrl) return fromUrl;
+  const response = await fetch(`${API_URL}/api/published`);
+  if (!response.ok) throw new Error(`Failed to list buildings (HTTP ${response.status})`);
+  const list = await response.json() as { id: string; publishedAt?: string }[];
+  if (!list.length) throw new Error("No buildings have been published yet");
+  list.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
+  return list[0].id;
+}
 
 
 // Load a published building through the Wayforge backend.
 export async function loadBuilding(
-  id = "backend-integration-test"
+  wanted?: string
 ): Promise<Building> {
+  const id = wanted ?? await chooseBuilding();
 
   const response = await fetch(
     `${API_URL}/api/navigator/${encodeURIComponent(id)}/building`

@@ -287,7 +287,7 @@ async function handle(req, res) {
       return send(res, 200, listIds().filter((x) => fs.existsSync(path.join(dirOf(x), "published.wfb"))).map((x) => {
         const doc = readJson(path.join(dirOf(x), "published.wfb"));
         const meta = readJson(path.join(dirOf(x), "meta.json"));
-        return { id: x, name: doc.building.name, latitude: doc.building.latitude, longitude: doc.building.longitude, version: meta.version };
+        return { id: x, name: doc.building.name, latitude: doc.building.latitude, longitude: doc.building.longitude, version: meta.version, publishedAt: meta.publishedAt };
       }));
     }
     const p = path.join(dirOf(id), "published.wfb");

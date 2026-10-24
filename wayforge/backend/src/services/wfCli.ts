@@ -6,7 +6,8 @@ import path from "path";
 export const repoRoot = path.resolve(__dirname, "../../..");
 
 // Locate the C++ engine executable.
-const cliPath = path.join(
+// On the team server set WF_CLI=/usr/local/bin/wf_cli (the Linux build).
+const cliPath = process.env.WF_CLI || path.join(
     repoRoot,
     "build/desktop/Sandbox/wf_cli/Debug/wf_cli.exe"
 );

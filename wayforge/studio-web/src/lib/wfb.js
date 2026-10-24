@@ -126,6 +126,9 @@ export function validate(doc) {
     if (!(l.nodes || []).length) out.push({ level: l.id, type: "error", text: `${l.id}: no navigation points` });
   }
   if (!exits) out.push({ type: "warn", text: "No exit marked" });
+  if (!doc.levels.some((l) => (l.anchors || []).length)) {
+    out.push({ type: "warn", text: "No starting point (Navigator will use exits and lobbies)" });
+  }
   if (doc.levels.length > 1 && !(doc.links || []).length) {
     out.push({ type: "warn", text: "No stairs or lifts linking the levels" });
   }

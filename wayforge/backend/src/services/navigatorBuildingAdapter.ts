@@ -55,6 +55,18 @@ function vec2(v: unknown, description: string): Vec2 {
     }
     return [v[0], v[1]];
 }
+function isVec2(v: unknown): v is Vec2 {
+    return Array.isArray(v) && v.length === 2 && v.every(x => typeof x === "number" && Number.isFinite(x));
+}
+// Ray casting: is point p inside the room outline?
+function insidePolygon(p: Vec2, poly: Vec2[]): boolean {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i], [xj, yj] = poly[j];
+        if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+}
 function mapNodeKind(kind: unknown): NavigatorNodeKind {
     if (kind === "room") return "room";
     if (kind === "stairs" || kind === "stair") return "stairs";
@@ -103,8 +115,10 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             if (knownNodes.has(id)) throw new Error(`Invalid .wfb: duplicate node ${levelId}:${id}`);
             knownNodes.set(id, { id, pos, kind, raw: node });
             const room = typeof node.room === "string" ? roomMap.get(node.room) : undefined;
+            // unnamed rooms get no map label (the node id like "n100017" means nothing to visitors)
             const label = (typeof room?.name === "string" && room.name) ||
-                (typeof room?.code === "string" && room.code) || id;
+                (typeof room?.code === "string" && room.code) ||
+                (kind === "stairs" ? "Stairs" : kind === "lift" ? "Lift" : "");
             result.nodes.push({ id: `${levelId}:${id}`, label, level: index, pos, kind });
         }
 
@@ -119,10 +133,13 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
 
         // The demo .wfb has rooms, but no guaranteed full-floor slab outlines.
         // Never misrepresent each room polygon as a complete floor slab.
-        const floors = Array.isArray(level.floors)
+        // Studio's .wfb has no slab outline, so use every room's own outline as a piece of floor
+        // (corridors are rooms too, so together they cover the walkable floor). Navigator needs at
+        // least one floor shape to centre and fit the map, it draws nothing without it.
+        const floors = Array.isArray(level.floors) && level.floors.length
             ? level.floors.map((polygon, i) => requireArray(polygon, `${levelId}.floors[${i}]`)
                 .map((p, j) => vec2(p, `${levelId}.floors[${i}][${j}]`)))
-            : [];
+            : rooms.map(r => (Array.isArray(r.polygon) ? r.polygon.filter(isVec2) : [])).filter(p => p.length >= 3);
         result.levels.push({
             index, name: typeof level.name === "string" ? level.name : levelId,
             elevation, height: number(level.ceilingHeight, 3), floors, walls
@@ -152,8 +169,13 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             });
         }
 
+        // Starting points come from the level's anchors (Studio saves one per room ticked as
+        // "Starting point", id "a-<room id>"). An anchor that just sits inside a room counts too.
+        const anchors = (Array.isArray(level.anchors) ? level.anchors : []).filter(object);
         for (const room of rooms) {
             const id = requireString(room.id, `${levelId}.room.id`);
+            const polygon = Array.isArray(room.polygon) ? room.polygon.filter(isVec2) : [];
+            const anchored = anchors.some(a => a.id === `a-${id}` || (isVec2(a.pos) && insidePolygon(a.pos, polygon)));
             const node = [...knownNodes.values()].find(n => n.raw.room === id);
             if (!node) continue; // No point of interest without a navigable node.
             result.pois.push({
@@ -164,10 +186,17 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
                 node: `${levelId}:${node.id}`,
                 category: typeof room.kind === "string" ? room.kind : "unknown",
                 description: typeof room.description === "string" ? room.description : "",
-                startingPoint: room.startingPoint === true
+                startingPoint: room.startingPoint === true || anchored
             });
         }
     }
+    // No starting points marked in Studio yet: let people start from the exits and lobbies,
+    // or from any room if there are none of those, so the Navigator is still usable.
+    if (!result.pois.some(p => p.startingPoint)) {
+        const entrances = result.pois.filter(p => p.category === "exit" || p.category === "lobby");
+        for (const p of entrances.length ? entrances : result.pois) p.startingPoint = true;
+    }
+
     // Every inter-floor link must point to a real node. Never silently invent endpoints.
     const positions = new Map(result.nodes.map(n => [n.id, n]));
     for (const link of rawLinks) {

@@ -330,3 +330,5 @@ ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
 .levels-table th:nth-child(4) { width: 60px; }
 .levels-table th:nth-child(5) { width: 170px; }
 .fields label.wide input { width: 180px; }
+.start-tag { fill: var(--primary); font-weight: 600; }
+a.button { text-decoration: none; }
