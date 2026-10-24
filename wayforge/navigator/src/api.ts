@@ -7,9 +7,10 @@ import type { Building, EdgeKind, Route } from './types'
 // Address of the Wayforge backend.
 // Can be changed later when the backend is deployed.
 // The 2 wall map u see now on the website is dummy values for .wfb file, need wait for studo website to produce actual .wfb for the map 
-// On the team server it's empty (.env.production), so it calls /api on the same site.
+// The built site (npm run build, what goes on the team server) calls /api on its own site, nginx
+// passes it to the backend. npm run dev still uses VITE_API_URL from .env.local or Kervin's local port.
 const API_URL =
-  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3000";
+  import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? "" : "http://127.0.0.1:3000");
 
 // Which building to open: ?b=<id> in the address (the Studio's "Open in Navigator" button adds it),
 // otherwise the one published most recently in the Studio.

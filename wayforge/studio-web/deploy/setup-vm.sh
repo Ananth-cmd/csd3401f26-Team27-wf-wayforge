@@ -16,7 +16,8 @@
 #   7. gets the free https certificate from Let's Encrypt the first time (renews by itself)
 #   8. nightly backup of the buildings + server config into ~/backups (deploy/backup-vm.sh)
 #   9. (step 5 in the log) Kervin's API (wayforge/backend) as a service on 127.0.0.1:3000, and
-#      https://navigation.duckdns.org/api sent to it, so the Navigator reads what the Studio publishes
+#      https://navigation.duckdns.org/api sent to it, so the Navigator reads what the Studio publishes,
+#      and puts the newest Navigator website (navigator/dist, built by deploy.bat) live
 #
 # safe to run again after uploading a new version, it just updates everything.
 # an existing login, certificate and backups are kept.
@@ -32,8 +33,8 @@ ACME_ROOT=/var/www/letsencrypt          # where certbot puts its domain-check fi
 
 echo "== 1/9 packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq build-essential cmake ninja-build git ca-certificates nodejs nginx certbot >/dev/null
-node -v
+sudo apt-get install -y -qq build-essential cmake ninja-build git ca-certificates nodejs npm nginx certbot >/dev/null
+node -v; npm -v
 
 echo "== 2/9 building wf_cli (first time takes a few minutes)"
 cmake -S "$ROOT/core" -B "$ROOT/build/linux-release" -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -118,6 +119,18 @@ CONF
   sudo nginx -t && sudo systemctl reload nginx
 else
   echo "no backend/ uploaded, skipping (deploy.bat packs it)"
+fi
+
+# the Navigator website: same as navigator/deploy/deploy.bat (Joel's), a new dated folder in
+# /var/www/site2/releases, /var/www/site2/current switched to it, newest 5 kept for undo
+if [ -f "$ROOT/navigator/dist/index.html" ]; then
+  R=/var/www/site2/releases/$(date -u +%Y%m%d-%H%M%S)
+  sudo mkdir -p "$R"
+  sudo cp -r "$ROOT/navigator/dist/." "$R/"
+  sudo chmod -R a+rX "$R"
+  sudo ln -sfn "$R" /var/www/site2/current
+  ls -1dt /var/www/site2/releases/* | tail -n +6 | xargs -r sudo rm -rf
+  echo "Navigator live: $R"
 fi
 
 echo "== 6/9 team login"

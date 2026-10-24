@@ -12,15 +12,23 @@ pushd studio-web
 call npm.cmd run build || goto :fail
 popd
 
+echo == building the Navigator (Shri's site) too, so one run updates both sites
+pushd navigator
+if not exist node_modules (
+  call npm.cmd ci || goto :fail
+)
+call npm.cmd run build || goto :fail
+popd
+
 echo == packing (engine source + website + Studio server + Kervin's API for the Navigator)
 if exist "%TEMP%\studio-upload.tgz" del "%TEMP%\studio-upload.tgz"
-tar -czf "%TEMP%\studio-upload.tgz" core studio-web/package.json studio-web/dist studio-web/server/server.mjs studio-web/src/lib studio-web/deploy backend/package.json backend/package-lock.json backend/tsconfig.json backend/src || goto :fail
+tar -czf "%TEMP%\studio-upload.tgz" core studio-web/package.json studio-web/dist studio-web/server/server.mjs studio-web/src/lib studio-web/deploy backend/package.json backend/package-lock.json backend/tsconfig.json backend/src navigator/dist || goto :fail
 
 echo == uploading
 scp "%TEMP%\studio-upload.tgz" %SERVER%:studio-upload.tgz || goto :fail
 
 echo == installing on the server
-ssh %SERVER% "mkdir -p ~/wayforge && rm -rf ~/wayforge/studio-web/dist && tar -xzf ~/studio-upload.tgz -C ~/wayforge && sed -i 's/\r$//' ~/wayforge/studio-web/deploy/*.sh && bash ~/wayforge/studio-web/deploy/setup-vm.sh" || goto :fail
+ssh %SERVER% "mkdir -p ~/wayforge && rm -rf ~/wayforge/studio-web/dist ~/wayforge/navigator/dist && tar -xzf ~/studio-upload.tgz -C ~/wayforge && sed -i 's/\r$//' ~/wayforge/studio-web/deploy/*.sh && bash ~/wayforge/studio-web/deploy/setup-vm.sh" || goto :fail
 
 echo.
 echo Done. Studio: https://wayforgestudio.duckdns.org   Navigator: https://navigation.duckdns.org
