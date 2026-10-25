@@ -22,7 +22,7 @@
  *   - Line-of-sight test with thick walls, clearance and door openings
  *   - Room / door / corridor node placement and edge rules
  *   Ananthan Elangovan
- *   - Corridor nodes on a grid inside the corridor outline
+ *   - Corridor nodes along the corridor centre line
  *   - Door-to-room tolerance, edges for open stairs and lifts
  *   - Fallback edges joining disconnected rooms to the main graph
  *
@@ -130,33 +130,40 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
         Node n; n.id = ids.next("n"); n.pos = openingPosition(*w, o); n.kind = NodeKind::Door;
         level.nodes.push_back(n);
     }
-    // 3. corridor nodes on a grid (about corridorSpacing apart) inside each corridor polygon,
-    //    at least 0.3 m from its edge.
+    // 3. corridor nodes along the middle of each corridor: points of a 0.5 m grid inside the
+    //    polygon, taken in order of distance from its edge (centre line first), each at least
+    //    corridorSpacing from those already taken and at least 0.3 m from the edge.
     for (const Room& r : level.rooms) {
         if (r.kind != RoomKind::Corridor) continue;
         const Rect bb = polygonBounds(r.polygon);
-        const Vec2 s = bb.size();
-        const int cols = std::max(1, static_cast<int>(s.x / p.corridorSpacing));
-        const int rows = std::max(1, static_cast<int>(s.y / p.corridorSpacing));
-        bool any = false;
-        for (int j = 0; j < rows; ++j)
-            for (int i = 0; i < cols; ++i) {
-                // (i + 0.5) / cols puts nodes in the middle of each equal slice, not on the edges.
-                const Vec2 pos{ bb.min.x + s.x * (i + 0.5f) / cols, bb.min.y + s.y * (j + 0.5f) / rows };
+        const float step = 0.5f;
+        std::vector<std::pair<float, Vec2>> cand;          // (edge distance, position)
+        for (float y = bb.min.y + step * 0.5f; y < bb.max.y; y += step)
+            for (float x = bb.min.x + step * 0.5f; x < bb.max.x; x += step) {
+                const Vec2 pos{ x, y };
                 if (!pointInPolygon(pos, r.polygon)) continue;
-                float edge = 1e30f;                       // keep clear of the corridor's walls
+                float edge = 1e30f;
                 for (size_t k = 0; k < r.polygon.size(); ++k)
                     edge = std::min(edge, distancePointToSegment(pos, r.polygon[k], r.polygon[(k + 1) % r.polygon.size()]));
-                if (edge < 0.3f) continue;
-                // Skip points inside another room (open stair or lift in the corridor).
-                bool inOther = false;
-                for (const Room& o : level.rooms)
-                    if (&o != &r && o.kind != RoomKind::Corridor && o.polygon.size() >= 3 && pointInPolygon(pos, o.polygon)) { inOther = true; break; }
-                if (inOther) continue;
-                Node n; n.id = ids.next("n"); n.pos = pos; n.room = r.id; n.kind = NodeKind::Corridor;
-                level.nodes.push_back(n);
-                any = true;
+                if (edge >= 0.3f) cand.push_back({ edge, pos });
             }
+        std::stable_sort(cand.begin(), cand.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<Vec2> taken;
+        bool any = false;
+        for (const auto& [edge, pos] : cand) {
+            bool near = false;
+            for (const Vec2& q : taken) if (distance(q, pos) < p.corridorSpacing) { near = true; break; }
+            if (near) continue;
+            // Skip points inside another room (open stair or lift in the corridor).
+            bool inOther = false;
+            for (const Room& o : level.rooms)
+                if (&o != &r && o.kind != RoomKind::Corridor && o.polygon.size() >= 3 && pointInPolygon(pos, o.polygon)) { inOther = true; break; }
+            if (inOther) continue;
+            taken.push_back(pos);
+            Node n; n.id = ids.next("n"); n.pos = pos; n.room = r.id; n.kind = NodeKind::Corridor;
+            level.nodes.push_back(n);
+            any = true;
+        }
         if (!any) {                                       // no grid point fits: one node at the room point
             Node n; n.id = ids.next("n"); n.pos = r.centroid; n.room = r.id; n.kind = NodeKind::Corridor;
             level.nodes.push_back(n);

@@ -1,6 +1,6 @@
 // The ONLY place the site gets data from.
-// Today: loads public/building.json and finds routes itself (A*, same costs as the prototype's RoutePlanner.Find).
-// Later: swap the bodies for fetch() calls to #4's backend. Keep the signatures.
+// Loads the published building from the backend (/api/published) and finds routes itself
+// (A*, same costs as the prototype's RoutePlanner.Find).
 import type { Building, EdgeKind, Route } from './types'
 
 

@@ -46,7 +46,7 @@ function listItem(id, b) {
 }
 
 async function sampleText() {
-  const res = await fetch(import.meta.env.BASE_URL + "samples/sample-3floors.wfb");
+  const res = await fetch(import.meta.env.BASE_URL + "samples/sit-punggol.wfb");
   if (!res.ok) throw new Error("couldn't load the sample building");
   return res.text();
 }

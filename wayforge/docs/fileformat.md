@@ -2,7 +2,7 @@
 
 A `.wfb` file is JSON. Units are metres, y points up. It's read and written by `wf_doc` (`Serialize.cpp`) using nlohmann::json.
 
-Example: `unity/Assets/Wayforge/Samples/square.wfb`
+Example: `studio-web/public/samples/sit-punggol.wfb` (built by `tools/build_sit_punggol.py`)
 
 ## Layout
 

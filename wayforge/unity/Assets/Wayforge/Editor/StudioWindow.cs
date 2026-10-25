@@ -77,7 +77,7 @@ namespace Wayforge.Editor
             if (doc == null)
             {
                 EditorGUILayout.HelpBox("Import image: pick a floor plan picture.\n" +
-                                        "Open .wfb: load a saved plan (try Assets/Wayforge/Samples/square.wfb).",
+                                        "Open .wfb: load a saved plan (try studio-web/public/samples/sit-punggol.wfb).",
                                         MessageType.Info);
                 GUILayout.Label("Sound: " + StudioAudio.LastSound, EditorStyles.miniLabel);
                 GUILayout.Label("Sounds playing: " + StudioAudio.PlayingCount(), EditorStyles.miniLabel);

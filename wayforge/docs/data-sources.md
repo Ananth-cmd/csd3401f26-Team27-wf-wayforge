@@ -1,23 +1,25 @@
 # Data Sources
 
-All test data was made by the team. No third-party floor plans are used.
+Floor plans were drawn by the team. Building outlines and storey counts come from OpenStreetMap.
 
-## Floor plans (`data/plans/`)
+## SIT Punggol campus (`data/plans/sit-punggol/`)
 
-| File | Type | Size | What it is | Scale |
-|---|---|---|---|---|
-| `simple.svg` | SVG drawing | 400 x 240 units | One floor: corridor in the middle, 4 rooms above, stair well and 2 rooms below, exit on the right. Door gaps 0.9 m | 1 unit = 0.05 m (20 m x 12 m) |
-| `simple_scan.png` | scan-style picture | 1200 x 720 px | The same plan as a clean black-and-white image | 1 px = 0.02 m |
-| `simple_photo.jpg` | photo | 1500 x 1000 px | The same plan photographed at an angle, with uneven light | ~0.02 m per px |
+A replica of the SIT Punggol campus, East Wing to West Wing: 10 blocks, 82 floor plan sheets.
 
-Expected result for `simple_scan.png`: 7 doors, 8 rooms (1 corridor).
-
-## Unity samples (`unity/Assets/Wayforge/Samples/`)
-
-| File | What it is |
+| Item | What it is |
 |---|---|
-| `square_plan.png` | 900 x 700 px plan of one square room with one door |
-| `square.wfb` | Saved building: 4 walls, room "A1", 10 m x 10 m |
+| `<BLOCK>/<BLOCK> - Level NN.png` | One sheet per floor: walls, doors, windows, stairs, lifts, room labels and a title block. Blocks W1, W3, W5, W6, E1, E2, E3, E4, E5, E6 |
+| `site.json` | Per block: scale (metres per pixel), placement on the campus, room codes / names / kinds. Level 5 link bridges |
+| `studio-web/public/samples/sit-punggol.wfb` | The whole campus built from the sheets by `tools/build_sit_punggol.py` (12 levels, rooms coded `BLOCK-LEVEL-NN`, e.g. `E2-05-12`) |
+
+Source: building footprints and storey counts from OpenStreetMap contributors, licensed under the
+Open Database License (ODbL), https://www.openstreetmap.org/copyright. Interior layouts are
+indicative, not surveyed. Angled walls are drawn square to each block's own grid.
+
+To rebuild the campus after changing a sheet:
+```
+python tools/build_sit_punggol.py <path/to/wf_cli>
+```
 
 ## Test data (`tools/testdata/`)
 
@@ -34,6 +36,6 @@ Expected result for `simple_scan.png`: 7 doors, 8 rooms (1 corridor).
 | `Level 1.obj`, `Level 2.obj`, `Level 3.obj` | 3D level models from "Way Forge Models.zip", imported at scale 0.05. Room names and routes in the app are demo data |
 
 ## Adding a new plan
-1. Put it in `data/plans/`.
+1. Put it in `data/plans/` (one folder per building).
 2. Add a row above with its size, scale and where it came from.
 3. Only use plans we drew ourselves or have permission to use.

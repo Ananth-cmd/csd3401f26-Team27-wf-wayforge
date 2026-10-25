@@ -1,9 +1,0 @@
-{ "version": 1, "building": {"name":"simple"},
-  "levels": [ { "id": "L1", "name": "Level 1", "elevation": 0.0, "ceilingHeight": 2.8,
-      "walls": [ {"id":"w1","a":[0,0],"b":[20,0],"thickness":0.15,"confidence":0.75},
-                 {"id":"w4","a":[0,0],"b":[0,10],"thickness":0.15,"confidence":0.75} ],
-      "openings": [ {"id":"o1","wall":"w4","offset":2.0,"width":0.9,"type":"door","confidence":0.8} ],
-      "rooms": [ {"id":"r1","code":"","kind":"unknown","polygon":[[0,7],[5,7],[5,12],[0,12]],"centroid":[2.5,9.5],"area":25.0,"confidence":0.75} ],
-      "nodes": [ {"id":"n1","pos":[2.5,9.5],"kind":"room","room":"r1"}, {"id":"n8","pos":[0,2.45],"kind":"door"} ],
-      "edges": [ {"a":"n1","b":"n8","cost":7.5,"stepFree":true} ] } ],
-  "links": [] }
