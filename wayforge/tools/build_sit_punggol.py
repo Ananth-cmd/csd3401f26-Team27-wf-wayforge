@@ -97,11 +97,21 @@ def place_block(block, doc, levels):
                                      kind=kind, name=name, code=rc, boundary=[]))
 
 
+def blocks_touching(level, pts, margin=2.0):
+    """Codes of the blocks with a room corner within margin of the polygon's bounding box."""
+    x0, y0 = min(p[0] for p in pts) - margin, min(p[1] for p in pts) - margin
+    x1, y1 = max(p[0] for p in pts) + margin, max(p[1] for p in pts) + margin
+    return {r['id'].split('_')[0] for r in level['rooms']
+            if not r['id'].startswith('BR') and any(x0 <= p[0] <= x1 and y0 <= p[1] <= y1 for p in r['polygon'])}
+
+
 def add_bridges(site, levels):
+    """Bridges joining two or more blocks; those leading to buildings outside the model are left out."""
     for i, br in enumerate(site['bridges'], 1):
         L = levels.get(br['level'])
         if L is None: continue
         pts = br['polygon']
+        if len(blocks_touching(L, pts)) < 2: continue
         bid = f'BR{i}'
         for k in range(len(pts)):
             a, b = pts[k], pts[(k + 1) % len(pts)]
