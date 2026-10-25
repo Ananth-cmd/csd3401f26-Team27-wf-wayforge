@@ -227,7 +227,10 @@ label.check input { width: auto; margin: 0; }
 .edge { stroke: #6f8fb8; stroke-width: .04; opacity: .7; pointer-events: none; }
 .node { fill: #3f6ea8; pointer-events: none; }
 .node-door { fill: #2e7d4f; }
-.label { fill: #102e2b; font-family: var(--font-tight); pointer-events: none; paint-order: stroke; stroke: rgba(251,252,252,.85); stroke-width: .08; }
+/* text halo width is set on the element (a quarter of the text size), so it shrinks with the text */
+.label { fill: #102e2b; font-family: var(--font-tight); pointer-events: none; paint-order: stroke; stroke: rgba(251,252,252,.85); }
+.label-code { font-weight: 600; }
+.label-start { fill: var(--primary); font-weight: 600; }
 .route { fill: none; stroke: var(--primary); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .route-start { fill: var(--primary); pointer-events: none; }
 .route-end { fill: var(--primary-dark); pointer-events: none; }
@@ -306,15 +309,15 @@ ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
 .opening.unsure { stroke: var(--unsure); }
 .room.unsure { stroke: var(--unsure); stroke-width: .12; stroke-dasharray: .4 .25; }
 .room.see-through { fill-opacity: .35; }
-.handle { fill: #fff; stroke: var(--ink); stroke-width: .06; cursor: grab; }
+.handle { fill: #fff; stroke: var(--ink); stroke-width: 1.5px; vector-effect: non-scaling-stroke; cursor: grab; }
 .tool-select .wall-g:has(.selected) .hit { cursor: move; }
 .room-draft { fill: rgba(0, 107, 94, .15); stroke: var(--ink); stroke-dasharray: .3 .2; pointer-events: none; }
-.room-draft-pt { fill: #fff; stroke: var(--ink); stroke-width: .05; pointer-events: none; }
+.room-draft-pt { fill: #fff; stroke: var(--ink); stroke-width: 1.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .plan.tool-room { cursor: crosshair; }
-.link-dot { fill: #fff; stroke-width: .12; pointer-events: none; }
+.link-dot { fill: #fff; stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .link-stair { stroke: #b4421d; }
 .link-lift { stroke: #7b3fb0; }
-.link-label { fill: #102e2b; font-family: var(--font-tight); pointer-events: none; paint-order: stroke; stroke: rgba(251,252,252,.9); stroke-width: .08; }
+.link-label { fill: #102e2b; font-family: var(--font-tight); pointer-events: none; paint-order: stroke; stroke: rgba(251,252,252,.9); }
 .legend { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 2; font-size: 12px; color: #102e2b;
   background: rgba(251,252,252,.9); padding: 2px 8px; border-radius: var(--r); pointer-events: none; }
 .lg-unsure { display: inline-block; width: 14px; height: 4px; background: var(--unsure); vertical-align: middle; margin-right: 4px; }
@@ -330,5 +333,10 @@ ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
 .levels-table th:nth-child(4) { width: 60px; }
 .levels-table th:nth-child(5) { width: 170px; }
 .fields label.wide input { width: 180px; }
-.start-tag { fill: var(--primary); font-weight: 600; }
 a.button { text-decoration: none; }
+
+/* ---------- popup box (publish) ---------- */
+.modal-back { position: fixed; inset: 0; background: rgba(16, 46, 43, .35); display: grid; place-items: center; z-index: 20; }
+.modal { background: var(--sheet); border-radius: var(--r); padding: 20px 22px; width: min(460px, calc(100% - 32px)); box-shadow: 0 12px 40px rgba(16, 46, 43, .25); }
+.modal h2 { margin: 0 0 8px; font-size: 18px; }
+.modal p { margin: 0 0 16px; color: var(--graphite); font-size: 14px; line-height: 1.5; }

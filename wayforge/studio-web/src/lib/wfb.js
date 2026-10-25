@@ -68,6 +68,14 @@ export function openingEnds(level, opening) {
   };
 }
 
+// middle of a room, where its label and starting point go. the engine gives a centroid,
+// rooms drawn by hand in the Studio get the average of their corners
+export function roomCentre(r) {
+  if (r.centroid) return [...r.centroid];
+  const p = r.polygon || [];
+  return [p.reduce((t, q) => t + q[0], 0) / (p.length || 1), p.reduce((t, q) => t + q[1], 0) / (p.length || 1)];
+}
+
 export function wallLength(w) {
   return Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]);
 }

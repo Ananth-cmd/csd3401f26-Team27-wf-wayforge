@@ -6,11 +6,16 @@
  * changes it and pushes the old one on the undo list, so Ctrl+Z works
  * for everything without each panel needing its own undo code
  *
+ * Save and Publish are separate on purpose:
+ *   Save    - keeps your changes on the server as a draft. the Navigator doesn't change
+ *   Publish - makes the saved version the one the Navigator shows. if there are unsaved
+ *             changes it asks whether to save them first or publish the last saved version
+ *
  * \author Katie Lim
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/api.js";
-import { parseWfb, toWfbText, clone, validate, summary, nextId, polygonArea } from "../lib/wfb.js";
+import { parseWfb, toWfbText, clone, validate, summary, nextId, polygonArea, roomCentre } from "../lib/wfb.js";
 import PlanView from "../components/PlanView.jsx";
 import Viewer3D from "../components/Viewer3D.jsx";
 import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel, RoutePanel } from "../components/Inspector.jsx";
@@ -48,9 +53,10 @@ export default function EditorPage({ id, go }) {
   const [opacity, setOpacity] = useState(0.35);
   const [picDims, setPicDims] = useState({});         // {L1: {w, h}} sizes of the uploaded pictures
   const [busy, setBusy] = useState("");
+  const [asking, setAsking] = useState(false); // the "publish?" box is open
   const [toast, setToast] = useState("");
   const undo = useRef([]), redo = useRef([]), lastEdit = useRef(0);
-  const loadedGeometry = useRef("");
+  const savedGeometry = useRef("");
 
   // load the building
   useEffect(() => {
@@ -61,7 +67,7 @@ export default function EditorPage({ id, go }) {
         const d = parseWfb(b.wfb);
         setInfo(b); put(d); setSavedText(toWfbText(d));
         setLevelId(d.levels[0]?.id);
-        loadedGeometry.current = geometryKey(d);
+        savedGeometry.current = geometryKey(d);
       })
       .catch((e) => !stop && setError(e.message));
     return () => { stop = true; };
@@ -76,7 +82,7 @@ export default function EditorPage({ id, go }) {
       img.onload = () => setPicDims((cur) => ({ ...cur, [src.level]: { w: img.naturalWidth, h: img.naturalHeight } }));
       img.src = picUrl(src.level);
     }
-  }, [info?.id, info?.sources?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [info?.id, info?.sources?.length]); // only when the building or its pictures change
 
   const flash = (text) => { setToast(text); setTimeout(() => setToast(""), 2500); };
 
@@ -118,24 +124,38 @@ export default function EditorPage({ id, go }) {
   const text = useMemo(() => (doc ? toWfbText(doc) : ""), [doc]);
   const dirty = doc && text !== savedText;
   const problems = useMemo(() => (doc ? validate(doc) : []), [doc]);
-  const geometryChanged = doc && geometryKey(doc) !== loadedGeometry.current;
+  const geometryChanged = doc && geometryKey(doc) !== savedGeometry.current;
   const level = doc?.levels.find((l) => l.id === levelId) || doc?.levels[0];
 
   async function save() {
     setBusy("save");
+    const sent = docRef.current;
     try {
       const res = await api.saveBuilding(id, text);
-      setSavedText(text);
-      setInfo((i) => ({ ...i, ...res }));
-      flash("Saved");
+      // the server rebuilds the walking paths when it saves (wf_cli graph), so load its copy
+      // back. then the paths on screen, the 3D and what gets published all match
+      const { wfb, ...fresh } = await api.getBuilding(id);
+      const saved = parseWfb(wfb);
+      if (docRef.current === sent) put(saved); // don't throw away edits made while it was saving
+      setSavedText(toWfbText(saved));
+      savedGeometry.current = geometryKey(saved);
+      setInfo(fresh);
+      flash(res.warning || "Saved");
       return true;
     } catch (e) { flash("Save failed: " + e.message); return false; } finally { setBusy(""); }
   }
 
-  async function publish() {
+  // the Publish button only opens the box, the box decides what happens
+  function askPublish() {
     if (problems.some((p) => p.type === "error")) { setSheet("checks"); flash("Fix the errors first"); return; }
-    if (!window.confirm(`Publish "${doc.building.name}" to the Navigator?`)) return;
-    if (dirty && !(await save())) return;
+    setAsking(true);
+  }
+
+  // saveFirst = true: save the changes on screen, then publish them
+  // saveFirst = false: publish what was saved last, the changes on screen stay unsaved
+  async function publish(saveFirst) {
+    setAsking(false);
+    if (saveFirst && !(await save())) return;
     setBusy("publish");
     try {
       const res = await api.publishBuilding(id);
@@ -153,8 +173,6 @@ export default function EditorPage({ id, go }) {
     URL.revokeObjectURL(a.href);
   }
 
-
-
   // drag a wall (or one end of it) in the 2D plan
   function moveWall(wallId, a, b) {
     edit((d) => {
@@ -163,15 +181,14 @@ export default function EditorPage({ id, go }) {
     }, true);
   }
 
-  // a room drawn with the room tool. centroid = average of the corners, good enough for the label
+  // a room drawn with the room tool. its centre is the average of the corners, good enough for the label
   function addRoom(poly) {
     let newId = null;
     edit((d) => {
       const l = d.levels.find((x) => x.id === level.id);
       l.rooms = l.rooms || [];
       newId = nextId(l, "r");
-      const cx = poly.reduce((t, p) => t + p[0], 0) / poly.length, cy = poly.reduce((t, p) => t + p[1], 0) / poly.length;
-      l.rooms.push({ id: newId, code: "", name: "", kind: "unknown", polygon: poly, centroid: [cx, cy],
+      l.rooms.push({ id: newId, code: "", name: "", kind: "unknown", polygon: poly, centroid: roomCentre({ polygon: poly }),
         area: polygonArea(poly), boundary: [], confidence: 1 });
     }, true);
     setTool("select");
@@ -235,6 +252,7 @@ export default function EditorPage({ id, go }) {
   // keyboard shortcuts, but not while typing in a box
   useEffect(() => {
     const onKey = (e) => {
+      if (asking) return; // the publish box has its own keys
       const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
@@ -286,7 +304,11 @@ export default function EditorPage({ id, go }) {
     }
   }
   const errors = problems.filter((p) => p.type === "error").length;
-  const status = info?.publishedAt ? (dirty || info.status === "changed" ? "Edited since publish" : `Published v${info.version}`) : "Draft";
+  // what the title bar says, so you can tell what the Navigator has
+  const status = dirty ? "Unsaved changes"
+    : !info?.publishedAt ? "Draft, not published"
+    : info.status === "changed" ? `Saved, Navigator has v${info.version}`
+    : `Published v${info.version}`;
   // floors listed top floor first, like the buttons in a lift
   const floorsTopDown = [...doc.levels].reverse();
   const toggleSheet = (name) => setSheet((cur) => (cur === name ? null : name));
@@ -306,8 +328,8 @@ export default function EditorPage({ id, go }) {
           <button className="quiet" onClick={doRedo} disabled={!redo.current.length} title="Ctrl+Y">Redo</button>
           <span className="sep" />
           <button className="quiet" onClick={download} title="Download the .wfb file">Download</button>
-          <button onClick={save} disabled={!dirty || busy === "save"} title="Ctrl+S">{busy === "save" ? "Saving..." : dirty ? "Save" : "Saved"}</button>
-          <button className="primary" onClick={publish} disabled={busy === "publish"}>{busy === "publish" ? "Publishing..." : "Publish"}</button>
+          <button onClick={save} disabled={!dirty || busy === "save"} title="Save as a draft, the Navigator doesn't change (Ctrl+S)">{busy === "save" ? "Saving..." : dirty ? "Save" : "Saved"}</button>
+          <button className="primary" onClick={askPublish} disabled={busy === "publish"} title="Put the saved version on the Navigator">{busy === "publish" ? "Publishing..." : "Publish"}</button>
           {info?.publishedAt && <a className="button" href={navigatorLink(id)} target="_blank" rel="noreferrer">Open in Navigator</a>}
         </div>
       </header>
@@ -397,7 +419,46 @@ export default function EditorPage({ id, go }) {
           </div>
         </footer>
       </div>
+      {asking && (
+        <PublishBox name={doc.building.name || id} unsaved={dirty} published={!!info?.publishedAt}
+          onPublish={publish} onCancel={() => setAsking(false)} />
+      )}
       {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+// the box that opens from Publish. with unsaved changes you pick: save them and publish,
+// or publish the last saved version and keep working on the changes
+function PublishBox({ name, unsaved, published, onPublish, onCancel }) {
+  // Esc closes it like any other popup
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="modal-back" onClick={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="publish-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="publish-title">Publish "{name}"?</h2>
+        {unsaved ? (
+          <p>You have changes that aren't saved yet. Save them and publish, or publish the last saved version and keep working on them.</p>
+        ) : (
+          <p>{published ? "This replaces the version on the Navigator." : "The building will show up on the Navigator."} People see it the next time they open or refresh the Navigator.</p>
+        )}
+        <div className="row-buttons">
+          {unsaved ? (
+            <>
+              <button className="primary" onClick={() => onPublish(true)} autoFocus>Save and publish</button>
+              <button onClick={() => onPublish(false)}>Publish last saved version</button>
+            </>
+          ) : (
+            <button className="primary" onClick={() => onPublish(false)} autoFocus>Publish</button>
+          )}
+          <button className="quiet" onClick={onCancel}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }

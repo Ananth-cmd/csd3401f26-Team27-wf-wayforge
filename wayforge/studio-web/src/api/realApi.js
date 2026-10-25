@@ -1,10 +1,9 @@
 /*!
  * \file realApi.js
- * \brief talks to the real Wayforge backend (item 4)
+ * \brief talks to the Studio server (server/server.mjs)
  *
- * the endpoints follow API.md in this folder. that's my proposal for the
- * backend, if the backend ends up different just change the urls here,
- * the pages only call these functions.
+ * the endpoints are in API.md in this folder. the pages only call these
+ * functions, so if a url changes it only changes here.
  *
  * \author Katie Lim
  */
@@ -19,10 +18,6 @@ async function call(path, options = {}) {
   if (!res.ok) throw new Error((body && body.error) || `${res.status} ${res.statusText}`);
   return body;
 }
-
-const json = (method, data) => ({
-  method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-});
 
 export const realApi = {
   mode: "server",
@@ -57,7 +52,7 @@ export const realApi = {
 
   deleteBuilding: (id) => call(`/buildings/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  publishBuilding: (id) => call(`/buildings/${encodeURIComponent(id)}/publish`, json("POST", {})),
+  publishBuilding: (id) => call(`/buildings/${encodeURIComponent(id)}/publish`, { method: "POST" }),
 
   // the server runs wf_cli route on the SAVED file, so save first if there are changes
   route: (id, _wfbText, from, to, stepFree) =>

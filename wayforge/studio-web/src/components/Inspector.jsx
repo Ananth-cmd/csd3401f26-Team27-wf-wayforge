@@ -14,14 +14,7 @@
  * \author Katie Lim
  */
 import { useState } from "react";
-import { ROOM_KINDS, KIND_COLOURS, wallLength, polygonArea } from "../lib/wfb.js";
-
-// middle of a room (the engine gives a centroid, rooms drawn by hand might not have one yet)
-function roomCentre(r) {
-  if (r.centroid) return [...r.centroid];
-  const p = r.polygon || [];
-  return [p.reduce((s, q) => s + q[0], 0) / (p.length || 1), p.reduce((s, q) => s + q[1], 0) / (p.length || 1)];
-}
+import { ROOM_KINDS, KIND_COLOURS, wallLength, polygonArea, roomCentre } from "../lib/wfb.js";
 
 const num = (v, d = 2) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixed(d));
 

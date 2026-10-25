@@ -66,7 +66,7 @@ export default function Viewer3D({ wfbText, levelId, route, onRoomClicked, highl
       } catch (e) { setMessage(String(e.message || e)); }
     }, 600);
     return () => clearTimeout(t);
-  }, [state, wfbText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, wfbText]); // not on levelId, changing floor is the effect below (no reload)
 
   useEffect(() => {
     if (state === "ready" && levelId) viewerRef.current.showFloor(levelId);

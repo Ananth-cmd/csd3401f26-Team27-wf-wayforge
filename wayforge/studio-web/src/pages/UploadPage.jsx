@@ -10,7 +10,7 @@
  *
  * \author Katie Lim
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/api.js";
 import PlanPrep, { cropFile } from "../components/PlanPrep.jsx";
 import { autoCrop } from "../lib/autocrop.js";
@@ -45,8 +45,11 @@ export default function UploadPage({ go }) {
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
 
-  // free the preview images when we leave the page
-  useEffect(() => () => floors.forEach((f) => URL.revokeObjectURL(f.url)), []); // eslint-disable-line
+  // free the preview images when we leave the page. the ref always has the current list
+  // (the cleanup would otherwise only see the empty list from the first render)
+  const floorsRef = useRef(floors);
+  floorsRef.current = floors;
+  useEffect(() => () => floorsRef.current.forEach((f) => URL.revokeObjectURL(f.url)), []);
 
   function addFiles(list) {
     const files = [...list];

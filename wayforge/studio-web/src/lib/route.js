@@ -1,18 +1,18 @@
 /*!
  * \file route.js
- * \brief simple route finder used by the mock api so we can test routes
- *        in the Studio before the backend (wf_cli route) is ready
+ * \brief simple route finder for the offline demo (mockApi.js), so "Test a
+ *        route" still works when the Studio server isn't running
  *
  * it's plain Dijkstra over the nodes/edges in the .wfb plus the stair/lift
- * links between floors. the real one is wf_graph (A*) in the C++ core,
- * this one just gives back the same shape of answer so the UI doesn't
- * need to change when we switch to the backend.
+ * links between floors. with the server, routes come from wf_cli route
+ * (wf_graph in the C++ core) instead. this gives back the same shape of
+ * answer so the route panel doesn't care which one it got.
  *
  * \author Katie Lim
  */
 
 // find a room by its code ("L1-01") or by "L1:r19"
-export function findRoom(doc, ref) {
+function findRoom(doc, ref) {
   const want = String(ref).trim().toLowerCase();
   for (const l of doc.levels) {
     for (const r of l.rooms || []) {

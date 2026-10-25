@@ -20,13 +20,20 @@
  * toPlan() flips the mouse back. text is drawn outside the flip so it isn't
  * upside down.
  *
+ * sizes: the plan is in metres but dots, click areas and text should stay the
+ * same size on screen when you zoom. so they're given in screen pixels times
+ * px (how many metres one pixel is right now). room labels work like a map:
+ * they grow and shrink with the zoom but stay readable, and a label that
+ * doesn't fit in its room is hidden until you zoom in (roomLabel at the bottom).
+ *
  * \author Katie Lim
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KIND_COLOURS, levelBounds, openingEnds } from "../lib/wfb.js";
+import { KIND_COLOURS, levelBounds, openingEnds, roomCentre } from "../lib/wfb.js";
 
 const SNAP = 0.4;   // metres, how close you need to be to snap to a wall end
 const UNSURE = 0.7; // confidence below this is shown in orange
+const LINK_LABEL_ZOOM = 20; // "stairs to L2" text only shows once 1 m is at least this many pixels
 
 const unsure = (x) => (x.confidence ?? 1) < UNSURE;
 
@@ -52,6 +59,11 @@ export default function PlanView({
   }, [view === null]);
 
   const bounds = useMemo(() => levelBounds(level), [level]);
+  // where each room's label goes and how much space it has (only changes when the rooms do)
+  const labelSpots = useMemo(() => (level.rooms || []).map((r) => {
+    const xs = r.polygon.map((p) => p[0]), ys = r.polygon.map((p) => p[1]);
+    return { room: r, centre: roomCentre(r), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  }), [level.rooms]);
 
   // fit the floor in the view when we switch floors (y flipped: top of the view is -maxY)
   const fit = () => {
@@ -61,7 +73,7 @@ export default function PlanView({
       w: bounds.maxX - bounds.minX + pad * 2, h: bounds.maxY - bounds.minY + pad * 2,
     });
   };
-  useEffect(fit, [level.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(fit, [level.id]); // only on a floor change, not on every edit, or it would jump while you work
 
   // keys for the drawing tools
   useEffect(() => {
@@ -210,7 +222,8 @@ export default function PlanView({
 
   if (!view) return <div className="plan-wrap"><svg ref={svgRef} className="plan" /></div>;
   const isSel = (type, id) => selection && selection.type === type && selection.id === id;
-  const font = Math.max(0.35, Math.min(view.w, view.h) / 45);
+  // metres per screen pixel. the viewBox keeps its shape, so the tighter side decides the zoom
+  const px = size.w ? Math.max(view.w / size.w, view.h / size.h) : view.w / 1000;
   const routeHere = route && route.ok ? route.steps.filter((s) => s.level === level.id) : [];
   // while a wall is being dragged, draw it where it's going
   const wallsShown = (level.walls || []).map((w) => (moving && moving.id === w.id ? { ...w, a: moving.a, b: moving.b } : w));
@@ -274,7 +287,7 @@ export default function PlanView({
           return <line key={i} x1={a.pos[0]} y1={a.pos[1]} x2={b.pos[0]} y2={b.pos[1]} className="edge" />;
         })}
         {showPaths && (level.nodes || []).map((n) => (
-          <circle key={n.id} cx={n.pos[0]} cy={n.pos[1]} r={font * 0.25} className={`node node-${n.kind}`} />
+          <circle key={n.id} cx={n.pos[0]} cy={n.pos[1]} r={4 * px} className={`node node-${n.kind}`} />
         ))}
 
         {wallsShown.map((w) => (
@@ -283,7 +296,7 @@ export default function PlanView({
               strokeWidth={Math.max(0.12, w.thickness || 0.15)}
               className={"wall" + (isSel("wall", w.id) ? " selected" : "") + (unsure(w) ? " unsure" : "")} />
             {/* fat invisible line so thin walls are easy to click */}
-            <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} strokeWidth={font * 1.2} className="hit" />
+            <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} strokeWidth={18 * px} className="hit" />
           </g>
         ))}
 
@@ -297,58 +310,59 @@ export default function PlanView({
               <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th + 0.06} className="gap" />
               <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th * 0.5}
                 className={`opening opening-${o.type}` + (isSel("opening", o.id) ? " selected" : "") + (unsure(o) ? " unsure" : "")} />
-              <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={font} className="hit" />
+              <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={15 * px} className="hit" />
             </g>
           );
         })}
 
         {/* stairs/lifts that go to another floor */}
         {links.map((k, i) => (
-          <circle key={i} cx={k.pos[0]} cy={k.pos[1]} r={font * 0.55} className={`link-dot link-${k.kind}`} />
+          <circle key={i} cx={k.pos[0]} cy={k.pos[1]} r={8 * px} className={`link-dot link-${k.kind}`} />
         ))}
 
         {routeHere.length > 1 && (
-          <polyline points={routeHere.map((s) => `${s.x},${s.y}`).join(" ")} className="route" strokeWidth={font * 0.35} />
+          <polyline points={routeHere.map((s) => `${s.x},${s.y}`).join(" ")} className="route" strokeWidth={5 * px} />
         )}
         {routeHere.length > 0 && (
           <>
-            <circle cx={routeHere[0].x} cy={routeHere[0].y} r={font * 0.5} className="route-start" />
-            <circle cx={routeHere.at(-1).x} cy={routeHere.at(-1).y} r={font * 0.5} className="route-end" />
+            <circle cx={routeHere[0].x} cy={routeHere[0].y} r={7 * px} className="route-start" />
+            <circle cx={routeHere.at(-1).x} cy={routeHere.at(-1).y} r={7 * px} className="route-end" />
           </>
         )}
 
         {/* end dots of the selected wall, drag them to move that end */}
         {selWall && ["a", "b"].map((end) => (
-          <circle key={end} cx={selWall[end][0]} cy={selWall[end][1]} r={font * 0.45} className="handle" data-type="handle" data-id={end} />
+          <circle key={end} cx={selWall[end][0]} cy={selWall[end][1]} r={7 * px} className="handle" data-type="handle" data-id={end} />
         ))}
 
         {tool === "wall" && wallStart && mouse && (
           <line x1={wallStart[0]} y1={wallStart[1]} x2={snap(mouse)[0]} y2={snap(mouse)[1]} className="wall preview" strokeWidth={0.15} />
         )}
-        {tool === "wall" && wallStart && <circle cx={wallStart[0]} cy={wallStart[1]} r={font * 0.3} className="route-start" />}
+        {tool === "wall" && wallStart && <circle cx={wallStart[0]} cy={wallStart[1]} r={5 * px} className="route-start" />}
 
         {tool === "room" && roomPts.length > 0 && (
           <>
-            <polyline points={[...roomPts, ...(mouse ? [snap(mouse)] : [])].map((p) => p.join(",")).join(" ")} className="room-draft" strokeWidth={font * 0.12} />
-            {roomPts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={font * (i === 0 ? 0.4 : 0.25)} className="room-draft-pt" />)}
+            <polyline points={[...roomPts, ...(mouse ? [snap(mouse)] : [])].map((p) => p.join(",")).join(" ")} className="room-draft" strokeWidth={2 * px} />
+            {roomPts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={(i === 0 ? 6 : 4) * px} className="room-draft-pt" />)}
           </>
         )}
       </g>
 
       {/* labels last so nothing covers them. outside the flip, so y is negated by hand */}
-      {/* (rooms marked as a starting point get a small "start point" line) */}
-      {(level.rooms || []).map((r) => {
-        const c = r.centroid || r.polygon[0];
-        return (
-          <text key={r.id} x={c[0]} y={-c[1]} fontSize={font} className="label" textAnchor="middle">
-            <tspan x={c[0]} dy="-0.2em" fontWeight="600">{r.code || r.id}</tspan>
-            {r.name && <tspan x={c[0]} dy="1.15em" fontSize={font * 0.8}>{r.name}</tspan>}
-            {starts.has("a-" + r.id) && <tspan x={c[0]} dy="1.15em" fontSize={font * 0.7} className="start-tag">start point</tspan>}
-          </text>
-        );
+      {labelSpots.map((spot) => {
+        const lines = roomLabel(spot, starts.has("a-" + spot.room.id), px);
+        // stack the lines around the middle of the room
+        let y = -spot.centre[1] - lines.reduce((t, l) => t + l.size * LINE_GAP, 0) / 2;
+        return lines.map((l) => {
+          y += l.size * LINE_GAP;
+          return (
+            <text key={spot.room.id + l.kind} x={spot.centre[0]} y={y - l.size * 0.3} fontSize={l.size} strokeWidth={l.size * 0.25}
+              className={"label label-" + l.kind} textAnchor="middle">{l.text}</text>
+          );
+        });
       })}
-      {links.map((k, i) => (
-        <text key={i} x={k.pos[0] + font * 0.8} y={-k.pos[1] + font * 0.3} fontSize={font * 0.8} className="link-label">
+      {1 / px >= LINK_LABEL_ZOOM && links.map((k, i) => (
+        <text key={i} x={k.pos[0]} y={-k.pos[1] + 22 * px} fontSize={11 * px} strokeWidth={3 * px} className="link-label" textAnchor="middle">
           {k.kind === "lift" ? "lift" : "stairs"} to {k.to}
         </text>
       ))}
@@ -356,6 +370,43 @@ export default function PlanView({
     <ScaleBar view={view} size={size} />
     </div>
   );
+}
+
+// ---------- room labels ----------
+// like a map: text grows and shrinks with the zoom (it's a real size in metres), but only
+// between a smallest size that's still readable and a biggest size so it doesn't shout.
+// each line also has to fit inside its room with a little gap, otherwise it's left out.
+// so zoomed out you get room codes only (or nothing in tiny rooms), zoomed in the names show up
+const LABELS = [
+  // kind,    metres tall, smallest px, biggest px
+  ["code",  0.9, 7, 13],
+  ["name",  0.75, 7, 11],
+  ["start", 0.65, 7, 10],
+];
+const LINE_GAP = 1.2; // line height compared to the text size
+const CHAR_W = 0.6;   // a letter is roughly this wide compared to its height (Noto Sans)
+const ROOM_FILL = 0.75; // text may use this much of the room's width / height
+
+// the lines of text for one room, each with its size in metres
+function roomLabel(spot, isStart, px) {
+  const r = spot.room;
+  const texts = { code: r.code || r.id, name: r.name, start: isStart ? "start point" : "" };
+  const lines = [];
+  let used = 0; // height taken by the lines so far
+  for (const [kind, metres, minPx, maxPx] of LABELS) {
+    const text = texts[kind];
+    if (!text) continue;
+    const wanted = Math.min(Math.max(metres, minPx * px), maxPx * px); // the zoom size, kept in range
+    const size = Math.min(wanted, (spot.w * ROOM_FILL) / (text.length * CHAR_W));
+    const fits = size >= minPx * px && used + size * LINE_GAP <= spot.h * ROOM_FILL;
+    if (!fits) {
+      if (kind === "code") return []; // no code means the room is too small for any label
+      continue;
+    }
+    lines.push({ kind, text, size });
+    used += size * LINE_GAP;
+  }
+  return lines;
 }
 
 // "how long is 1 metre on screen" so people can tell if a room size looks right.

@@ -16,9 +16,9 @@
  * run it:   npm run server        (port 8080, or PORT=xxxx)
  * wf_cli is found from WF_CLI, or by looking in wayforge/build for wf_cli / wf_cli.exe
  *
- * this is the Studio's own simple backend so the site works end to end.
- * if the team's real backend (item 4) ends up different, the site only
- * talks to it through src/api/realApi.js
+ * the Studio's own backend. drafts stay here; the Navigator side (Kervin's
+ * API in wayforge/backend) only reads what's published, through
+ * GET /api/published and /api/published/:id/wfb
  *
  * \author Katie Lim
  */
