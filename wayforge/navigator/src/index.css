@@ -98,6 +98,9 @@ h3 { font-size: 20px; font-weight: 700; }
 .mapview { position: absolute; inset: 0; }
 .mapview svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .mapview svg:active { cursor: grabbing; }
+.map-ctrl { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 3; }
+.map-ctrl button { width: 36px; height: 36px; border-radius: 10px; background: #fff; color: var(--teal); font-size: 18px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(18, 48, 44, 0.12); }
+.map-ctrl button:active { background: var(--mint); }
 .m-slab { fill: #ffffff; }
 .m-slab-side { fill: #b9d6cb; }
 .m-zone.stairs { fill: var(--stairs); }

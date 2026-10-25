@@ -40,10 +40,12 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
     return [(x0 + x1) / 2, 0, (z0 + z1) / 2]
   }, [lvl])
 
-  const [target, setTarget] = useState<V3>(centre)
-  const [zoom, setZoom] = useState(1)
-  const [yaw, setYaw] = useState(topDown ? 0 : -35)
-  useEffect(() => { setTarget(centre); setZoom(1); setYaw(topDown ? 0 : -35) }, [centre, topDown])
+  // camera: look-at point on the floor, zoom (1 = whole floor fits, smaller = closer), rotation
+  const defYaw = topDown ? 0 : -35
+  const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>({ t: centre, zoom: 1, yaw: defYaw })
+  const reset = () => setCam({ t: centre, zoom: 1, yaw: defYaw })
+  useEffect(reset, [centre, topDown]) // eslint-disable-line
+  const { t: target, zoom, yaw } = cam
 
   // camera basis (Unity Quaternion.Euler(pitch, yaw, 0))
   const pitch = ((topDown ? 90 : 48) * Math.PI) / 180, psi = (yaw * Math.PI) / 180
@@ -58,13 +60,16 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
 
   // fit the whole floor in view (from the centre), then apply zoom
   const fit = useMemo(() => {
+    const ps = (defYaw * Math.PI) / 180
+    const r0: V3 = [Math.cos(ps), 0, -Math.sin(ps)], f0: V3 = [Math.sin(ps), 0, Math.cos(ps)]
+    const u0: V3 = [Math.sin(pitch) * f0[0], Math.cos(pitch), Math.sin(pitch) * f0[2]]
     let mx = 1, my = 1
     for (const f of lvl.floors) for (const p of f) for (const y of [-SLAB_T, WALL_H]) {
-      const [sx, sy] = projAt([p[0], y, p[1]], centre)
-      mx = Math.max(mx, Math.abs(sx)); my = Math.max(my, Math.abs(sy))
+      const r: V3 = [p[0] - centre[0], y, p[1] - centre[2]]
+      mx = Math.max(mx, Math.abs(dot(r, r0))); my = Math.max(my, Math.abs(dot(r, u0)))
     }
     return { mx: mx * 1.08, my: my * 1.12 }
-  }, [lvl, centre, yaw, topDown]) // eslint-disable-line
+  }, [lvl, centre, topDown]) // eslint-disable-line
   const aspect = size.w / size.h
   const vh = Math.max(fit.my * 2, (fit.mx * 2) / aspect) * zoom
   const vw = vh * aspect
@@ -113,31 +118,79 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
   const hereNode = here && node.get(here)?.level === floor ? here : null
 
-  // gestures
+  // ---- gestures ----
+  // 1 finger / mouse drag: rotate (3D) or move (2D). Right-drag or Shift-drag: move in 3D.
+  // 2 fingers: pinch to zoom + drag to move. Wheel / trackpad: zoom towards the pointer.
+  const svgRef = useRef<SVGSVGElement>(null)
+  const sinp = Math.sin(pitch)
+  const live = useRef({ k, sinp, right, fwdH })
+  live.current = { k, sinp, right, fwdH }
+  const clampZoom = (z: number) => Math.min(2.5, Math.max(0.25, z))
+  // move the camera so the floor follows the pointer by (dx, dy) screen pixels
+  const panBy = (dx: number, dy: number) => setCam(c => {
+    const { k, sinp, right, fwdH } = live.current
+    const a = -dx * k, b = (dy * k) / sinp
+    return { ...c, t: [c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b] }
+  })
+  // zoom by factor (<1 = closer) keeping the point under (px, py) — pixels from the map centre — in place
+  const zoomAt = (factor: number, px = 0, py = 0) => setCam(c => {
+    const { k, sinp, right, fwdH } = live.current
+    const z = clampZoom(c.zoom * factor), r = z / c.zoom
+    const a = px * k * (1 - r), b = (py * k * (r - 1)) / sinp
+    return { yaw: c.yaw, zoom: z, t: [c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b] }
+  })
+  const fromCentre = (x: number, y: number) => {
+    const r = svgRef.current!.getBoundingClientRect()
+    return [x - r.left - r.width / 2, y - r.top - r.height / 2] as Vec2
+  }
+  // wheel needs a non-passive listener so the page doesn't scroll / zoom while zooming the map
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const [px, py] = fromCentre(e.clientX, e.clientY)
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY // lines -> pixels
+      zoomAt(Math.exp(Math.max(-60, Math.min(60, dy)) * (e.ctrlKey ? 0.01 : 0.002)), px, py) // ctrlKey = trackpad pinch
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, []) // eslint-disable-line
+
   const ptrs = useRef(new Map<number, Vec2>())
-  const pinch = useRef(0)
-  const clampZoom = (z: number) => Math.min(2, Math.max(0.35, z))
-  const onDown = (e: React.PointerEvent) => { ptrs.current.set(e.pointerId, [e.clientX, e.clientY]); (e.currentTarget as Element).setPointerCapture(e.pointerId) }
-  const onUp = (e: React.PointerEvent) => { ptrs.current.delete(e.pointerId); pinch.current = 0 }
+  const pinch = useRef<{ d: number; m: Vec2 } | null>(null)
+  const panMode = useRef(false)
+  const onDown = (e: React.PointerEvent) => {
+    ptrs.current.set(e.pointerId, [e.clientX, e.clientY])
+    panMode.current = topDown || e.button === 2 || e.shiftKey
+    pinch.current = null
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+  const onUp = (e: React.PointerEvent) => { ptrs.current.delete(e.pointerId); pinch.current = null }
   const onMove = (e: React.PointerEvent) => {
     const prev = ptrs.current.get(e.pointerId)
     if (!prev) return
     ptrs.current.set(e.pointerId, [e.clientX, e.clientY])
-    if (ptrs.current.size === 2) {
-      const [a, b] = [...ptrs.current.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1])
-      if (pinch.current > 10 && d > 10) setZoom(z => clampZoom(z * (pinch.current / d)))
-      pinch.current = d
+    if (ptrs.current.size >= 2) {
+      const [a, b] = [...ptrs.current.values()]
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      if (pinch.current && d > 10) {
+        panBy(m[0] - pinch.current.m[0], m[1] - pinch.current.m[1])
+        const [px, py] = fromCentre(m[0], m[1])
+        zoomAt(pinch.current.d / d, px, py)
+      }
+      pinch.current = { d, m }
       return
     }
     const dx = e.clientX - prev[0], dy = e.clientY - prev[1]
-    if (topDown) setTarget(t => [t[0] - right[0] * dx * k + fwdH[0] * dy * k, 0, t[2] - right[2] * dx * k + fwdH[2] * dy * k])
-    else setYaw(v => v - dx * 0.3)
+    if (panMode.current) panBy(dx, dy)
+    else setCam(c => ({ ...c, yaw: c.yaw + dx * 0.4 })) // drag right = turn the building right
   }
 
   return (
     <div className={`mapview${topDown ? ' flat' : ''}`} ref={ref}>
-      <svg viewBox={`${-vw / 2} ${-vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        onWheel={e => setZoom(z => clampZoom(z * (e.deltaY < 0 ? 0.9 : 1.1)))} role="img" aria-label={`${lvl.name} map`}>
+      <svg ref={svgRef} viewBox={`${-vw / 2} ${-vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+        onContextMenu={e => e.preventDefault()} onDoubleClick={e => { const [px, py] = fromCentre(e.clientX, e.clientY); zoomAt(0.6, px, py) }} role="img" aria-label={`${lvl.name} map`}>
         {slab.map((s, i) => <g key={i}>
           {s.sides.map((sd, j) => <polygon key={j} className="m-slab-side" points={sd.map(pt).join(' ')} />)}
           <polygon className="m-slab" points={s.top.map(pt).join(' ')} />
@@ -167,6 +220,11 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
           </g>
         })()}
       </svg>
+      <div className="map-ctrl">
+        <button aria-label="Zoom in" onClick={() => zoomAt(1 / 1.35)}>+</button>
+        <button aria-label="Zoom out" onClick={() => zoomAt(1.35)}>−</button>
+        <button aria-label="Reset view" onClick={reset} title="Reset view">⟲</button>
+      </div>
     </div>
   )
 }
