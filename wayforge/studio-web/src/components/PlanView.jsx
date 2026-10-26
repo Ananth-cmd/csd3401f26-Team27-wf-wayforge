@@ -5,7 +5,7 @@
  * draws the uploaded blueprint underneath (optional), rooms coloured by
  * kind, walls, doors/windows, stair/lift links, labels and the walking
  * paths / a test route. scroll to zoom, drag empty space to pan.
- * anything the engine wasn't sure about (isUnsure in wfb.js) is orange.
+ * anything the engine wasn't sure about (confidence under 0.7) is orange.
  *
  * tools:
  *   select - click a room / wall / door. a selected wall can be dragged to
@@ -27,15 +27,22 @@
  * doesn't fit in its room is hidden until you zoom in (roomLabel at the bottom).
  *
  * \author Katie Lim
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Katie Lim 90%, Ananthan Elangovan 10%
+ *   - Ananthan: drawing layers reused between pan / hover updates, node and wall lookups by id
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KIND_COLOURS, levelBounds, openingEnds, roomCentre, isStartPoint, isUnsure } from "../lib/wfb.js";
+import { KIND_COLOURS, levelBounds, openingEnds, roomCentre } from "../lib/wfb.js";
 
 const SNAP = 0.4;   // metres, how close you need to be to snap to a wall end
+const UNSURE = 0.7; // confidence below this is shown in orange
 const LINK_LABEL_ZOOM = 20; // "stairs to L2" text only shows once 1 m is at least this many pixels
 
+const unsure = (x) => (x.confidence ?? 1) < UNSURE;
+
 export default function PlanView({
-  level, selection, tool, showPaths, route, underlay, links = [], focus,
+  level, selection, tool, showPaths, route, underlay, links = [],
   onSelect, onAddWall, onAddDoor, onMoveWall, onAddRoom,
 }) {
   const svgRef = useRef(null);
@@ -71,18 +78,6 @@ export default function PlanView({
     });
   };
   useEffect(fit, [level.id]); // only on a floor change, not on every edit, or it would jump while you work
-
-  // move to a room picked somewhere else (the room table). about 30 m across, so its label shows.
-  // this comes after fit above, so on a floor change it still ends up on the room
-  useEffect(() => {
-    const r = focus && (level.rooms || []).find((x) => x.id === focus.id);
-    if (!r) return;
-    const [cx, cy] = roomCentre(r);
-    setView((v) => {
-      const w = 30, h = v ? (w * v.h) / v.w : w;
-      return { x: cx - w / 2, y: -cy - h / 2, w, h };
-    });
-  }, [focus]); // only when a new room is picked, not when the floor is edited
 
   // keys for the drawing tools
   useEffect(() => {
@@ -157,7 +152,7 @@ export default function PlanView({
 
   function onPointerMove(e) {
     const p = toPlan(e);
-    setMouse(p);
+    if (tool === "wall" || tool === "room") setMouse(p); // only the drawing tools' preview follows the mouse
     const d = drag.current;
     if (!d) return;
     if (d.wall) {
@@ -229,16 +224,83 @@ export default function PlanView({
     onSelect(type ? { type, id } : null);
   }
 
-  if (!view) return <div className="plan-wrap"><svg ref={svgRef} className="plan" /></div>;
   const isSel = (type, id) => selection && selection.type === type && selection.id === id;
   // metres per screen pixel. the viewBox keeps its shape, so the tighter side decides the zoom
-  const px = size.w ? Math.max(view.w / size.w, view.h / size.h) : view.w / 1000;
-  const routeHere = route && route.ok ? route.steps.filter((s) => s.level === level.id) : [];
+  const px = !view ? 1 : size.w ? Math.max(view.w / size.w, view.h / size.h) : view.w / 1000;
   // while a wall is being dragged, draw it where it's going
-  const wallsShown = (level.walls || []).map((w) => (moving && moving.id === w.id ? { ...w, a: moving.a, b: moving.b } : w));
+  const wallsShown = useMemo(() => (level.walls || []).map((w) => (moving && moving.id === w.id ? { ...w, a: moving.a, b: moving.b } : w)),
+    [level.walls, moving]);
   const levelShown = moving ? { ...level, walls: wallsShown } : level;
-  const selWall = selection?.type === "wall" && tool === "select" ? wallsShown.find((w) => w.id === selection.id) : null;
+  const starts = useMemo(() => new Set((level.anchors || []).map((a) => a.id)), [level.anchors]);
+  const nodeById = useMemo(() => new Map((level.nodes || []).map((n) => [n.id, n])), [level.nodes]);
+  const seeThrough = underlay?.opacity > 0.5;
 
+  // drawing layers, rebuilt only when the plan, the selection or the zoom (px) changes.
+  // panning only moves the viewBox, so the same shapes are reused
+  const roomLayer = useMemo(() => (level.rooms || []).map((r) => (
+    <polygon
+      key={r.id}
+      points={r.polygon.map((p) => p.join(",")).join(" ")}
+      fill={KIND_COLOURS[r.kind] || KIND_COLOURS.unknown}
+      className={"room" + (isSel("room", r.id) ? " selected" : "") + (unsure(r) ? " unsure" : "") + (seeThrough ? " see-through" : "")}
+      data-type="room" data-id={r.id}
+    />
+  )), [level.rooms, selection, seeThrough]);
+
+  const pathLayer = useMemo(() => showPaths && (
+    <>
+      {(level.edges || []).map((e, i) => {
+        const a = nodeById.get(e.a), b = nodeById.get(e.b);
+        if (!a || !b) return null;
+        return <line key={i} x1={a.pos[0]} y1={a.pos[1]} x2={b.pos[0]} y2={b.pos[1]} className="edge" />;
+      })}
+      {(level.nodes || []).map((n) => (
+        <circle key={n.id} cx={n.pos[0]} cy={n.pos[1]} r={4 * px} className={`node node-${n.kind}`} />
+      ))}
+    </>
+  ), [showPaths, level.edges, level.nodes, nodeById, px]);
+
+  const wallLayer = useMemo(() => wallsShown.map((w) => (
+    <g key={w.id} data-type="wall" data-id={w.id} className="wall-g">
+      <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]}
+        strokeWidth={Math.max(0.12, w.thickness || 0.15)}
+        className={"wall" + (isSel("wall", w.id) ? " selected" : "") + (unsure(w) ? " unsure" : "")} />
+      {/* fat invisible line so thin walls are easy to click */}
+      <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} strokeWidth={18 * px} className="hit" />
+    </g>
+  )), [wallsShown, selection, px]);
+
+  const openingLayer = useMemo(() => (level.openings || []).map((o) => {
+    const ends = openingEnds(levelShown, o);
+    if (!ends) return null;
+    const th = Math.max(0.12, ends.wall.thickness || 0.15);
+    return (
+      <g key={o.id} data-type="opening" data-id={o.id} className="opening-g">
+        {/* paint over the wall to make the gap, then draw the door itself */}
+        <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th + 0.06} className="gap" />
+        <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th * 0.5}
+          className={`opening opening-${o.type}` + (isSel("opening", o.id) ? " selected" : "") + (unsure(o) ? " unsure" : "")} />
+        <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={15 * px} className="hit" />
+      </g>
+    );
+  }), [level.openings, wallsShown, selection, px]);
+
+  const labelLayer = useMemo(() => labelSpots.map((spot) => {
+    const lines = roomLabel(spot, starts.has("a-" + spot.room.id), px);
+    // stack the lines around the middle of the room
+    let y = -spot.centre[1] - lines.reduce((t, l) => t + l.size * LINE_GAP, 0) / 2;
+    return lines.map((l) => {
+      y += l.size * LINE_GAP;
+      return (
+        <text key={spot.room.id + l.kind} x={spot.centre[0]} y={y - l.size * 0.3} fontSize={l.size} strokeWidth={l.size * 0.25}
+          className={"label label-" + l.kind} textAnchor="middle">{l.text}</text>
+      );
+    });
+  }), [labelSpots, starts, px]);
+
+  if (!view) return <div className="plan-wrap"><svg ref={svgRef} className="plan" /></div>;
+  const routeHere = route && route.ok ? route.steps.filter((s) => s.level === level.id) : [];
+  const selWall = selection?.type === "wall" && tool === "select" ? wallsShown.find((w) => w.id === selection.id) : null;
 
   return (
     <div className="plan-wrap">
@@ -279,49 +341,10 @@ export default function PlanView({
 
       <g transform="scale(1,-1)">
         {/* rooms first so walls draw on top */}
-        {(level.rooms || []).map((r) => (
-          <polygon
-            key={r.id}
-            points={r.polygon.map((p) => p.join(",")).join(" ")}
-            fill={KIND_COLOURS[r.kind] || KIND_COLOURS.unknown}
-            className={"room" + (isSel("room", r.id) ? " selected" : "") + (isUnsure(r) ? " unsure" : "") + (underlay?.opacity > 0.5 ? " see-through" : "")}
-            data-type="room" data-id={r.id}
-          />
-        ))}
-
-        {showPaths && (level.edges || []).map((e, i) => {
-          const a = level.nodes.find((n) => n.id === e.a), b = level.nodes.find((n) => n.id === e.b);
-          if (!a || !b) return null;
-          return <line key={i} x1={a.pos[0]} y1={a.pos[1]} x2={b.pos[0]} y2={b.pos[1]} className="edge" />;
-        })}
-        {showPaths && (level.nodes || []).map((n) => (
-          <circle key={n.id} cx={n.pos[0]} cy={n.pos[1]} r={4 * px} className={`node node-${n.kind}`} />
-        ))}
-
-        {wallsShown.map((w) => (
-          <g key={w.id} data-type="wall" data-id={w.id} className="wall-g">
-            <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]}
-              strokeWidth={Math.max(0.12, w.thickness || 0.15)}
-              className={"wall" + (isSel("wall", w.id) ? " selected" : "") + (isUnsure(w) ? " unsure" : "")} />
-            {/* fat invisible line so thin walls are easy to click */}
-            <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} strokeWidth={18 * px} className="hit" />
-          </g>
-        ))}
-
-        {(level.openings || []).map((o) => {
-          const ends = openingEnds(levelShown, o);
-          if (!ends) return null;
-          const th = Math.max(0.12, ends.wall.thickness || 0.15);
-          return (
-            <g key={o.id} data-type="opening" data-id={o.id} className="opening-g">
-              {/* paint over the wall to make the gap, then draw the door itself */}
-              <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th + 0.06} className="gap" />
-              <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th * 0.5}
-                className={`opening opening-${o.type}` + (isSel("opening", o.id) ? " selected" : "") + (isUnsure(o) ? " unsure" : "")} />
-              <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={15 * px} className="hit" />
-            </g>
-          );
-        })}
+        {roomLayer}
+        {pathLayer}
+        {wallLayer}
+        {openingLayer}
 
         {/* stairs/lifts that go to another floor */}
         {links.map((k, i) => (
@@ -357,18 +380,7 @@ export default function PlanView({
       </g>
 
       {/* labels last so nothing covers them. outside the flip, so y is negated by hand */}
-      {labelSpots.map((spot) => {
-        const lines = roomLabel(spot, isStartPoint(level, spot.room.id), px);
-        // stack the lines around the middle of the room
-        let y = -spot.centre[1] - lines.reduce((t, l) => t + l.size * LINE_GAP, 0) / 2;
-        return lines.map((l) => {
-          y += l.size * LINE_GAP;
-          return (
-            <text key={spot.room.id + l.kind} x={spot.centre[0]} y={y - l.size * 0.3} fontSize={l.size} strokeWidth={l.size * 0.25}
-              className={"label label-" + l.kind} textAnchor="middle">{l.text}</text>
-          );
-        });
-      })}
+      {labelLayer}
       {1 / px >= LINK_LABEL_ZOOM && links.map((k, i) => (
         <text key={i} x={k.pos[0]} y={-k.pos[1] + 22 * px} fontSize={11 * px} strokeWidth={3 * px} className="link-label" textAnchor="middle">
           {k.kind === "lift" ? "lift" : "stairs"} to {k.to}

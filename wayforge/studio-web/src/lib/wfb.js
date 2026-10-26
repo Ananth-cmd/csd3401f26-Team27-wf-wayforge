@@ -59,10 +59,18 @@ export function levelBounds(level) {
   return { minX, minY, maxX, maxY };
 }
 
+// walls by id, built once per walls array. edits always produce a new array, so the index matches the walls
+const wallIndexes = new WeakMap();
+function wallIndex(walls) {
+  let index = wallIndexes.get(walls);
+  if (!index) { index = new Map(walls.map((w) => [w.id, w])); wallIndexes.set(walls, index); }
+  return index;
+}
+
 // a door/window is stored as "which wall + how far along it", so work out
 // the two end points of the gap. offset is from wall.a to the start of the gap
 export function openingEnds(level, opening) {
-  const wall = (level.walls || []).find((w) => w.id === opening.wall);
+  const wall = wallIndex(level.walls || []).get(opening.wall);
   if (!wall) return null;
   const dx = wall.b[0] - wall.a[0], dy = wall.b[1] - wall.a[1];
   const len = Math.hypot(dx, dy) || 1;

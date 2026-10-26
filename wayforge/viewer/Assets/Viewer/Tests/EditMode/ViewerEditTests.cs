@@ -158,7 +158,10 @@ namespace Wayforge.Viewer.Tests
             view.Show(BuildingData.Parse(TestBuilding.Wfb));
 
             Assert.AreEqual(4, view.GetComponentsInChildren<RoomTag>().Length, "2 rooms on each of 2 floors");
-            var walls = view.GetComponentsInChildren<MeshFilter>().Where(f => f.name == "Walls").ToArray();
+            var floors = view.GetComponentsInChildren<MeshFilter>().Where(f => f.name == "Floors").ToArray();
+            Assert.AreEqual(2, floors.Length, "one floor mesh per level");
+            Assert.That(floors.All(f => f.sharedMesh.vertexCount > 0 && f.sharedMesh.colors.Length == f.sharedMesh.vertexCount), "room colours per vertex");
+            var walls =view.GetComponentsInChildren<MeshFilter>().Where(f => f.name == "Walls").ToArray();
             Assert.AreEqual(2, walls.Length);
             Assert.That(walls.All(w => w.sharedMesh.vertexCount > 0));
             Assert.AreEqual(3.5f - 0.15f, walls[0].sharedMesh.bounds.max.y, 1e-3f, "L1 walls reach the L2 slab");
@@ -231,12 +234,12 @@ namespace Wayforge.Viewer.Tests
             view.SetCutaway(false);
 
             var office = b.FindRoom("B1");
-            var floor = view.GetComponentsInChildren<RoomTag>().First(t => t.room == office).GetComponent<Renderer>();
-            Color before = floor.sharedMaterial.color;
+            Color before = view.FloorColour(office);
+            Assert.AreNotEqual(Color.clear, before, "the office has a floor");
             view.Highlight(office);
-            Assert.AreEqual(BuildingView.HighlightColour, floor.sharedMaterial.color);
+            Assert.AreEqual(BuildingView.HighlightColour, view.FloorColour(office));
             view.Highlight(null);
-            Assert.AreEqual(before, floor.sharedMaterial.color);
+            Assert.AreEqual(before, view.FloorColour(office));
         }
 
         [Test]
