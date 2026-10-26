@@ -34,7 +34,7 @@ Shri needs to replace local `fetch(\`${import.meta.env.BASE_URL}building.json\`)
 ## Architecture
 - Katie's Studio server: `http://127.0.0.1:8080` (holds draft/published files)
 - Independent Point 4 Express server: `http://127.0.0.1:3000` (retrieves published data; runs C++ `wf_cli` to calculate routes)
-- Shri's Navigator currently reads `public/building.json` and uses a client-side route planner; backend routes are **not yet displayed in Navigator** until the frontend integrates them.
+- Shri's Navigator loads the published building through `/api/published` and uses a client-side route planner; backend routes are **not yet displayed in Navigator** until the frontend integrates them.
 - Publishing happens on Studio. Navigator must use **published** data and published routes.
 
 ## Endpoints on Point 4 backend

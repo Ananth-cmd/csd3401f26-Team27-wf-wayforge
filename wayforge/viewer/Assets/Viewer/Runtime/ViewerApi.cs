@@ -143,8 +143,8 @@ namespace Wayforge.Viewer
 
         [Preserve] public void HighlightRoom(string reference)
         {
+            if (string.IsNullOrEmpty(reference)) { if (building.Building != null) building.Highlight(null); return; }   // clearing is always allowed
             if (!RequireBuilding("HighlightRoom")) return;
-            if (string.IsNullOrEmpty(reference)) { building.Highlight(null); return; }
             var room = building.Building.FindRoom(reference);
             if (room == null) { Error("HighlightRoom", $"no room '{reference}'"); return; }
             building.Highlight(room);

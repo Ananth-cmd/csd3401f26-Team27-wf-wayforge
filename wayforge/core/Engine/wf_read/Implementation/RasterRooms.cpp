@@ -25,6 +25,7 @@
  *   - Region labelling with gap sealing, growth to wall centres, edge tracing
  *   - Holes cut into the outline (ring corridors around a core)
  *   - Lift detection from regions split by an X
+ *   - Long narrow regions over the area limit kept as corridors
  *
  * AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
  *
@@ -222,9 +223,22 @@ std::vector<Room> roomsFromInk(const img::Image8& ink, float mpp, const std::vec
     }
     const float pxArea = mpp * mpp;
     std::vector<uint8_t> keep(areaPx.size(), 0), isLift(areaPx.size(), 0);
+    // Edge pixels per region (a 4-neighbour outside the region), for its mean width.
+    std::vector<size_t> edgePx(areaPx.size(), 0);
+    for (size_t i = 0; i < n; ++i) {
+        if (label[i] < 0) continue;
+        const int x = static_cast<int>(i % w), y = static_cast<int>(i / w);
+        for (int k = 0; k < 4; ++k) {
+            const int nx = x + DX[k], ny = y + DY[k];
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h || label[static_cast<size_t>(ny) * w + nx] != label[i]) { ++edgePx[label[i]]; break; }
+        }
+    }
     for (size_t id = 0; id < areaPx.size(); ++id) {
         const float a = static_cast<float>(areaPx[id]) * pxArea;
-        keep[id] = !touchesBorder[id] && a >= p.minArea && a <= p.maxArea;
+        // Regions over maxArea are kept only when narrow (mean width under corridorWidth): corridors.
+        const float meanWidth = edgePx[id] > 0 ? 2.f * static_cast<float>(areaPx[id]) / static_cast<float>(edgePx[id]) * mpp : 0.f;
+        const bool narrow = meanWidth > 0.f && meanWidth < p.corridorWidth;
+        keep[id] = !touchesBorder[id] && a >= p.minArea && (a <= p.maxArea || narrow);
     }
 
     // Lifts: group small inner regions with touching boxes; a group of 3+ filling a near-square

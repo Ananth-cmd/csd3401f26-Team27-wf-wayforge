@@ -73,8 +73,8 @@ stay greyed out. The app project does not need the dll.
   3. In the top menu go to:  Wayforge > Studio
 
   4. Click "Import image" and pick:
-         data/plans/simple_scan.png
-     (or Assets/Wayforge/Samples/square_plan.png)
+         data/plans/sit-punggol/E2/E2 - Level 01.png
+     (any level of any block in data/plans/sit-punggol/)
      The walls, doors and rooms show up as a 2D blueprint.
 
   5. Click a room to rename it, drag to draw a new room, then click

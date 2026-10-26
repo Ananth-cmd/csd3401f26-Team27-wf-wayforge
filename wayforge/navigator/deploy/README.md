@@ -11,7 +11,7 @@ browser --> nginx :443 (https) --> /var/www/site2/current  (the built website, n
 certificate that renews by itself (same setup as the Studio, see `studio-web/deploy/README.md`).
 The nginx config is in `site2/deploy/` in the repo root.
 
-The Navigator runs entirely in the browser today: it loads `building.json` and works out routes
+The Navigator runs entirely in the browser today: it loads the published building from the backend and works out routes
 itself (`src/api.ts`), so the server only hands out files (no backend). nginx was set up once
 from `site2/deploy/` in the repo root.
 

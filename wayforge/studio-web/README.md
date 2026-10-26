@@ -93,7 +93,7 @@ src/
   components/Viewer3D.jsx   embeds the Unity viewer
   components/Inspector.jsx  edit fields (bottom bar), building/stairs/checks/route panels
   components/MiniPlan.jsx   small plan on the buildings page
-public/samples/sample-3floors.wfb   sample building
+public/samples/sit-punggol.wfb     sample building (SIT Punggol campus)
 public/viewer/                      only if the viewer was built somewhere else
 server/server.mjs                   the Studio backend (runs wf_cli), no npm packages
 server/data/                        buildings it made (not in git)
