@@ -143,7 +143,8 @@ export default function App() {
   const legMap = (i: number): MapProps => {
     const l = legs[i]
     if (!l) return { building: b, floor }
-    if (l.kind !== 'walk') { const prev = legs[i - 1]; return prev ? legMap(i - 1) : { building: b, floor: l.from, here: l.nodes[0] } }
+    // stairs / lift: keep the corridor just walked, but the visitor is now at the stairs / lift
+    if (l.kind !== 'walk') { const prev = legs[i - 1]; return prev ? { ...legMap(i - 1), here: l.nodes[0], pin: null } : { building: b, floor: l.from, here: l.nodes[0] } }
     const end = l.nodes[l.nodes.length - 1]
     return { building: b, floor: l.level, lines: [l.nodes], here: l.nodes[0], pin: { node: end, label: l.final && dest ? dest.name : node(end).label } }
   }
@@ -163,12 +164,28 @@ export default function App() {
   )
 
   // ---------- navigation actions ----------
-  const openWhere = () => { setPending(start); setMethod('manual'); setFloor(start ? lvlOf(start) : 0); go('where') }
+  // mid-route (came here from the guide): the visitor is somewhere along the current step, not at the old start
+  const lostLeg = stack.includes('guide') ? leg : undefined
+  const navigating = !!lostLeg
+  // starting point closest to a node (same floor first)
+  const nearestStart = (id?: string | null) => {
+    const starts = b.pois.filter(p => p.startingPoint)
+    if (!id) return starts[0]
+    const n = node(id), far = (p: Poi) => { const m = node(p.node); return Math.abs(m.level - n.level) * 1e6 + Math.hypot(m.pos[0] - n.pos[0], m.pos[1] - n.pos[1]) }
+    return starts.reduce<Poi | undefined>((best, p) => (!best || far(p) < far(best) ? p : best), undefined)
+  }
+  const openWhere = () => {
+    setPending(navigating ? null : start); setMethod('manual')
+    setFloor(lostLeg ? (lostLeg.kind === 'walk' ? lostLeg.level : lostLeg.to) : start ? lvlOf(start) : 0); go('where')
+  }
   const planRoute = () => { if (!dest) go('find'); else if (!start) openWhere(); else go('routes') }
   const confirmStart = () => {
     if (!pending) return
+    // updating the location mid-route goes straight back into the guide on the new route
+    const r = navigating && dest ? findRoute(b, pending.node, dest.node, choice === 'stepfree') ?? findRoute(b, pending.node, dest.node, false) : null
+    const resume = !!r && r.nodes.length > 1
     setStart(pending); setLegIdx(0)
-    setStack(st => { const base = st.filter(s => !['where', 'qr', 'lost', 'routes', 'guide', 'overview'].includes(s)); const root: Screen[] = base.length ? base : ['explore']; return dest ? [...root, 'routes'] : root })
+    setStack(st => { const base = st.filter(s => !['where', 'qr', 'lost', 'routes', 'guide', 'overview'].includes(s)); const root: Screen[] = base.length ? base : ['explore']; return dest ? [...root, 'routes', ...(resume ? ['guide' as const] : [])] : root })
   }
   const startGuide = () => { setLegIdx(0); go('guide') }
   const nextLeg = () => { if (legIdx + 1 >= legs.length) setStack(['explore', 'arrived']); else setLegIdx(legIdx + 1) }
@@ -256,7 +273,8 @@ export default function App() {
           <Info title="Prototype preview">{desktop ? 'This screen demonstrates the camera flow. Use the button below to preview a checkpoint.' : 'Preview a checkpoint, then confirm the detected starting point.'}</Info>
         </>,
         actions: [
-          { label: desktop ? 'Preview checkpoint detection' : 'Preview checkpoint', onClick: () => toWhere(b.pois.find(x => x.startingPoint)) },
+          // preview: mid-route, "detect" the checkpoint nearest where this step leads; otherwise the one nearest the start
+          { label: desktop ? 'Preview checkpoint detection' : 'Preview checkpoint', onClick: () => toWhere(nearestStart(lostLeg ? lostLeg.nodes[lostLeg.nodes.length - 1] : start?.node)) },
           { label: 'Enter location manually', kind: 'sec', onClick: () => toWhere() },
         ],
         pane: <div className="qr-pane">
@@ -337,7 +355,7 @@ export default function App() {
           </> : <><Info title={`${L(leg.from)} → ${L(leg.to)}`}>Confirm the {L(leg.to)} floor sign before continuing.</Info>{stepLabel}</>,
           deskAfter: directions(legIdx),
           banner: { icon: leg.kind === 'lift' ? <Lift /> : <Stairs />, title: `${name} → ${L(leg.to)}`, sub: "We'll show the next part of your route after you confirm the floor." },
-          actions: [btn], mobileActions: [update, btn],
+          actions: [btn, update], mobileActions: [update, btn],
         }
       } else {
         const m = Math.round(leg.metres)
