@@ -238,8 +238,14 @@ label.check input { width: auto; margin: 0; }
 /* ---------- 3D viewer ---------- */
 .viewer-wrap { position: absolute; inset: 0; background: #2a3138; }
 .viewer-wrap iframe { width: 100%; height: 100%; border: 0; display: block; }
-.viewer-bar { position: absolute; top: 12px; left: 110px; display: flex; gap: 4px; z-index: 2; }
-.viewer-bar button { font-size: 13px; padding: 5px 10px; }
+/* the 3D view's bar sits next to the 2D / 3D / Rooms switch, on a light strip so it reads on the dark 3D background */
+.viewer-bar { position: absolute; top: 10px; left: 220px; right: 12px; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+  width: fit-content; max-width: calc(100% - 232px); padding: 5px 10px; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); }
+.viewer-bar button, .viewer-bar .seg button { font-size: 13px; padding: 4px 10px; }
+.viewer-bar label.check { font-size: 13px; gap: 5px; }
+.viewer-bar label.check:has(input:disabled) { color: var(--graphite); }
+.viewer-bar input[type="range"] { width: 90px; }
+.viewer-bar .sep { width: 1px; align-self: stretch; background: var(--rule); }
 .viewer-msg { max-width: 460px; margin: 90px auto 0; padding: 20px 24px; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); }
 .viewer-msg.overlay { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
 .viewer-error { position: absolute; bottom: 12px; left: 12px; right: 12px; background: var(--signal); color: #fff; font-size: 13px; padding: 6px 10px; border-radius: var(--r); z-index: 2; }

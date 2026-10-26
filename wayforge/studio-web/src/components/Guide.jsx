@@ -30,6 +30,7 @@ const SECTIONS = [
       <>Scroll to zoom, drag to move around, <b>Fit to screen</b> to see the whole level.</>,
       <>Pick a level on the left. <b>2D</b>, <b>3D</b> and <b>Rooms</b> at the top switch between the plan, the 3D model and the room list.</>,
       <><b>Blueprint</b> at the bottom shows your picture under the plan. Use the slider to fade it.</>,
+      <>In <b>3D</b>, untick <b>Roof</b> or tick <b>See inside</b> to look into the rooms, and drag <b>Spread</b> to pull the floors apart. <b>This floor</b> shows only the level picked on the left.</>,
       <>Anything in <b>orange</b> was unclear on the picture. Check those first.</>,
     ],
   },
