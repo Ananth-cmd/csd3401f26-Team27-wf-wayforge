@@ -1,0 +1,15 @@
+{
+  "name": "WayForge Navigator",
+  "short_name": "WayForge",
+  "description": "Indoor directions without GPS.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#006b5e",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "app-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "app-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
