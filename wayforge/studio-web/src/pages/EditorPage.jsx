@@ -124,7 +124,7 @@ export default function EditorPage({ id, go }) {
   const text = useMemo(() => (doc ? toWfbText(doc) : ""), [doc]);
   const dirty = doc && text !== savedText;
   const problems = useMemo(() => (doc ? validate(doc) : []), [doc]);
-  const geometryChanged = doc && geometryKey(doc) !== savedGeometry.current;
+  const geometryChanged = useMemo(() => doc && geometryKey(doc) !== savedGeometry.current, [doc, info]); // also after a save, which replaces info
   const level = doc?.levels.find((l) => l.id === levelId) || doc?.levels[0];
 
   async function save() {

@@ -6,9 +6,11 @@
  * floor spacing for an exploded view). Each level holds:
  *   - Walls:  one combined mesh; doors cut a gap with a lintel above,
  *             windows leave a sill and a lintel
- *   - Rooms:  an extruded floor slab per room, coloured by kind, with a
- *             MeshCollider for picking and a RoomTag naming the room
- *   - Labels: TextMesh per room, turned to face the camera every frame
+ *   - Floors: the floor slabs of all rooms in one mesh, each room coloured by
+ *             kind through vertex colours (one draw call per level)
+ *   - Rooms:  per room a MeshCollider for picking and a RoomTag naming the room
+ *   - Labels: TextMesh per room, turned to face the camera when it moves;
+ *             a label under 2 px tall on screen is not drawn
  * Stair flights and lift shafts are drawn between linked levels.
  *
  * View state: all floors or one floor, cut-away (walls cut at 1.2 m so rooms
@@ -21,6 +23,7 @@
  *
  * Contribution: Ananthan Elangovan 100%
  *   - Wall / opening / floor meshes, room colours and labels
+ *   - One floor mesh per level, label updates only on camera movement
  *   - Stair and lift geometry between floors, floor visibility, cut-away and highlighting
  *
  * AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
@@ -58,6 +61,7 @@ namespace Wayforge.Viewer
         public const float CutawayHeight = 1.2f;
         const float SlabThickness = 0.15f;
         const float LabelHeight = 1.6f;            // above the floor, so labels clear furniture height
+        const float LabelMinPixels = 2f;           // labels smaller than this on screen are not drawn
 
         public BuildingData Building { get; private set; }
         public string VisibleLevel { get; private set; }  // null = all floors
@@ -71,19 +75,33 @@ namespace Wayforge.Viewer
         {
             public LevelData data;
             public GameObject root;
-            public MeshFilter walls, exterior, glass, frames, doors, roof;
+            public MeshFilter walls, exterior, glass, frames, doors, roof, floor;
             public float storey;                           // floor-to-floor height (top floor: ceiling + 0.3 m)
             public GameObject labels;
-            public readonly Dictionary<RoomData, Renderer> floors = new Dictionary<RoomData, Renderer>();
+            public readonly Dictionary<RoomData, RangeInt> floorVerts = new Dictionary<RoomData, RangeInt>();   // room's vertices in the floor mesh
+            public readonly List<Color> floorColours = new List<Color>();
+        }
+
+        class Label
+        {
+            public Transform transform;
+            public Renderer renderer;
+            public float height;                           // text height in metres, 0 until the text mesh exists
         }
 
         readonly List<LevelView> _levels = new List<LevelView>();
-        readonly List<Transform> _labels = new List<Transform>();
+        readonly List<Label> _labels = new List<Label>();
+        bool _labelsDirty = true;                          // labels need updating without camera movement (new building, layout change)
+        Vector3 _camPos;
+        Quaternion _camRot;
+        float _camZoom;
+        int _screenHeight;
         readonly Dictionary<RoomData, Color> _baseColour = new Dictionary<RoomData, Color>();
         readonly List<Object> _owned = new List<Object>();   // meshes and materials made here, freed in Clear()
         GameObject _root, _connectors, _ground;
         Font _font;
         Material _labelMat;
+        Material _floorMat;                                // Wayforge/Floor copy of floorMaterial, see FloorMaterial()
 
         // --- building ------------------------------------------------------------------------
 
@@ -112,19 +130,30 @@ namespace Wayforge.Viewer
                 lv.frames = AddPart(lv.root.transform, "Frames", frameMaterial != null ? frameMaterial : wallMaterial, true);
                 lv.doors = AddPart(lv.root.transform, "Doors", doorMaterial != null ? doorMaterial : wallMaterial, true);
                 lv.roof = AddPart(lv.root.transform, "Roof", roofMaterial != null ? roofMaterial : wallMaterial, true);
+                lv.floor = AddPart(lv.root.transform, "Floors", FloorMaterial(), true);
 
                 var rooms = new GameObject("Rooms");
                 rooms.transform.SetParent(lv.root.transform, false);
                 lv.labels = new GameObject("Labels");
                 lv.labels.transform.SetParent(lv.root.transform, false);
 
+                var floorMesh = new MeshBuilder();
                 int colourIndex = 0;
                 foreach (var room in level.rooms)
                 {
                     if (room.polygon.Length < 3) continue;
-                    lv.floors[room] = BuildFloor(room, level, rooms.transform, colourIndex++);
+                    var tris = MeshUtil.Triangulate(room.polygon);
+                    int start = floorMesh.VertexCount;
+                    floorMesh.AddSlab(room.polygon, tris, level.elevation - SlabThickness, level.elevation);
+                    var colour = RoomColour(room.kind, colourIndex++);
+                    _baseColour[room] = colour;
+                    lv.floorVerts[room] = new RangeInt(start, floorMesh.VertexCount - start);
+                    for (int i = start; i < floorMesh.VertexCount; i++) lv.floorColours.Add(colour);
+                    AddPicker(room, level, tris, rooms.transform);
                     AddLabel(room, level, lv.labels.transform);
                 }
+                SetMesh(lv.floor, floorMesh, "Floors " + level.id);
+                lv.floor.sharedMesh.SetColors(lv.floorColours);
                 _levels.Add(lv);
             }
             for (int i = 0; i < _levels.Count; i++)
@@ -146,28 +175,33 @@ namespace Wayforge.Viewer
             _owned.Clear();
             _root = null; _connectors = null; _ground = null;
             _levels.Clear(); _labels.Clear(); _baseColour.Clear();
+            _labelsDirty = true;
             Building = null; Highlighted = null;
         }
 
-        Renderer BuildFloor(RoomData room, LevelData level, Transform parent, int colourIndex)
+        // Material for the floor meshes. It needs the Wayforge/Floor shader, which takes each room's
+        // colour from the vertex colours; a floorMaterial with another shader is copied onto it.
+        Material FloorMaterial()
+        {
+            if (floorMaterial == null || floorMaterial.shader.name == "Wayforge/Floor") return floorMaterial;
+            var shader = Shader.Find("Wayforge/Floor");
+            if (shader == null) return floorMaterial;
+            if (_floorMat == null) { _floorMat = new Material(floorMaterial) { shader = shader }; _owned.Add(_floorMat); }
+            return _floorMat;
+        }
+
+        // Collider and RoomTag for one room, so a click on its floor can be turned back into the room.
+        void AddPicker(RoomData room, LevelData level, int[] tris, Transform parent)
         {
             var mb = new MeshBuilder();
-            mb.AddSlab(room.polygon, MeshUtil.Triangulate(room.polygon), level.elevation - SlabThickness, level.elevation);
+            mb.AddSlab(room.polygon, tris, level.elevation - SlabThickness, level.elevation);
             var mesh = mb.ToMesh("Room " + room.id);
             _owned.Add(mesh);
 
             var go = new GameObject("Room " + room.id);
             go.transform.SetParent(parent, false);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var r = go.AddComponent<MeshRenderer>();
-            var mat = new Material(floorMaterial) { color = RoomColour(room.kind, colourIndex) };
-            _owned.Add(mat);
-            r.sharedMaterial = mat;                           // own instance per room, for its colour
-            var colour = mat.color;
-            _baseColour[room] = colour;
             go.AddComponent<MeshCollider>().sharedMesh = mesh;
             go.AddComponent<RoomTag>().room = room;
-            return r;
         }
 
         void AddLabel(RoomData room, LevelData level, Transform parent)
@@ -187,9 +221,12 @@ namespace Wayforge.Viewer
             // Character size from the room's short side, so labels fit small rooms and stay readable in halls.
             var b = MeshUtil.Bounds(room.polygon);
             tm.characterSize = Mathf.Clamp(Mathf.Min(b.width, b.height) * 0.02f, 0.025f, 0.08f);
-            go.GetComponent<MeshRenderer>().sharedMaterial = _labelMat;
+            var r = go.GetComponent<MeshRenderer>();
+            r.sharedMaterial = _labelMat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
             _labelMat.mainTexture = _font.material.mainTexture;   // the font texture exists once text is requested
-            _labels.Add(go.transform);
+            _labels.Add(new Label { transform = go.transform, renderer = r });
         }
 
         // The dynamic font texture is recreated when new characters are added; keep the label material on it.
@@ -462,6 +499,7 @@ namespace Wayforge.Viewer
         public void SetLabelsVisible(bool on)
         {
             LabelsVisible = on;
+            _labelsDirty = true;
             foreach (var lv in _levels) lv.labels.SetActive(on);
         }
 
@@ -478,21 +516,34 @@ namespace Wayforge.Viewer
             BuildConnectors();
             _connectors.SetActive(VisibleLevel == null);
             UpdateRoofs();
+            _labelsDirty = true;
         }
 
         // Highlight a room (null clears). The previous room gets its own colour back.
         public void Highlight(RoomData room)
         {
-            if (Highlighted != null && TryFloor(Highlighted, out var old)) old.sharedMaterial.color = _baseColour[Highlighted];
+            if (Highlighted != null) SetFloorColour(Highlighted, _baseColour[Highlighted]);
             Highlighted = room;
-            if (room != null && TryFloor(room, out var r)) r.sharedMaterial.color = HighlightColour;
+            if (room != null) SetFloorColour(room, HighlightColour);
         }
 
-        bool TryFloor(RoomData room, out Renderer r)
+        // Colour of a room's floor as drawn now (Color.clear if the room has no floor).
+        public Color FloorColour(RoomData room)
         {
-            foreach (var lv in _levels) if (lv.floors.TryGetValue(room, out r)) return true;
-            r = null;
-            return false;
+            foreach (var lv in _levels)
+                if (lv.floorVerts.TryGetValue(room, out var v)) return lv.floorColours[v.start];
+            return Color.clear;
+        }
+
+        void SetFloorColour(RoomData room, Color colour)
+        {
+            foreach (var lv in _levels)
+            {
+                if (!lv.floorVerts.TryGetValue(room, out var v)) continue;
+                for (int i = v.start; i < v.end; i++) lv.floorColours[i] = colour;
+                lv.floor.sharedMesh.SetColors(lv.floorColours);
+                return;
+            }
         }
 
         // --- queries for the camera and the route --------------------------------------------
@@ -526,12 +577,32 @@ namespace Wayforge.Viewer
             return Physics.Raycast(ray, out var hit, 5000f) && hit.collider.TryGetComponent(out RoomTag tag) ? tag.room : null;
         }
 
+        // Labels face the camera and are drawn only when at least LabelMinPixels tall on screen.
+        // Done when the camera, the screen or the floor layout has changed, not every frame.
         void LateUpdate()
         {
             var cam = Camera.main;
-            if (cam == null || !LabelsVisible) return;
-            var rot = cam.transform.rotation;
-            foreach (var t in _labels) if (t != null) t.rotation = rot;
+            if (cam == null || !LabelsVisible || _labels.Count == 0) return;
+            var ct = cam.transform;
+            float zoom = cam.orthographic ? cam.orthographicSize : cam.fieldOfView;
+            if (!_labelsDirty && ct.position == _camPos && ct.rotation == _camRot && zoom == _camZoom && Screen.height == _screenHeight) return;
+            _labelsDirty = false;
+            _camPos = ct.position; _camRot = ct.rotation; _camZoom = zoom; _screenHeight = Screen.height;
+
+            // metres per screen pixel: fixed for an orthographic camera, per metre of depth for a perspective one
+            float perPixel = cam.orthographic
+                ? 2f * cam.orthographicSize / Mathf.Max(Screen.height, 1)
+                : 2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) / Mathf.Max(Screen.height, 1);
+            Vector3 forward = ct.forward;
+            foreach (var l in _labels)
+            {
+                if (l.transform == null) continue;
+                l.transform.rotation = _camRot;
+                if (l.height <= 0f) l.height = l.renderer.localBounds.size.y;    // known once TextMesh has built its mesh
+                if (l.height <= 0f) { l.renderer.enabled = true; _labelsDirty = true; continue; }
+                float pixelSize = cam.orthographic ? perPixel : Mathf.Max(Vector3.Dot(l.transform.position - _camPos, forward), 0.01f) * perPixel;
+                l.renderer.enabled = l.height / pixelSize >= LabelMinPixels;
+            }
         }
 
         // --- colours -------------------------------------------------------------------------
