@@ -10,6 +10,8 @@ import type { Building, Vec2 } from './types'
 const WALL_H = 1.9
 const SLAB_T = 0.45
 const ROOM_LABELS_FROM = 4.5 // px per metre at which room names start to show
+const MAX_PIECES = 2500 // wall pieces per floor in 3D (more = better overlap, slower)
+const PIECE_M = 6 // shortest piece, metres
 type V3 = [number, number, number]
 
 export type MapProps = {
@@ -18,6 +20,7 @@ export type MapProps = {
   topDown?: boolean
   onTopDown?: (v: boolean) => void // shows the 3D / 2D switch on the map
   lines?: string[][] // node-id paths to draw on this floor
+  done?: string[][] // paths already walked (drawn grey)
   here?: string | null // "you are here" node (blue)
   pin?: { node: string; label: string } | null // destination / next landmark (orange)
   focus?: string[] // node ids to zoom in on (e.g. the current stretch of the route)
@@ -30,7 +33,7 @@ const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
 const blockOf = (s: string) => /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase()
 
-function MapView({ building, floor, topDown = false, onTopDown, lines = [], here, pin, focus, names, onPick }: MapProps) {
+function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick }: MapProps) {
   const pickRef = useRef(onPick)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
@@ -128,28 +131,40 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], here
     return { top: f.map(p => [p[0], 0, p[1]] as V3), sides }
   }), [lvl, centre, yaw, topDown]) // eslint-disable-line
 
-  // walls as boxes, far to near
+  // walls as boxes, far to near. In 3D long walls are cut into short pieces first: sorting whole walls by their
+  // middle drew long walls over the short walls they cross (angled blocks looked like floors stacked on each other).
+  // The number of pieces is capped (MAX_PIECES) so big floors stay quick to draw, and while you're turning the map
+  // whole walls are used (as fast as before); the pieces come back when you let go.
+  const [turning, setTurning] = useState(false)
   const walls = useMemo(() => {
     const out: { depth: number; polys: { pts: V3[]; shade: number }[] }[] = []
+    let total = 0
+    for (const wl of lvl.walls) total += Math.hypot(wl.b[0] - wl.a[0], wl.b[1] - wl.a[1])
+    const piece = topDown || turning ? Infinity : Math.max(PIECE_M, total / MAX_PIECES)
     for (const wl of lvl.walls) {
       const dx = wl.b[0] - wl.a[0], dz = wl.b[1] - wl.a[1], len = Math.hypot(dx, dz) || 1
-      const t = wl.thickness / 2, nx = (-dz / len) * t, nz = (dx / len) * t, ex = (dx / len) * t, ez = (dz / len) * t
-      const c: Vec2[] = [
-        [wl.a[0] - ex + nx, wl.a[1] - ez + nz], [wl.b[0] + ex + nx, wl.b[1] + ez + nz],
-        [wl.b[0] + ex - nx, wl.b[1] + ez - nz], [wl.a[0] - ex - nx, wl.a[1] - ez - nz],
-      ]
-      const polys: { pts: V3[]; shade: number }[] = []
-      if (!topDown) for (let i = 0; i < 4; i++) {
-        const p = c[i], q = c[(i + 1) % 4]
-        const mx = (p[0] + q[0]) / 2 - (wl.a[0] + wl.b[0]) / 2, mz = (p[1] + q[1]) / 2 - (wl.a[1] + wl.b[1]) / 2
-        if (dot([mx, 0, mz], fwd) >= 0) continue
-        polys.push({ pts: [[p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], WALL_H, q[1]], [p[0], WALL_H, p[1]]], shade: dot([mx, 0, mz], right) < 0 ? 1 : 2 })
+      const ux = dx / len, uz = dz / len, t = wl.thickness / 2, nx = -uz * t, nz = ux * t
+      const n = Math.max(1, Math.ceil(len / piece))
+      for (let k = 0; k < n; k++) {
+        // piece from s0 to s1 along the wall (the real ends stick out by half the thickness, like before)
+        const s0 = k === 0 ? -t : (k * len) / n - 0.01, s1 = k === n - 1 ? len + t : ((k + 1) * len) / n + 0.01
+        const A: Vec2 = [wl.a[0] + ux * s0, wl.a[1] + uz * s0], B: Vec2 = [wl.a[0] + ux * s1, wl.a[1] + uz * s1]
+        const c: Vec2[] = [[A[0] + nx, A[1] + nz], [B[0] + nx, B[1] + nz], [B[0] - nx, B[1] - nz], [A[0] - nx, A[1] - nz]]
+        const mid: Vec2 = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2]
+        const polys: { pts: V3[]; shade: number }[] = []
+        if (!topDown) for (let i = 0; i < 4; i++) {
+          if ((i === 1 && k < n - 1) || (i === 3 && k > 0)) continue // inner cut ends are hidden by the next piece
+          const p = c[i], q = c[(i + 1) % 4]
+          const mx = (p[0] + q[0]) / 2 - mid[0], mz = (p[1] + q[1]) / 2 - mid[1]
+          if (dot([mx, 0, mz], fwd) >= 0) continue
+          polys.push({ pts: [[p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], WALL_H, q[1]], [p[0], WALL_H, p[1]]], shade: dot([mx, 0, mz], right) < 0 ? 1 : 2 })
+        }
+        polys.push({ pts: c.map(p => [p[0], WALL_H, p[1]] as V3), shade: n > 1 ? 3 : 0 }) // 3 = top of a cut piece (no outline, so no seams)
+        out.push({ depth: dot([mid[0], 0, mid[1]], fwd), polys })
       }
-      polys.push({ pts: c.map(p => [p[0], WALL_H, p[1]] as V3), shade: 0 })
-      out.push({ depth: dot([(wl.a[0] + wl.b[0]) / 2, 0, (wl.a[1] + wl.b[1]) / 2], fwd), polys })
     }
     return out.sort((a, b) => b.depth - a.depth)
-  }, [lvl, topDown, yaw]) // eslint-disable-line
+  }, [lvl, topDown, yaw, turning]) // eslint-disable-line
 
   const zone = (id: string, half: number, cls: string) => {
     const n = node.get(id)!, [x, z] = n.pos
@@ -254,6 +269,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], here
   }
   const onUp = (e: React.PointerEvent) => {
     ptrs.current.delete(e.pointerId); pinch.current = null
+    if (ptrs.current.size === 0) setTurning(false)
     const t = tap.current; tap.current = null
     if (!t || t.moved || e.type !== 'pointerup' || !pickRef.current) return
     // nearest named point within ~22 px of the tap
@@ -286,7 +302,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], here
     if (tap.current && Math.hypot(e.clientX - tap.current.x, e.clientY - tap.current.y) > 6) tap.current.moved = true
     if (tap.current && !tap.current.moved) return
     if (panMode.current) panBy(dx, dy)
-    else setCam(c => ({ ...c, yaw: c.yaw + dx * 0.4 })) // drag right = turn the building right
+    else { setTurning(true); setCam(c => ({ ...c, yaw: c.yaw + dx * 0.4 })) } // drag right = turn the building right
   }
 
   return (
@@ -296,6 +312,10 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], here
         {under}
         {pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
         {wallShapes}
+        {done.map((ids, i) => {
+          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15).join(','))
+          return ps.length > 1 && <polyline key={`d-${i}`} className="m-done" points={ps.join(' ')} strokeWidth={6 * k} />
+        })}
         {lines.map((ids, i) => {
           const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15).join(','))
           return ps.length > 1 && <g key={`r-${i}`}>
@@ -341,6 +361,7 @@ const same = (a: MapProps, b: MapProps) =>
   a.building === b.building && a.floor === b.floor && !!a.topDown === !!b.topDown && !!a.onTopDown === !!b.onTopDown &&
   a.here === b.here && a.pin?.node === b.pin?.node && a.pin?.label === b.pin?.label && a.names === b.names && !!a.onPick === !!b.onPick &&
   (a.focus ?? []).join('|') === (b.focus ?? []).join('|') &&
-  (a.lines ?? []).map(l => l.join(',')).join('|') === (b.lines ?? []).map(l => l.join(',')).join('|')
+  (a.lines ?? []).map(l => l.join(',')).join('|') === (b.lines ?? []).map(l => l.join(',')).join('|') &&
+  (a.done ?? []).map(l => l.join(',')).join('|') === (b.done ?? []).map(l => l.join(',')).join('|')
 
 export default memo(MapView, same)

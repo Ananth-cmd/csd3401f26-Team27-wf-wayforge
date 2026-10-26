@@ -378,3 +378,5 @@ html, body { overflow-x: hidden; }
 .navdesk .mapbox .compass, .navdesk .mapbox .view-toggle { top: 12px; }
 .navdesk .mapbox .compass { left: 12px; } .navdesk .mapbox .view-toggle { right: 12px; }
 .nav-dest b { min-width: 0; }
+.m-wall.s3 { fill: #c6ddd4; stroke: none; }
+.m-done { fill: none; stroke: #9db3ad; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }

@@ -356,8 +356,8 @@ export default function App() {
   const legMap = (i: number): MapProps => {
     const l = legs[i]
     if (!l) return { building: b, floor }
-    // stairs / lift: keep the corridor just walked, but the visitor is now at the stairs / lift
-    if (l.kind !== 'walk') { const prev = legs[i - 1]; return prev ? { ...legMap(i - 1), here: l.nodes[0], pin: null } : { building: b, floor: l.from, here: l.nodes[0] } }
+    // stairs / lift: keep the corridor just walked (greyed out as done), but the visitor is now at the stairs / lift
+    if (l.kind !== 'walk') { const prev = legs[i - 1]; const walked = prev ? legMap(i - 1) : null; return walked ? { ...walked, lines: [], done: walked.lines, here: l.nodes[0], pin: null } : { building: b, floor: l.from, here: l.nodes[0] } }
     const end = l.nodes[l.nodes.length - 1]
     return { building: b, floor: l.level, lines: [l.nodes], here: l.nodes[0], pin: { node: end, label: legEnd(l) }, focus: l.nodes }
   }
