@@ -67,7 +67,7 @@ namespace Wayforge.Viewer.EditorTools
 
             var standard = Shader.Find("Standard");
             var wall = MakeMaterial("Wall", standard, new Color(0.66f, 0.68f, 0.72f));
-            var floor = MakeMaterial("Floor", standard, Color.white);
+            var floor = MakeMaterial("Floor", AssetDatabase.LoadAssetAtPath<Shader>(Root + "/Shaders/Floor.shader"), Color.white);
             var stair = MakeMaterial("Stair", standard, new Color(0.96f, 0.62f, 0.28f));
             var lift = MakeMaterial("Lift", standard, new Color(0.45f, 0.5f, 0.95f));
             var marker = MakeMaterial("Marker", standard, Color.white);
