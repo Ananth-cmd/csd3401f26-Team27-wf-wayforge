@@ -15,6 +15,13 @@ export const ROOM_KINDS = [
   "stair", "lift", "lobby", "food", "storage", "exit",
 ];
 
+// the engine gives every wall/door/room a confidence (0 to 1). under this it wasn't sure,
+// so the plan shows it in orange and the guide asks you to check it
+export const isUnsure = (x) => (x.confidence ?? 1) < 0.7;
+
+// what the type dropdowns show. "unknown" reads like an error, so it's "not set" on screen
+export const kindLabel = (k) => (k === "unknown" ? "not set" : k);
+
 // colour per room kind for the 2D plan. kept light so the walls still stand out
 export const KIND_COLOURS = {
   unknown: "#e6e6e6", classroom: "#cfe3ff", lab: "#d9cffc", office: "#ffe3c2",
@@ -74,6 +81,24 @@ export function roomCentre(r) {
   if (r.centroid) return [...r.centroid];
   const p = r.polygon || [];
   return [p.reduce((t, q) => t + q[0], 0) / (p.length || 1), p.reduce((t, q) => t + q[1], 0) / (p.length || 1)];
+}
+
+// ---------- room naming and starting points (used by the room table, the side panel and the guide) ----------
+
+// corridors don't need a name, people never search for "corridor 3"
+export const needsName = (r) => r.kind !== "corridor";
+// a room is done when it has a code or a name, and its type is set
+export const isNamed = (r) => !!(r.code || r.name) && r.kind !== "unknown";
+
+// a starting point is saved as an anchor (the QR / tap to start spot) in the middle of the room,
+// id "a-<room id>". the Navigator offers these rooms as "where am I"
+const anchorId = (roomId) => "a-" + roomId;
+export const isStartPoint = (level, roomId) => (level.anchors || []).some((a) => a.id === anchorId(roomId));
+
+// turn a room's starting point on or off. level is the editable copy inside edit()
+export function setStartPoint(level, room, on) {
+  level.anchors = (level.anchors || []).filter((a) => a.id !== anchorId(room.id));
+  if (on) level.anchors.push({ id: anchorId(room.id), pos: roomCentre(room), name: room.name || room.code || room.id, heading: 0 });
 }
 
 export function wallLength(w) {

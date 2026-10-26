@@ -15,9 +15,11 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/api.js";
-import { parseWfb, toWfbText, clone, validate, summary, nextId, polygonArea, roomCentre } from "../lib/wfb.js";
+import { parseWfb, toWfbText, clone, validate, summary, nextId, polygonArea, roomCentre, setStartPoint } from "../lib/wfb.js";
 import PlanView from "../components/PlanView.jsx";
 import Viewer3D from "../components/Viewer3D.jsx";
+import RoomTable from "../components/RoomTable.jsx";
+import Tour, { EDITOR_TOUR } from "../components/Tour.jsx";
 import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel, RoutePanel } from "../components/Inspector.jsx";
 
 const MERGE_MS = 800; // edits closer together than this (like typing) share one undo step
@@ -37,7 +39,8 @@ export default function EditorPage({ id, go }) {
   const [levelId, setLevelId] = useState(null);
   const [selection, setSelection] = useState(null);
   const [tool, setTool] = useState("select");
-  const [centre, setCentre] = useState("2d");
+  const [centre, setCentre] = useState("2d"); // what the middle shows: 2d | 3d | rooms (the table)
+  const [focus, setFocus] = useState(null);   // {id} of a room the plan should move to ("Show" in the table)
   // what wf_cli said when the building was made (UploadPage leaves it here). shows once
   const [buildLog] = useState(() => {
     try {
@@ -54,6 +57,12 @@ export default function EditorPage({ id, go }) {
   const [picDims, setPicDims] = useState({});         // {L1: {w, h}} sizes of the uploaded pictures
   const [busy, setBusy] = useState("");
   const [asking, setAsking] = useState(false); // the "publish?" box is open
+  // the walkthrough opens by itself the first time this browser opens the editor
+  const [touring, setTouring] = useState(() => { try { return !localStorage.getItem("wf.tour.seen"); } catch { return false; } });
+  const endTour = useCallback(() => {
+    setTouring(false);
+    try { localStorage.setItem("wf.tour.seen", "1"); } catch { /* private window, it'll show again next time */ }
+  }, []);
   const [toast, setToast] = useState("");
   const undo = useRef([]), redo = useRef([]), lastEdit = useRef(0);
   const savedGeometry = useRef("");
@@ -240,8 +249,9 @@ export default function EditorPage({ id, go }) {
         l.walls = l.walls.filter((w) => w.id !== selection.id);
         l.openings = (l.openings || []).filter((o) => o.wall !== selection.id); // its doors go too
       } else if (selection.type === "room") {
+        const room = l.rooms.find((r) => r.id === selection.id);
+        if (room) setStartPoint(l, room, false); // its starting point goes too
         l.rooms = l.rooms.filter((r) => r.id !== selection.id);
-        l.anchors = (l.anchors || []).filter((a) => a.id !== "a-" + selection.id); // its starting point too
       } else if (selection.type === "opening") {
         l.openings = l.openings.filter((o) => o.id !== selection.id);
       }
@@ -252,7 +262,7 @@ export default function EditorPage({ id, go }) {
   // keyboard shortcuts, but not while typing in a box
   useEffect(() => {
     const onKey = (e) => {
-      if (asking) return; // the publish box has its own keys
+      if (asking || touring) return; // the publish box and the tour have their own keys
       const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); save(); return; }
@@ -313,6 +323,14 @@ export default function EditorPage({ id, go }) {
   const floorsTopDown = [...doc.levels].reverse();
   const toggleSheet = (name) => setSheet((cur) => (cur === name ? null : name));
 
+  // "Show" in the room table: back to the plan, on that room
+  function showRoom(lvl, roomId) {
+    setCentre("2d");
+    setLevelId(lvl);
+    setSelection({ type: "room", id: roomId });
+    setFocus({ id: roomId });
+  }
+
   return (
     <div className="editor">
       <header className="ed-top">
@@ -359,6 +377,7 @@ export default function EditorPage({ id, go }) {
               Checks {problems.length > 0 && <em className={errors ? "bad" : "warn"}>{problems.length}</em>}
             </button>
             <button className={sheet === "route" ? "on" : ""} onClick={() => toggleSheet("route")}>Test a route</button>
+            <button className="tour-btn" onClick={() => { setSheet(null); setTouring(true); }}>How to use</button>
           </section>
           <p className="side-foot">{s.rooms} rooms, {s.tagged} tagged<br />{s.floors} levels</p>
         </aside>
@@ -367,6 +386,7 @@ export default function EditorPage({ id, go }) {
           <div className="view-switch" role="tablist">
             <button role="tab" aria-selected={centre === "2d"} className={centre === "2d" ? "on" : ""} onClick={() => setCentre("2d")}>2D</button>
             <button role="tab" aria-selected={centre === "3d"} className={centre === "3d" ? "on" : ""} onClick={() => setCentre("3d")}>3D</button>
+            <button role="tab" aria-selected={centre === "rooms"} className={centre === "rooms" ? "on" : ""} onClick={() => setCentre("rooms")}>Rooms</button>
           </div>
 
           {sheet && (
@@ -389,9 +409,14 @@ export default function EditorPage({ id, go }) {
           {/* keep the 3D mounted once opened so Unity doesn't reload every time */}
           <div className="canvas" style={{ display: centre === "2d" ? "block" : "none" }}>
             <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths} route={route}
-              underlay={underlay} links={linksHere}
+              underlay={underlay} links={linksHere} focus={focus}
               onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} onMoveWall={moveWall} onAddRoom={addRoom} />
           </div>
+          {centre === "rooms" && (
+            <div className="canvas">
+              <RoomTable doc={doc} onChange={edit} onShow={showRoom} />
+            </div>
+          )}
           <Lazy3D show={centre === "3d"}>
             <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked}
               highlight={selection?.type === "room" ? `${level.id}:${selection.id}` : ""} />
@@ -423,6 +448,7 @@ export default function EditorPage({ id, go }) {
         <PublishBox name={doc.building.name || id} unsaved={dirty} published={!!info?.publishedAt}
           onPublish={publish} onCancel={() => setAsking(false)} />
       )}
+      {touring && <Tour steps={EDITOR_TOUR} onView={setCentre} onClose={endTour} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

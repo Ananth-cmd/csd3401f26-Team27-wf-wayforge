@@ -340,3 +340,51 @@ a.button { text-decoration: none; }
 .modal { background: var(--sheet); border-radius: var(--r); padding: 20px 22px; width: min(460px, calc(100% - 32px)); box-shadow: 0 12px 40px rgba(16, 46, 43, .25); }
 .modal h2 { margin: 0 0 8px; font-size: 18px; }
 .modal p { margin: 0 0 16px; color: var(--graphite); font-size: 14px; line-height: 1.5; }
+
+/* ---------- progress bar (room table) ---------- */
+.progress { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--primary); transition: width .3s; }
+
+/* ---------- "How to use" (its own page, and the editor's side panel) ---------- */
+.howto h2 { margin: 0 0 4px; font-size: 18px; }
+.howto > p { margin: 0 0 14px; }
+.howto section { margin-bottom: 16px; }
+.howto h3 { font-size: 14px; margin: 0 0 6px; }
+.howto ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 14px; line-height: 1.45; }
+.howto b { font-weight: 600; color: var(--on-ink); }
+.howto td { padding: 3px 12px 3px 0; font-size: 14px; }
+.howto td:first-child { white-space: nowrap; }
+.howto kbd { margin: 0; font-size: 13px; color: var(--ink); background: var(--vellum); border: 1px solid var(--rule); border-radius: 6px; padding: 1px 6px; }
+.help-page { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+
+/* ---------- room table (the Rooms tab) ---------- */
+.room-table { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 60px 20px 0; background: var(--vellum); }
+.rt-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; padding-bottom: 12px; }
+.rt-head h2 { margin: 0 0 2px; font-size: 18px; }
+.rt-head .progress { width: 220px; margin-top: 6px; }
+.rt-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rt-filters select, .rt-filters input[type="search"] { width: 180px; margin: 0; }
+.rt-scroll { flex: 1; overflow: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r) var(--r) 0 0; }
+.room-table table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.room-table th { position: sticky; top: 0; background: var(--sheet); text-align: left; font-size: 12px; font-weight: 600; color: var(--graphite);
+  padding: 8px 6px; border-bottom: 1px solid var(--rule); z-index: 1; }
+.room-table td { padding: 4px 6px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.room-table td input:not([type="checkbox"]), .room-table td select { width: 100%; padding: 5px 8px; }
+.room-table td:nth-child(4) { width: 40%; }   /* the name gets the most room */
+.room-table td .code-input { width: 100px; }
+.room-table tr.todo td:first-child { box-shadow: inset 3px 0 0 var(--warn); } /* rooms still to name get a mark on the left */
+.room-table .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.1); }
+.rt-empty { padding: 24px; text-align: center; }
+
+/* ---------- walkthrough (Tour.jsx) ---------- */
+.tour { position: fixed; inset: 0; z-index: 30; }
+/* the lit part: a see-through box whose shadow darkens everything else */
+.tour-light { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 9999px rgba(16, 46, 43, .55); outline: 2px solid #fff;
+  pointer-events: none; transition: left .25s, top .25s, width .25s, height .25s; }
+.tour-dim { position: fixed; inset: 0; background: rgba(16, 46, 43, .55); }
+.tour-card { position: fixed; background: var(--sheet); border-radius: var(--r); padding: 14px 16px 12px; box-shadow: 0 12px 40px rgba(16, 46, 43, .3);
+  transition: left .25s, top .25s; }
+.tour-card h3 { margin: 0 0 6px; font-size: 16px; }
+.tour-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.tour-card .tour-count { margin: 0 0 4px; font-size: 12px; color: var(--graphite); }
+.tour-buttons { display: flex; gap: 6px; align-items: center; }

@@ -5,7 +5,7 @@
  * draws the uploaded blueprint underneath (optional), rooms coloured by
  * kind, walls, doors/windows, stair/lift links, labels and the walking
  * paths / a test route. scroll to zoom, drag empty space to pan.
- * anything the engine wasn't sure about (confidence under 0.7) is orange.
+ * anything the engine wasn't sure about (isUnsure in wfb.js) is orange.
  *
  * tools:
  *   select - click a room / wall / door. a selected wall can be dragged to
@@ -29,16 +29,13 @@
  * \author Katie Lim
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KIND_COLOURS, levelBounds, openingEnds, roomCentre } from "../lib/wfb.js";
+import { KIND_COLOURS, levelBounds, openingEnds, roomCentre, isStartPoint, isUnsure } from "../lib/wfb.js";
 
 const SNAP = 0.4;   // metres, how close you need to be to snap to a wall end
-const UNSURE = 0.7; // confidence below this is shown in orange
 const LINK_LABEL_ZOOM = 20; // "stairs to L2" text only shows once 1 m is at least this many pixels
 
-const unsure = (x) => (x.confidence ?? 1) < UNSURE;
-
 export default function PlanView({
-  level, selection, tool, showPaths, route, underlay, links = [],
+  level, selection, tool, showPaths, route, underlay, links = [], focus,
   onSelect, onAddWall, onAddDoor, onMoveWall, onAddRoom,
 }) {
   const svgRef = useRef(null);
@@ -74,6 +71,18 @@ export default function PlanView({
     });
   };
   useEffect(fit, [level.id]); // only on a floor change, not on every edit, or it would jump while you work
+
+  // move to a room picked somewhere else (the room table). about 30 m across, so its label shows.
+  // this comes after fit above, so on a floor change it still ends up on the room
+  useEffect(() => {
+    const r = focus && (level.rooms || []).find((x) => x.id === focus.id);
+    if (!r) return;
+    const [cx, cy] = roomCentre(r);
+    setView((v) => {
+      const w = 30, h = v ? (w * v.h) / v.w : w;
+      return { x: cx - w / 2, y: -cy - h / 2, w, h };
+    });
+  }, [focus]); // only when a new room is picked, not when the floor is edited
 
   // keys for the drawing tools
   useEffect(() => {
@@ -230,7 +239,6 @@ export default function PlanView({
   const levelShown = moving ? { ...level, walls: wallsShown } : level;
   const selWall = selection?.type === "wall" && tool === "select" ? wallsShown.find((w) => w.id === selection.id) : null;
 
-  const starts = new Set((level.anchors || []).map((a) => a.id));
 
   return (
     <div className="plan-wrap">
@@ -276,7 +284,7 @@ export default function PlanView({
             key={r.id}
             points={r.polygon.map((p) => p.join(",")).join(" ")}
             fill={KIND_COLOURS[r.kind] || KIND_COLOURS.unknown}
-            className={"room" + (isSel("room", r.id) ? " selected" : "") + (unsure(r) ? " unsure" : "") + (underlay?.opacity > 0.5 ? " see-through" : "")}
+            className={"room" + (isSel("room", r.id) ? " selected" : "") + (isUnsure(r) ? " unsure" : "") + (underlay?.opacity > 0.5 ? " see-through" : "")}
             data-type="room" data-id={r.id}
           />
         ))}
@@ -294,7 +302,7 @@ export default function PlanView({
           <g key={w.id} data-type="wall" data-id={w.id} className="wall-g">
             <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]}
               strokeWidth={Math.max(0.12, w.thickness || 0.15)}
-              className={"wall" + (isSel("wall", w.id) ? " selected" : "") + (unsure(w) ? " unsure" : "")} />
+              className={"wall" + (isSel("wall", w.id) ? " selected" : "") + (isUnsure(w) ? " unsure" : "")} />
             {/* fat invisible line so thin walls are easy to click */}
             <line x1={w.a[0]} y1={w.a[1]} x2={w.b[0]} y2={w.b[1]} strokeWidth={18 * px} className="hit" />
           </g>
@@ -309,7 +317,7 @@ export default function PlanView({
               {/* paint over the wall to make the gap, then draw the door itself */}
               <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th + 0.06} className="gap" />
               <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={th * 0.5}
-                className={`opening opening-${o.type}` + (isSel("opening", o.id) ? " selected" : "") + (unsure(o) ? " unsure" : "")} />
+                className={`opening opening-${o.type}` + (isSel("opening", o.id) ? " selected" : "") + (isUnsure(o) ? " unsure" : "")} />
               <line x1={ends.a[0]} y1={ends.a[1]} x2={ends.b[0]} y2={ends.b[1]} strokeWidth={15 * px} className="hit" />
             </g>
           );
@@ -350,7 +358,7 @@ export default function PlanView({
 
       {/* labels last so nothing covers them. outside the flip, so y is negated by hand */}
       {labelSpots.map((spot) => {
-        const lines = roomLabel(spot, starts.has("a-" + spot.room.id), px);
+        const lines = roomLabel(spot, isStartPoint(level, spot.room.id), px);
         // stack the lines around the middle of the room
         let y = -spot.centre[1] - lines.reduce((t, l) => t + l.size * LINE_GAP, 0) / 2;
         return lines.map((l) => {

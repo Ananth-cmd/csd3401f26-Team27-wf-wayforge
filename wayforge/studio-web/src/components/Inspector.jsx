@@ -14,7 +14,7 @@
  * \author Katie Lim
  */
 import { useState } from "react";
-import { ROOM_KINDS, KIND_COLOURS, wallLength, polygonArea, roomCentre } from "../lib/wfb.js";
+import { ROOM_KINDS, KIND_COLOURS, kindLabel, wallLength, polygonArea, isStartPoint, setStartPoint } from "../lib/wfb.js";
 
 const num = (v, d = 2) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixed(d));
 
@@ -31,15 +31,8 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
       const room = doc.levels.find((l) => l.id === level.id).rooms.find((x) => x.id === r.id);
       room[field] = value;
     }, field !== "name" && field !== "code"); // typing a name shouldn't make an undo step per letter
-    // a starting point is saved as an anchor (QR / tap to start spot) in the middle of the room.
-    // the Navigator lets people pick these as "where am I"
-    const anchorId = "a-" + r.id;
-    const isStart = (level.anchors || []).some((a) => a.id === anchorId);
-    const toggleStart = (on) => onChange((doc) => {
-      const l = doc.levels.find((x) => x.id === level.id);
-      l.anchors = (l.anchors || []).filter((a) => a.id !== anchorId);
-      if (on) l.anchors.push({ id: anchorId, pos: roomCentre(r), name: r.name || r.code || r.id, heading: 0 });
-    }, true);
+    // starting point = where the Navigator lets people start ("where am I")
+    const toggleStart = (on) => onChange((doc) => setStartPoint(doc.levels.find((l) => l.id === level.id), r, on), true);
     return (
       <div className="fields">
         <span className="what"><i className="swatch" style={{ background: KIND_COLOURS[r.kind] }} />Room {r.id}</span>
@@ -51,10 +44,10 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
         </label>
         <label>Kind
           <select value={r.kind} onChange={(e) => set("kind", e.target.value)}>
-            {ROOM_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+            {ROOM_KINDS.map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}
           </select>
         </label>
-        <label className="check"><input type="checkbox" checked={isStart} onChange={(e) => toggleStart(e.target.checked)} /> Starting point</label>
+        <label className="check"><input type="checkbox" checked={isStartPoint(level, r.id)} onChange={(e) => toggleStart(e.target.checked)} /> Starting point</label>
         <span className="facts">{num(r.area ?? polygonArea(r.polygon), 1)} m², {num((r.confidence ?? 1) * 100, 0)}% sure</span>
         <button className="danger" onClick={onDelete}>Delete room</button>
       </div>
