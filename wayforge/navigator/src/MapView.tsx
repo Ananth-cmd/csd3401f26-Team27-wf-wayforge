@@ -1,5 +1,7 @@
 // Illustrative 3D / 2D floor map (camera from the prototype's BuildingMap.cs: orthographic, tilt 48°, yaw -35°).
 // Fills its parent. Drag = rotate (3D) or pan (2D), wheel / pinch = zoom.
+// Shapes are projected around the floor centre, so panning and zooming only move the SVG viewBox;
+// the walls, slabs and zones are rebuilt only when the floor or the rotation changes.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Building, Vec2 } from './types'
 
@@ -52,7 +54,8 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
   const fwd: V3 = [Math.cos(pitch) * fwdH[0], -Math.sin(pitch), Math.cos(pitch) * fwdH[2]]
   const up: V3 = [Math.sin(pitch) * fwdH[0], Math.cos(pitch), Math.sin(pitch) * fwdH[2]]
   const projAt = (p: V3, t: V3): Vec2 => { const r: V3 = [p[0] - t[0], p[1] - t[1], p[2] - t[2]]; return [dot(r, right), -dot(r, up)] }
-  const proj = (p: V3) => projAt(p, target)
+  const proj = (p: V3) => projAt(p, centre)
+  const view = projAt(target, centre) // where the camera target is, in projected units
   const pt = (p: V3) => proj(p).join(',')
   const at = (id: string, y = 0): Vec2 => { const n = node.get(id)!; return proj([n.pos[0], y, n.pos[1]]) }
 
@@ -71,7 +74,7 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
   const k = vh / size.h // world units per screen pixel
 
   // floor slab (top + visible edges)
-  const slab = lvl.floors.map(f => {
+  const slab = useMemo(() => lvl.floors.map(f => {
     const sides: V3[][] = []
     if (!topDown) for (let i = 0; i < f.length; i++) {
       const p = f[i], q = f[(i + 1) % f.length]
@@ -80,7 +83,7 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
       sides.push([[p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], -SLAB_T, q[1]], [p[0], -SLAB_T, p[1]]])
     }
     return { top: f.map(p => [p[0], 0, p[1]] as V3), sides }
-  })
+  }), [lvl, centre, yaw, topDown]) // eslint-disable-line
 
   // walls as boxes, far to near
   const walls = useMemo(() => {
@@ -105,11 +108,28 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
     return out.sort((a, b) => b.depth - a.depth)
   }, [lvl, topDown, yaw]) // eslint-disable-line
 
-  const nodes = building.nodes.filter(n => n.level === floor)
+  const nodes = useMemo(() => building.nodes.filter(n => n.level === floor), [building, floor])
   const zone = (id: string, half: number, cls: string) => {
     const n = node.get(id)!, [x, z] = n.pos
     return <polygon key={`z-${id}`} className={cls} points={[[x - half, z - half], [x + half, z - half], [x + half, z + half], [x - half, z + half]].map(p => pt([p[0], 0.02, p[1]])).join(' ')} />
   }
+  // floor slabs and stair / lift zones, rebuilt only when the floor or the rotation changes
+  const under = useMemo(() => <>
+    {slab.map((s, i) => <g key={i}>
+      {s.sides.map((sd, j) => <polygon key={j} className="m-slab-side" points={sd.map(pt).join(' ')} />)}
+      <polygon className="m-slab" points={s.top.map(pt).join(' ')} />
+    </g>)}
+    {nodes.filter(n => n.kind === 'stairs').map(n => zone(n.id, 2.2, 'm-zone stairs'))}
+    {nodes.filter(n => n.kind === 'lift').map(n => zone(n.id, 2.2, 'm-zone lift'))}
+  </>, [slab, nodes]) // eslint-disable-line
+  const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={`m-wall s${p.shade}`} points={p.pts.map(pt).join(' ')} />)),
+    [walls]) // eslint-disable-line
+  // labels also change with the zoom (their size is in screen pixels)
+  const labels = useMemo(() => nodes.filter(n => n.kind !== 'turn').map(n => {
+    const [x, y] = at(n.id, 0.1)
+    return <text key={`l-${n.id}`} x={x} y={y + 16 * k} fontSize={10 * k} className="m-label">{short(n.label)}</text>
+  }), [nodes, k, centre, yaw, topDown]) // eslint-disable-line
+
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
   const hereNode = here && node.get(here)?.level === floor ? here : null
 
@@ -136,20 +156,12 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
 
   return (
     <div className={`mapview${topDown ? ' flat' : ''}`} ref={ref}>
-      <svg viewBox={`${-vw / 2} ${-vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+      <svg viewBox={`${view[0] - vw / 2} ${view[1] - vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onWheel={e => setZoom(z => clampZoom(z * (e.deltaY < 0 ? 0.9 : 1.1)))} role="img" aria-label={`${lvl.name} map`}>
-        {slab.map((s, i) => <g key={i}>
-          {s.sides.map((sd, j) => <polygon key={j} className="m-slab-side" points={sd.map(pt).join(' ')} />)}
-          <polygon className="m-slab" points={s.top.map(pt).join(' ')} />
-        </g>)}
-        {nodes.filter(n => n.kind === 'stairs').map(n => zone(n.id, 2.2, 'm-zone stairs'))}
-        {nodes.filter(n => n.kind === 'lift').map(n => zone(n.id, 2.2, 'm-zone lift'))}
+        {under}
         {pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
-        {walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={`m-wall s${p.shade}`} points={p.pts.map(pt).join(' ')} />))}
-        {nodes.filter(n => n.kind !== 'turn').map(n => {
-          const [x, y] = at(n.id, 0.1)
-          return <text key={`l-${n.id}`} x={x} y={y + 16 * k} fontSize={10 * k} className="m-label">{short(n.label)}</text>
-        })}
+        {wallShapes}
+        {labels}
         {lines.map((ids, i) => {
           const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15).join(','))
           return ps.length > 1 && <polyline key={`r-${i}`} className="m-route" points={ps.join(' ')} strokeWidth={4 * k} />
@@ -157,7 +169,7 @@ export default function MapView({ building, floor, topDown = false, lines = [], 
         {hereNode && (() => { const [x, y] = at(hereNode, 0.15); return <g><circle cx={x} cy={y} r={13 * k} className="m-here-halo" /><circle cx={x} cy={y} r={7 * k} className="m-here" /></g> })()}
         {pinNode && (() => {
           const [x, y] = at(pinNode.node, 0.15), label = short(pinNode.label), w = (label.length * 6.6 + 24) * k
-          const left = x + 16 * k + w > vw / 2 - 6 * k // flip the callout so it stays inside the map
+          const left = x - view[0] + 16 * k + w > vw / 2 - 6 * k // flip the callout so it stays inside the map
           const rx = left ? x - 16 * k - w : x + 16 * k
           return <g>
             <rect x={rx} y={y - 15 * k} width={w} height={30 * k} rx={8 * k} className="m-callout" />
