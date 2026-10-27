@@ -27,7 +27,7 @@ import { useEffect, useRef, useState } from "react";
 
 const VIEWER_URL = import.meta.env.BASE_URL + "viewer/index.html";
 
-export default function Viewer3D({ wfbText, levelId, route, onRoomClicked, highlight }) {
+export default function Viewer3D({ wfbText, levelId, onRoomClicked, highlight }) {
   const frameRef = useRef(null);
   const viewerRef = useRef(null);
   const [state, setState] = useState("checking"); // checking | missing | loading | ready | error
@@ -103,12 +103,6 @@ export default function Viewer3D({ wfbText, levelId, route, onRoomClicked, highl
   useEffect(() => {
     if (loaded) apply();
   }, [loaded, allFloors, levelId, inside, spread, roof, labels]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    if (route && route.ok) viewerRef.current.showRoute(route, { animate: true });
-    else viewerRef.current.clearRoute();
-  }, [loaded, route]);
 
   // the room picked on the 2D plan goes yellow in 3D too ("" clears it)
   useEffect(() => {

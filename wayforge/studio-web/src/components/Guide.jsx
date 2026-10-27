@@ -62,10 +62,10 @@ const SECTIONS = [
     ],
   },
   {
-    title: "6. Check and test",
+    title: "6. Check",
     steps: [
       <><b>Checks</b> on the left lists anything missing, like rooms without a name. Click a line to go to that room.</>,
-      <><b>Test a route</b> walks from one room to another the way the Navigator would. Tick <b>step free only</b> to avoid stairs. Save first so it uses your latest changes.</>,
+      <>To try a route the way visitors will, publish and use <b>Open in Navigator</b>.</>,
     ],
   },
   {

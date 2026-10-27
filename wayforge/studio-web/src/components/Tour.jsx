@@ -4,7 +4,7 @@
  *
  * each step lights up one real part of the editor and shows a small card
  * next to it saying what it does. Next / Back (or the arrow keys) move
- * through it, Esc or "Skip" closes it.
+ * through it, Esc or "Skip all" closes it.
  *
  * how it's drawn: a see-through box sits exactly on top of the part being
  * shown, with a huge shadow around it that darkens the rest of the page.
@@ -13,8 +13,9 @@
  * a step can ask the editor to switch view first (view: "rooms" opens the
  * room table) so the part it talks about is actually on screen.
  *
- * it opens by itself the first time someone opens the editor (remembered in
- * this browser), and again whenever "How to use" is clicked.
+ * it opens by itself on every visit, the first time someone goes into a
+ * building (EditorPage remembers it until the tab is closed), and again
+ * whenever "How to use" is clicked.
  *
  * \author Katie Lim
  */
@@ -60,7 +61,7 @@ export const EDITOR_TOUR = [
   {
     target: ".side-links", place: "right", view: "2d",
     title: "Building, stairs, checks",
-    text: "Building details (name, location, floor heights), Stairs and lifts that join the floors, Checks for anything missing, and Test a route to walk it like a visitor would.",
+    text: "Building details (name, location, floor heights), Stairs and lifts that join the floors, and Checks for anything missing.",
   },
   {
     target: ".ed-actions", place: "below",
@@ -160,7 +161,7 @@ export default function Tour({ steps, onView, onClose }) {
         <h3 id="tour-title">{step.title}</h3>
         <p>{step.text}</p>
         <div className="tour-buttons">
-          <button className="quiet small" onClick={onClose}>{last ? "Close" : "Skip"}</button>
+          {!last && <button className="small" onClick={onClose}>Skip all</button>}
           <span className="grow" />
           {at > 0 && <button className="small" onClick={() => setAt(at - 1)}>Back</button>}
           <button className="primary small" onClick={() => (last ? onClose() : setAt(at + 1))} autoFocus>{last ? "Done" : "Next"}</button>

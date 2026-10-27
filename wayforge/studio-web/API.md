@@ -61,11 +61,6 @@ Copies the current draft to the published version that the Navigator reads. Shou
 (400) if the file has no navigation points. Returns the building object with the new `version`
 and `publishedAt`.
 
-### `GET /api/buildings/:id/route?from=L1-01&to=L3-07&stepFree=0`
-Runs `wf_cli route <saved file> <from> <to> [--step-free]` and returns its JSON as is
-(`{ ok, totalCost, steps:[{level,node,kind,x,y,z}], directions:[...] }` or `{ ok:false, error }`).
-`to` can be `exit`.
-
 ## For the Navigator side (not used by the Studio)
 
 * `GET /api/published` - list of published buildings (id, name, lat, lon, version, publishedAt)

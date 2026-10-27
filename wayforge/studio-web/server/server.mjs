@@ -6,7 +6,6 @@
  * it does what API.md says, nothing more:
  *   POST /api/buildings            pictures -> wf_cli build -> .wfb
  *   PUT  /api/buildings/:id/wfb    save edits -> wf_cli graph (rebuild walking paths)
- *   GET  /api/buildings/:id/route  wf_cli route
  *   POST /api/buildings/:id/publish  copy the draft to the published version
  *   GET  /api/published...         what the Navigator reads
  *
@@ -238,19 +237,7 @@ function publish(id) {
   return { body: info(id) };
 }
 
-async function route(id, q) {
-  const args = ["route", path.join(dirOf(id), "draft.wfb"), q.get("from") || "", q.get("to") || ""];
-  if (q.get("stepFree") === "1") args.push("--step-free");
-  try {
-    const { stdout } = await runCli(args, 30000);
-    return { body: JSON.parse(stdout) };
-  } catch (e) {
-    // wf_cli prints {ok:false,error} on a failed route, pass that on as a normal answer
-    try { return { body: JSON.parse(e.stdout) }; } catch { return { body: { ok: false, error: e.message } }; }
-  }
-}
-
-// ---------- routing ----------
+// ---------- which url does what ----------
 
 const TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".bmp": "image/bmp", ".svg": "image/svg+xml" };
 
@@ -272,7 +259,6 @@ async function handle(req, res) {
     if (sub === "wfb" && m === "GET") return sendFile(res, path.join(dirOf(id), "draft.wfb"), "application/json");
     if (sub === "wfb" && m === "PUT") { const r = await saveBuilding(id, req); return send(res, 200, r.body); }
     if (sub === "publish" && m === "POST") return send(res, 200, publish(id).body);
-    if (sub === "route" && m === "GET") return send(res, 200, (await route(id, url.searchParams)).body);
     if (sub === "source" && extra && m === "GET") {
       const s = (readJson(path.join(dirOf(id), "meta.json")).sources || []).find((x) => x.level === extra);
       if (!s) return send(res, 404, { error: "no picture for that level" });

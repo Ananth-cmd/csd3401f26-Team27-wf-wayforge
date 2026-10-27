@@ -20,7 +20,7 @@ import PlanView from "../components/PlanView.jsx";
 import Viewer3D from "../components/Viewer3D.jsx";
 import RoomTable from "../components/RoomTable.jsx";
 import Tour, { EDITOR_TOUR } from "../components/Tour.jsx";
-import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel, RoutePanel } from "../components/Inspector.jsx";
+import { SelectionPanel, BuildingPanel, LinksPanel, ChecksPanel } from "../components/Inspector.jsx";
 
 const MERGE_MS = 800; // edits closer together than this (like typing) share one undo step
 
@@ -49,19 +49,20 @@ export default function EditorPage({ id, go }) {
       return t ? JSON.parse(t) : null;
     } catch { return null; }
   });
-  const [sheet, setSheet] = useState(buildLog ? "summary" : null); // building | links | checks | route | summary popout
+  const [sheet, setSheet] = useState(buildLog ? "summary" : null); // building | links | checks | summary popout
   const [showPaths, setShowPaths] = useState(false);
-  const [route, setRoute] = useState(null);
   const [blueprint, setBlueprint] = useState(true);   // show the uploaded picture under the plan
   const [opacity, setOpacity] = useState(0.35);
   const [picDims, setPicDims] = useState({});         // {L1: {w, h}} sizes of the uploaded pictures
   const [busy, setBusy] = useState("");
   const [asking, setAsking] = useState(false); // the "publish?" box is open
-  // the walkthrough opens by itself the first time this browser opens the editor
-  const [touring, setTouring] = useState(() => { try { return !localStorage.getItem("wf.tour.seen"); } catch { return false; } });
+  // the walkthrough opens by itself every time someone opens the Studio, the first time they go
+  // into a building. sessionStorage is cleared when the tab is closed, so the next visit gets it again,
+  // but going from one building to another in the same visit doesn't keep bringing it back
+  const [touring, setTouring] = useState(() => { try { return !sessionStorage.getItem("wf.tour.done"); } catch { return true; } });
   const endTour = useCallback(() => {
     setTouring(false);
-    try { localStorage.setItem("wf.tour.seen", "1"); } catch { /* private window, it'll show again next time */ }
+    try { sessionStorage.setItem("wf.tour.done", "1"); } catch { /* blocked, it just shows again */ }
   }, []);
   const [toast, setToast] = useState("");
   const undo = useRef([]), redo = useRef([]), lastEdit = useRef(0);
@@ -114,7 +115,6 @@ export default function EditorPage({ id, go }) {
     lastEdit.current = now;
     redo.current = [];
     put(next);
-    setRoute(null); // an old route might not be right any more
   }, []);
 
   const doUndo = useCallback(() => {
@@ -202,17 +202,6 @@ export default function EditorPage({ id, go }) {
     }, true);
     setTool("select");
     setTimeout(() => newId && setSelection({ type: "room", id: newId }), 0);
-  }
-
-  // try a trip between two rooms (the server runs wf_cli route on the saved file)
-  async function findRoute(from, to, stepFree) {
-    if (from == null) { setRoute(null); return; }
-    setBusy("route");
-    try {
-      const r = await api.route(id, text, from, to, stepFree);
-      setRoute(r);
-      if (r.ok) setLevelId(r.steps[0].level); // jump to where the route starts
-    } catch (e) { setRoute({ ok: false, error: e.message }); } finally { setBusy(""); }
   }
 
   function addWall(a, b) {
@@ -376,7 +365,6 @@ export default function EditorPage({ id, go }) {
             <button className={sheet === "checks" ? "on" : ""} onClick={() => toggleSheet("checks")}>
               Checks {problems.length > 0 && <em className={errors ? "bad" : "warn"}>{problems.length}</em>}
             </button>
-            <button className={sheet === "route" ? "on" : ""} onClick={() => toggleSheet("route")}>Test a route</button>
             <button className="tour-btn" onClick={() => { setSheet(null); setTouring(true); }}>How to use</button>
           </section>
           <p className="side-foot">{s.rooms} rooms, {s.tagged} tagged<br />{s.floors} levels</p>
@@ -400,7 +388,6 @@ export default function EditorPage({ id, go }) {
                 </div>
               )}
               {sheet === "building" && <BuildingPanel doc={doc} onChange={edit} current={level.id} onPick={setLevelId} />}
-              {sheet === "route" && <RoutePanel doc={doc} onRoute={findRoute} route={route} busy={busy === "route"} dirty={dirty} />}
               {sheet === "links" && <LinksPanel doc={doc} onChange={edit} />}
               {sheet === "checks" && <ChecksPanel problems={problems} onPick={(p) => { if (p.level) setLevelId(p.level); if (p.room) setSelection({ type: "room", id: p.room }); }} />}
             </div>
@@ -408,7 +395,7 @@ export default function EditorPage({ id, go }) {
 
           {/* keep the 3D mounted once opened so Unity doesn't reload every time */}
           <div className="canvas" style={{ display: centre === "2d" ? "block" : "none" }}>
-            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths} route={route}
+            <PlanView level={level} selection={selection} tool={tool} showPaths={showPaths}
               underlay={underlay} links={linksHere} focus={focus}
               onSelect={setSelection} onAddWall={addWall} onAddDoor={addDoor} onMoveWall={moveWall} onAddRoom={addRoom} />
           </div>
@@ -418,7 +405,7 @@ export default function EditorPage({ id, go }) {
             </div>
           )}
           <Lazy3D show={centre === "3d"}>
-            <Viewer3D wfbText={text} levelId={level.id} route={route} onRoomClicked={onRoomClicked}
+            <Viewer3D wfbText={text} levelId={level.id} onRoomClicked={onRoomClicked}
               highlight={selection?.type === "room" ? `${level.id}:${selection.id}` : ""} />
           </Lazy3D>
         </main>

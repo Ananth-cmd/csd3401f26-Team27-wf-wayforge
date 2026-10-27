@@ -13,7 +13,6 @@
  * \author Katie Lim
  */
 import { parseWfb, toWfbText, summary, validate } from "../lib/wfb.js";
-import { findRoute } from "../lib/route.js";
 
 const KEY = "wayforge-studio-mock";
 let memory = null; // used if localStorage isn't allowed
@@ -152,11 +151,6 @@ export const mockApi = {
     b.published = b.wfb; // what the Navigator would get
     store(db);
     return listItem(id, b);
-  },
-
-  async route(id, wfbText, from, to, stepFree) {
-    await wait(150);
-    return findRoute(parseWfb(wfbText), from, to, stepFree);
   },
 
   // wipe everything, handy while testing

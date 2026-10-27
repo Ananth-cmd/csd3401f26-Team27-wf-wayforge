@@ -4,7 +4,7 @@
  *
  * draws the uploaded blueprint underneath (optional), rooms coloured by
  * kind, walls, doors/windows, stair/lift links, labels and the walking
- * paths / a test route. scroll to zoom, drag empty space to pan.
+ * paths. scroll to zoom, drag empty space to pan.
  * anything the engine wasn't sure about (confidence under 0.7) is orange.
  *
  * tools:
@@ -42,7 +42,7 @@ const LINK_LABEL_ZOOM = 20; // "stairs to L2" text only shows once 1 m is at lea
 const unsure = (x) => (x.confidence ?? 1) < UNSURE;
 
 export default function PlanView({
-  level, selection, tool, showPaths, route, underlay, links = [],
+  level, selection, tool, showPaths, underlay, links = [],
   onSelect, onAddWall, onAddDoor, onMoveWall, onAddRoom,
 }) {
   const svgRef = useRef(null);
@@ -299,7 +299,6 @@ export default function PlanView({
   }), [labelSpots, starts, px]);
 
   if (!view) return <div className="plan-wrap"><svg ref={svgRef} className="plan" /></div>;
-  const routeHere = route && route.ok ? route.steps.filter((s) => s.level === level.id) : [];
   const selWall = selection?.type === "wall" && tool === "select" ? wallsShown.find((w) => w.id === selection.id) : null;
 
   return (
@@ -351,16 +350,6 @@ export default function PlanView({
           <circle key={i} cx={k.pos[0]} cy={k.pos[1]} r={8 * px} className={`link-dot link-${k.kind}`} />
         ))}
 
-        {routeHere.length > 1 && (
-          <polyline points={routeHere.map((s) => `${s.x},${s.y}`).join(" ")} className="route" strokeWidth={5 * px} />
-        )}
-        {routeHere.length > 0 && (
-          <>
-            <circle cx={routeHere[0].x} cy={routeHere[0].y} r={7 * px} className="route-start" />
-            <circle cx={routeHere.at(-1).x} cy={routeHere.at(-1).y} r={7 * px} className="route-end" />
-          </>
-        )}
-
         {/* end dots of the selected wall, drag them to move that end */}
         {selWall && ["a", "b"].map((end) => (
           <circle key={end} cx={selWall[end][0]} cy={selWall[end][1]} r={7 * px} className="handle" data-type="handle" data-id={end} />
@@ -369,7 +358,7 @@ export default function PlanView({
         {tool === "wall" && wallStart && mouse && (
           <line x1={wallStart[0]} y1={wallStart[1]} x2={snap(mouse)[0]} y2={snap(mouse)[1]} className="wall preview" strokeWidth={0.15} />
         )}
-        {tool === "wall" && wallStart && <circle cx={wallStart[0]} cy={wallStart[1]} r={5 * px} className="route-start" />}
+        {tool === "wall" && wallStart && <circle cx={wallStart[0]} cy={wallStart[1]} r={5 * px} className="draw-start" />}
 
         {tool === "room" && roomPts.length > 0 && (
           <>

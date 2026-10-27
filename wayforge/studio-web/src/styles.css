@@ -177,9 +177,6 @@ label.check input { width: auto; margin: 0; }
 .view-switch button:first-child { border-radius: var(--r) 0 0 var(--r); }
 .view-switch button:last-child { border-radius: 0 var(--r) var(--r) 0; border-left: none; }
 
-.route-drop { position: absolute; top: 12px; right: 12px; z-index: 4; width: 300px; display: flex; flex-direction: column; align-items: flex-end; }
-.route-toggle { background: var(--sheet); }
-.route-drop.open .route-toggle { background: var(--on-bg); border-color: var(--on-line); color: var(--on-ink); }
 .drop-body { margin-top: 6px; width: 100%; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); padding: 14px; box-shadow: 0 6px 18px rgba(31,42,54,.18); }
 
 .sheet { position: absolute; top: 56px; left: 12px; max-height: calc(100% - 68px); width: 340px; z-index: 4; overflow: auto;
@@ -231,9 +228,7 @@ label.check input { width: auto; margin: 0; }
 .label { fill: #102e2b; font-family: var(--font-tight); pointer-events: none; paint-order: stroke; stroke: rgba(251,252,252,.85); }
 .label-code { font-weight: 600; }
 .label-start { fill: var(--primary); font-weight: 600; }
-.route { fill: none; stroke: var(--primary); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.route-start { fill: var(--primary); pointer-events: none; }
-.route-end { fill: var(--primary-dark); pointer-events: none; }
+.draw-start { fill: var(--primary); pointer-events: none; } /* first click of a new wall */
 
 /* ---------- 3D viewer ---------- */
 .viewer-wrap { position: absolute; inset: 0; background: #2a3138; }
@@ -250,7 +245,7 @@ label.check input { width: auto; margin: 0; }
 .viewer-msg.overlay { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
 .viewer-error { position: absolute; bottom: 12px; left: 12px; right: 12px; background: var(--signal); color: #fff; font-size: 13px; padding: 6px 10px; border-radius: var(--r); z-index: 2; }
 
-/* ---------- side sheets (building, stairs, checks) and route ---------- */
+/* ---------- side sheets (building, stairs, checks) ---------- */
 table.mini { width: 100%; border-collapse: collapse; font-size: 14px; }
 table.mini th { text-align: left; color: var(--graphite); font-weight: 400; padding: 4px; font-size: 13px; }
 table.mini td { padding: 2px; }
@@ -262,7 +257,6 @@ ul.checks li { padding: 7px 2px 7px 10px; border-bottom: 1px solid var(--rule); 
 ul.checks li:hover { background: var(--vellum); }
 ul.checks li.error { border-left-color: var(--signal); }
 ul.checks b { font-weight: 600; margin-right: 4px; }
-ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
 
 .toast { position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%); background: var(--primary-dark); color: #fff; padding: 8px 16px; border-radius: var(--r); font-size: 14px; z-index: 10; }
 
@@ -284,7 +278,6 @@ ol.directions { padding-left: 18px; font-size: 14px; margin: 6px 0 0; }
   .ed-bottom { flex-direction: column; align-items: stretch; }
   .tools { border-right: none; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
   .fields { flex-wrap: wrap; }
-  .route-drop { width: calc(100% - 24px); }
   .sheet { width: auto; right: 12px; }
 }
 

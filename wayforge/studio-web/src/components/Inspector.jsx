@@ -6,7 +6,6 @@
  * BuildingPanel  - building name, location, floor names and heights
  * LinksPanel     - stairs/lifts that join two floors
  * ChecksPanel    - problems to fix before publishing
- * RoutePanel     - try a route from one room to another
  *
  * none of these change the building directly, they call onChange with a
  * function that edits a copy, so the editor can keep undo history
@@ -261,37 +260,6 @@ export function ChecksPanel({ problems, onPick }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-export function RoutePanel({ doc, onRoute, route, busy, dirty }) {
-  const codes = [];
-  for (const l of doc.levels) for (const r of l.rooms || []) if (r.code) codes.push(r.code);
-  const [from, setFrom] = useState(codes[0] || "");
-  const [to, setTo] = useState(codes[1] || "");
-  const [stepFree, setStepFree] = useState(false);
-  return (
-    <div className="form">
-      <h3>Test a route</h3>
-      {dirty && <p className="note small">Save first to include your changes.</p>}
-      <datalist id="room-codes">{codes.map((c) => <option key={c} value={c} />)}<option value="exit" /></datalist>
-      <div className="row2">
-        <label>From <input list="room-codes" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>To <input list="room-codes" value={to} onChange={(e) => setTo(e.target.value)} placeholder="code or exit" /></label>
-      </div>
-      <label className="check"><input type="checkbox" checked={stepFree} onChange={(e) => setStepFree(e.target.checked)} /> step free only (no stairs)</label>
-      <div className="row-buttons">
-        <button onClick={() => onRoute(from, to, stepFree)} disabled={busy || !from || !to}>{busy ? "Finding..." : "Show route"}</button>
-        {route && <button className="ghost" onClick={() => onRoute(null)}>Clear</button>}
-      </div>
-      {route && !route.ok && <p className="error-text">{route.error}</p>}
-      {route && route.ok && (
-        <div>
-          <p className="ok">About {Math.round(route.totalCost)} m through {new Set(route.steps.map((s) => s.level)).size} floor(s).</p>
-          <ol className="directions">{route.directions.map((d, i) => <li key={i}>{d.text}</li>)}</ol>
-        </div>
-      )}
     </div>
   );
 }

@@ -54,10 +54,5 @@ export const realApi = {
 
   publishBuilding: (id) => call(`/buildings/${encodeURIComponent(id)}/publish`, { method: "POST" }),
 
-  // the server runs wf_cli route on the SAVED file, so save first if there are changes
-  route: (id, _wfbText, from, to, stepFree) =>
-    call(`/buildings/${encodeURIComponent(id)}/route?` +
-      new URLSearchParams({ from, to, stepFree: stepFree ? "1" : "0" })),
-
   async reset() { /* nothing to reset on the real server */ },
 };
