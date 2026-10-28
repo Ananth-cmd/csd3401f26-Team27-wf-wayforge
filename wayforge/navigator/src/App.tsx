@@ -631,7 +631,7 @@ export default function App() {
     </div>
   )
   const legend = (
-    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap a room to pick it' : 'Drag to turn · pinch to zoom'}</em></div>
+    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap a room to pick it' : 'Drag to move · right-drag to turn'}</em></div>
   )
   const actions = (list: Action[]) => <div className="actions">{list.map(a => <div key={a.label} className="act">
     {a.disabled && a.hint && <p className="hint" id={`h-${a.label.length}`}>{a.hint}</p>}

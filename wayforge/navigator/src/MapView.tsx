@@ -1,6 +1,7 @@
 // 3D / 2D floor map (orthographic camera, tilt 48° in 3D, straight down in 2D). North is up in both until you rotate;
 // the compass shows where north is and puts it back up. Fills its parent.
-// Drag = rotate (3D) or move (2D), Shift/right-drag or 2 fingers = move, wheel / pinch = zoom, tap a room = pick it.
+// Left-drag / 1 finger = move, right-drag (or Shift + left-drag) = rotate, 2 fingers = move + pinch zoom + twist to
+// rotate, wheel = zoom, tap a room = pick it.
 // Labels: far away only the block names (E1, W1...), closer in the room names, never on top of each other.
 // Speed for large buildings (Ananth): shapes are projected around the floor centre, so panning and zooming only move
 // the SVG viewBox; slabs, zones and walls are rebuilt only when the floor or the rotation changes.
@@ -257,13 +258,13 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   }, []) // eslint-disable-line
 
   const ptrs = useRef(new Map<number, Vec2>())
-  const pinch = useRef<{ d: number; m: Vec2 } | null>(null)
+  const pinch = useRef<{ d: number; m: Vec2; a: number } | null>(null)
   const panMode = useRef(false)
   const tap = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const onDown = (e: React.PointerEvent) => {
     ptrs.current.set(e.pointerId, [e.clientX, e.clientY])
-    tap.current = ptrs.current.size === 1 ? { x: e.clientX, y: e.clientY, moved: false } : null
-    panMode.current = topDown || e.button === 2 || e.shiftKey
+    tap.current = ptrs.current.size === 1 && e.button === 0 ? { x: e.clientX, y: e.clientY, moved: false } : null // right-click never picks a room
+    panMode.current = !(e.button === 2 || (e.button === 0 && e.shiftKey && e.pointerType === 'mouse')) // right mouse rotates, left moves
     pinch.current = null
     ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }
@@ -289,13 +290,17 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     if (ptrs.current.size >= 2) {
       tap.current = null
       const [a, b] = [...ptrs.current.values()]
-      const d = Math.hypot(a[0] - b[0], a[1] - b[1]), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]), m: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], ang = Math.atan2(b[1] - a[1], b[0] - a[0])
       if (pinch.current && d > 10) {
         panBy(m[0] - pinch.current.m[0], m[1] - pinch.current.m[1])
         const [px, py] = fromCentre(m[0], m[1])
         zoomAt(pinch.current.d / d, px, py)
+        // twist two fingers to rotate (the map turns with your fingers)
+        let da = ang - pinch.current.a
+        if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI
+        if (Math.abs(da) > 0.002) { setTurning(true); setCam(c => ({ ...c, yaw: c.yaw - (da * 180) / Math.PI })) }
       }
-      pinch.current = { d, m }
+      pinch.current = { d, m, a: ang }
       return
     }
     const dx = e.clientX - prev[0], dy = e.clientY - prev[1]
