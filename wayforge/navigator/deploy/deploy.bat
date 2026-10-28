@@ -30,7 +30,7 @@ echo == uploading
 scp "%TEMP%\navigator-upload.tgz" %SERVER%:navigator-upload.tgz || goto :fail
 
 echo == installing on the server (keeps the newest 5 uploads)
-ssh %SERVER% "set -e; R=/var/www/site2/releases/$(date -u +%%Y%%m%%d-%%H%%M%%S); mkdir -p $R; tar -xzf ~/navigator-upload.tgz -C $R; chmod -R a+rX $R; ln -sfn $R /var/www/site2/current; ls -1dt /var/www/site2/releases/* | tail -n +6 | xargs -r rm -rf; rm -f ~/navigator-upload.tgz; echo live: $R" || goto :fail
+ssh %SERVER% "set -e; R=/var/www/site2/releases/$(date -u +%%Y%%m%%d-%%H%%M%%S); mkdir -p $R; tar -xzf ~/navigator-upload.tgz -C $R; chmod -R a+rX $R; ln -sfn $R /var/www/site2/current; ls -1d /var/www/site2/releases/* | sort -r | tail -n +6 | xargs -r rm -rf; rm -f ~/navigator-upload.tgz; echo live: $R" || goto :fail
 
 echo.
 echo Done. Open https://navigation.duckdns.org

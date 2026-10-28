@@ -9,6 +9,7 @@
 #                    docker-compose.yml at the repo root) - same as `docker compose run --rm test`
 #   web            : build both websites (wayforge/studio-web, wayforge/navigator) and check the
 #                    Studio backend parses
+#   deploy-navigator : main only - put the Navigator build from web live on the team server
 #
 # Order: golden-checker runs first; desktop and docker only start if it passes,
 # so a broken checker can't make the golden tests pass by mistake. web is independent
@@ -189,3 +190,54 @@ jobs:
         with:
           name: navigator-dist
           path: wayforge/navigator/dist
+
+  # ------------------------------------------------------------------ deploy-navigator
+  # Put the Navigator live (https://navigation.duckdns.org) when main changes, using the site the
+  # web job just built, so the live site always matches main. Also runs from the Actions tab's
+  # "Run workflow" button on main. Same release folders as deploy.bat (undo: deploy/README.md).
+  # The deploy key can only run deploy/server/navigator-deploy.sh on the server (forced command),
+  # and its secrets sit in the "navigator-live" environment, which only main is allowed to use.
+  deploy-navigator:
+    needs: web
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: navigator-live
+      url: https://navigation.duckdns.org
+    concurrency:
+      group: deploy-navigator
+      cancel-in-progress: false              # let a running deploy finish; the next one waits
+    defaults:
+      run:
+        shell: bash                          # bash -eo pipefail: a failed tar stops the upload too
+        working-directory: .                 # no checkout here, so there is no wayforge/ folder
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: navigator-dist
+          path: dist
+
+      # Private key and the server's pinned host key, from the environment's secrets. Until they
+      # are set up (deploy/README.md) the job only warns, so main doesn't go red because of it.
+      - name: Set up the deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.NAVIGATOR_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.NAVIGATOR_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "::warning::Navigator not deployed: deploy secrets are not set up (see wayforge/navigator/deploy/README.md)"
+            echo "SKIP_DEPLOY=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/navigator_deploy
+          chmod 600 ~/.ssh/navigator_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # One connection: the built site goes in on stdin, the server script checks it and makes it live.
+      # StrictHostKeyChecking=yes: refuse to connect if the server's host key ever changes.
+      - name: Upload and make live
+        if: env.SKIP_DEPLOY != '1'
+        run: |
+          tar -czf - -C dist . | ssh -i ~/.ssh/navigator_deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes team27@51.79.243.238
