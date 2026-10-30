@@ -7,10 +7,56 @@
 // the SVG viewBox; slabs, zones and walls are rebuilt only when the floor or the rotation changes.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Building, Vec2 } from './types'
+import { buildMassing, massInput } from './massing'
+import type { MassBlock } from './massing'
 
-const WALL_H = 1.9
+const WALL_H = 1.2 // low walls: reads like a floor plan, and nearer walls hide less of the rooms behind them
 const SLAB_T = 0.45
 const ROOM_LABELS_FROM = 4.5 // px per metre at which room names start to show
+const MASS_ZOOM = 0.5 // zoomed out at least this far (1 = whole floor): the campus shows as 3D buildings
+const ICONS_FROM = 2.2 // px per metre at which toilet / lift / stairs / food icons show
+// room colour by type (each room's place says what it is); classes are styled in index.css
+const roomClass = (category: string, name: string) => {
+  const n = name.toLowerCase(), c = category.toLowerCase()
+  if (/\b(wc|toilet|restroom|washroom)/.test(n) || c === 'toilet') return 'r-toilet'
+  if (/canteen|caf[eé]|food|dining|kiosk/.test(n) || c === 'food') return 'r-food'
+  if (/library|bookshop/.test(n)) return 'r-lib'
+  if (c === 'lift' || /\blift\b/.test(n)) return 'r-lift'
+  if (c === 'stair' || c === 'stairs' || /\bstair/.test(n)) return 'r-stair'
+  if (c === 'corridor' || /corridor|link bridge|walkway/.test(n)) return 'r-corr'
+  if (c === 'lobby' || /lobby|foyer|entrance|atrium/.test(n)) return 'r-lobby'
+  if (c === 'lab' || /\blab\b|laborator/.test(n)) return 'r-lab'
+  if (c === 'office' || /office|services/.test(n)) return 'r-office'
+  if (c === 'storage' || /store|storage/.test(n)) return 'r-store'
+  return 'r-room'
+}
+const ICON_OF: Record<string, string> = { 'r-toilet': 'wf-i-toilet', 'r-lift': 'wf-i-lift', 'r-stair': 'wf-i-stair', 'r-food': 'wf-i-food' }
+// 3D campus buildings, worked out once per building in a background worker (massing.ts)
+const massCache = new WeakMap<Building, Promise<MassBlock[]>>()
+function loadMassing(b: Building, node: Map<string, { level: number; pos: Vec2 }>): Promise<MassBlock[]> {
+  let p = massCache.get(b)
+  if (p) return p
+  const input = massInput(b, node)
+  p = new Promise<MassBlock[]>(resolve => {
+    const fallback = () => setTimeout(() => resolve(buildMassing(input)), 50)
+    try {
+      const w = new Worker(new URL('./massing.worker.ts', import.meta.url), { type: 'module' })
+      w.onmessage = e => { resolve(e.data as MassBlock[]); w.terminate() }
+      w.onerror = () => { w.terminate(); fallback() }
+      w.postMessage(input)
+    } catch { fallback() }
+  })
+  massCache.set(b, p)
+  return p
+}
+const inPoly = (x: number, z: number, poly: Vec2[]) => {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j]
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside
+  }
+  return inside
+}
 const MAX_PIECES = 2500 // wall pieces per floor in 3D (more = better overlap, slower)
 const PIECE_M = 6 // shortest piece, metres
 type V3 = [number, number, number]
@@ -77,16 +123,27 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     return { right, fwdH, fwd, up }
   }
 
+  // 3D campus buildings (only when the backend sent room outlines; otherwise the floor plan as before)
+  const hasRooms = building.levels.some(l => l.floors.length > 1)
+  const [mass, setMass] = useState<MassBlock[] | null>(null)
+  useEffect(() => {
+    let live = true
+    setMass(null) // eslint-disable-line react-hooks/set-state-in-effect -- a new building: drop the old outlines
+    if (hasRooms) void loadMassing(building, node).then(m => { if (live) setMass(m) })
+    return () => { live = false }
+  }, [building, hasRooms, node])
+  const massTop = mass ? Math.max(...mass.map(m => m.top)) : 0
+
   // whole floor fits at zoom 1 (worked out at the default rotation, so rotating never changes the zoom)
   const fit = useMemo(() => {
     const { right: r0, up: u0 } = basis(defYaw)
     let mx = 1, my = 1
-    for (const f of lvl.floors) for (const p of f) for (const y of [-SLAB_T, WALL_H]) {
+    for (const f of lvl.floors) for (const p of f) for (const y of [-SLAB_T, Math.max(WALL_H, massTop * 0.8)]) {
       const r: V3 = [p[0] - centre[0], y, p[1] - centre[2]]
       mx = Math.max(mx, Math.abs(dot(r, r0))); my = Math.max(my, Math.abs(dot(r, u0)))
     }
     return { mx: mx * 1.08, my: my * 1.12 }
-  }, [lvl, centre, topDown]) // eslint-disable-line
+  }, [lvl, centre, topDown, massTop]) // eslint-disable-line
   const aspect = size.w / size.h
   const baseVh = Math.max(fit.my * 2, (fit.mx * 2) / aspect)
 
@@ -119,6 +176,8 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const vw = vh * aspect
   const k = vh / size.h // metres per screen pixel
   const pxPerM = 1 / k
+  const massMode = !!mass && mass.length > 0 && !topDown && zoom >= MASS_ZOOM
+  const lift = (id: string) => (massMode ? building.levels[node.get(id)?.level ?? floor]?.elevation ?? 0 : 0) // markers sit on their floor
 
   // floor slab (top + visible edges)
   const slab = useMemo(() => lvl.floors.map(f => {
@@ -182,7 +241,54 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   </>, [slab, floorNodes]) // eslint-disable-line
   const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={`m-wall s${p.shade}`} points={p.pts.map(pt).join(' ')} />)),
     [walls, centre]) // eslint-disable-line
+  // ---- rooms coloured by type: the backend sends each room's outline as a floor polygon, and each room has a place ----
+  const rooms = useMemo(() => {
+    const polys = lvl.floors
+    if (polys.length < 2) return null // one big slab: nothing to colour
+    const box = polys.map(f => { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const [x, z] of f) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z) } return [x0, x1, z0, z1] })
+    const which = (x: number, z: number) => { for (let i = 0; i < polys.length; i++) { const b = box[i]; if (x >= b[0] && x <= b[1] && z >= b[2] && z <= b[3] && inPoly(x, z, polys[i])) return i } return -1 }
+    const cls: string[] = polys.map(() => 'r-room')
+    const icons: { id: string; icon: string }[] = []
+    for (const p of building.pois) {
+      const n = node.get(p.node)
+      if (!n || n.level !== floor) continue
+      const c = roomClass(p.category ?? '', p.name ?? ''), i = which(n.pos[0], n.pos[1])
+      if (i >= 0 && cls[i] === 'r-room') cls[i] = c
+      if (ICON_OF[c]) icons.push({ id: p.node, icon: ICON_OF[c] })
+    }
+    return { cls, which, icons }
+  }, [building, floor, lvl, node])
+  const roomShapes = useMemo(() => rooms && lvl.floors.map((f, i) => <polygon key={`rm-${i}`} className={`m-room ${rooms.cls[i]}`} points={f.map(p => pt([p[0], 0.01, p[1]])).join(' ')} />),
+    [rooms, lvl, centre, yaw, topDown]) // eslint-disable-line
+  // ---- 3D campus: blocks far to near, each floor a slab with walls, window bands and a roof ----
+  const massShapes = useMemo(() => {
+    if (!massMode || !mass) return null
+    const out: React.ReactElement[] = []
+    const blocks = [...mass].sort((a, b) => dot([b.centre[0], 0, b.centre[1]], fwd) - dot([a.centre[0], 0, a.centre[1]], fwd))
+    for (const m of blocks) for (const L of m.levels) {
+      const y0 = L.elev, y1 = L.elev + L.h - 0.15
+      const faces: { d: number; el: React.ReactElement }[] = []
+      L.rings.forEach((r, ri) => r.forEach((p, i) => {
+        const q = r[(i + 1) % r.length], dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz)
+        if (len < 0.3) return
+        const nx = dz / len, nz = -dx / len // outward (the filled side is on the left)
+        if (dot([nx, 0, nz], fwd) >= 0) return // faces away from the camera
+        const shade = dot([nx, 0, nz], right) < 0 ? 'a' : 'b'
+        const d = dot([(p[0] + q[0]) / 2, 0, (p[1] + q[1]) / 2], fwd)
+        const pts = [pt([p[0], y0, p[1]]), pt([q[0], y0, q[1]]), pt([q[0], y1, q[1]]), pt([p[0], y1, p[1]])].join(' ')
+        const win = len >= 3 && L.h >= 2.5 ? (() => { const ux = dx / len, uz = dz / len, a = 0.6, b = len - 0.6, wy0 = y0 + 1.1, wy1 = y1 - 0.7
+          return <polygon className="m-win" points={[pt([p[0] + ux * a, wy0, p[1] + uz * a]), pt([p[0] + ux * b, wy0, p[1] + uz * b]), pt([p[0] + ux * b, wy1, p[1] + uz * b]), pt([p[0] + ux * a, wy1, p[1] + uz * a])].join(' ')} /> })() : null
+        faces.push({ d, el: <g key={`${ri}-${i}`}><polygon className={`m-face ${shade}`} points={pts} />{win}</g> })
+      }))
+      faces.sort((a, b) => b.d - a.d)
+      const roof = L.rings.map(r => 'M' + r.map(p => pt([p[0], y1, p[1]])).join('L') + 'Z').join('')
+      const state = L.level === floor ? ' cur' : L.level > floor ? ' above' : ''
+      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass${state}`}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
+    }
+    return out
+  }, [massMode, mass, yaw, centre, floor]) // eslint-disable-line
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
+  const pinRoom = pinNode && rooms ? rooms.which(node.get(pinNode.node)!.pos[0], node.get(pinNode.node)!.pos[1]) : -1
   const entrances = useMemo(() => floorNodes.filter(n => /\bentrance\b/i.test(names?.get(n.id) ?? n.label)), [floorNodes, names])
   const hereNode = here && node.get(here)?.level === floor ? here : null
 
@@ -206,14 +312,21 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     // keep the space around the pin / you markers clear
     for (const id of [pinNode?.node, hereNode]) if (id) { const [x, y] = at(id, 0.15), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 16, Y - 16, X + 16, Y + 16]) }
     if (pinNode) { const [x, y] = at(pinNode.node, 0.15), X = (x - view[0]) / k, Y = (y - view[1]) / k; const w = short(pinNode.label).length * 6.6 + 24; taken.push([X + 14, Y - 16, X + 18 + w, Y + 16]) }
+    // keep the toilet / lift / stairs / food icons clear
+    const iconAt = new Set<string>()
+    if (rooms && pxPerM >= ICONS_FROM) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 10, Y - 10, X + 10, Y + 10]) }
     const nameOf = (id: string) => names ? names.get(id) : node.get(id)!.kind !== 'turn' ? node.get(id)!.label : undefined
     // entrances always get a label (people orient by them)
-    for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
+    // (only once zoomed in to a block; far out the block names come first and the diamonds mark the entrances)
+    if (pxPerM >= ICONS_FROM) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
     if (pxPerM >= ROOM_LABELS_FROM) {
       const named = floorNodes.filter(n => nameOf(n.id) && !entrances.includes(n))
       // nearest to the middle of the view first, so the labels you're looking at win
       const scored = named.map(n => { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); return { n, sx, sy, d: (sx - view[0]) ** 2 + (sy - view[1]) ** 2 } }).sort((a, b) => a.d - b.d)
-      for (const { n, sx, sy } of scored.slice(0, 400)) tryAdd(sx, sy + 12 * k, short(nameOf(n.id)!), n.kind === 'room' ? 'm-label' : 'm-label vert', 10.5)
+      for (const { n, sx, sy } of scored.slice(0, 400)) tryAdd(sx, sy + (iconAt.has(n.id) ? 19 : 12) * k, short(nameOf(n.id)!), n.kind === 'room' ? 'm-label' : 'm-label vert', 10.5)
+    } else if (massMode) {
+      // 3D campus: block names on the roofs (raised link bridges stay unlabelled)
+      for (const m of mass!) if (!(m.levels.length === 1 && m.levels[0].elev > 0)) { const [sx, sy] = proj([m.centre[0], m.top + 1, m.centre[1]]); tryAdd(sx, sy, m.name, 'm-block', 15) }
     } else {
       // far away: one label per block, at the middle of its rooms
       const groups = new Map<string, [number, number, number]>()
@@ -272,7 +385,20 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     ptrs.current.delete(e.pointerId); pinch.current = null
     if (ptrs.current.size === 0) setTurning(false)
     const t = tap.current; tap.current = null
-    if (!t || t.moved || e.type !== 'pointerup' || !pickRef.current) return
+    if (!t || t.moved || e.type !== 'pointerup') return
+    if (massMode && mass) { // tap a building: zoom in to its floor plan
+      const [px, py] = fromCentre(e.clientX, e.clientY)
+      let hit: MassBlock | null = null, hd = Infinity
+      for (const m of mass) {
+        if (m.levels.length === 1 && m.levels[0].elev > 0) continue
+        const [sx, sy] = proj([m.centre[0], m.top / 2, m.centre[1]]), d = ((sx - view[0]) / k - px) ** 2 + ((sy - view[1]) / k - py) ** 2
+        const reach = Math.max(m.box[1] - m.box[0], m.box[3] - m.box[2]) / 2 / k + 20
+        if (d < reach * reach && d < hd) { hd = d; hit = m }
+      }
+      if (hit) { const span = Math.max(hit.box[1] - hit.box[0], hit.box[3] - hit.box[2]) * 1.25; setCam(c => ({ ...c, t: [hit!.centre[0], 0, hit!.centre[1]], zoom: Math.min(MASS_ZOOM * 0.8, Math.max(0.02, span / aspect / baseVh)) })) }
+      return
+    }
+    if (!pickRef.current) return
     // nearest named point within ~22 px of the tap
     const [px, py] = fromCentre(e.clientX, e.clientY)
     let best = '', bd = 22 * 22
@@ -312,27 +438,37 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
 
   return (
     <div className={`mapview${topDown ? ' flat' : ''}`} ref={ref}>
-      <svg ref={svgRef} className={onPick ? 'pickable' : undefined} viewBox={`${view[0] - vw / 2} ${view[1] - vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+      <svg ref={svgRef} className={[onPick ? 'pickable' : '', rooms ? 'has-rooms' : '', pxPerM < 2 ? 'far' : '', massMode ? 'mass' : ''].filter(Boolean).join(' ') || undefined} viewBox={`${view[0] - vw / 2} ${view[1] - vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onContextMenu={e => e.preventDefault()} onDoubleClick={e => { const [px, py] = fromCentre(e.clientX, e.clientY); zoomAt(0.6, px, py) }} role="img" aria-label={`${lvl.name} map`}>
+        <defs>
+          <symbol id="wf-i-toilet" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="5" r="1.6" /><circle cx="16" cy="5" r="1.6" /><path d="M8 9v11M16 9l-3 7h6zM16 16v4" /></g></symbol>
+          <symbol id="wf-i-lift" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m8 9 4-4 4 4M8 15l4 4 4-4" /></g></symbol>
+          <symbol id="wf-i-stair" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19h5v-5h5V9h6" /></g></symbol>
+          <symbol id="wf-i-food" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2.5 1.5-3.5 4-3.5 7.5H17" /></g></symbol>
+        </defs>
         {under}
-        {pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
+        {!massMode && roomShapes}
+        {massShapes}
+        {pinRoom >= 0 ? <polygon className="m-room r-dest" points={lvl.floors[pinRoom].map(p => pt([p[0], 0.02, p[1]])).join(' ')} strokeWidth={2 * k} />
+          : pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
         {wallShapes}
         {done.map((ids, i) => {
-          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15).join(','))
+          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15 + lift(id)).join(','))
           return ps.length > 1 && <polyline key={`d-${i}`} className="m-done" points={ps.join(' ')} strokeWidth={6 * k} />
         })}
         {lines.map((ids, i) => {
-          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15).join(','))
+          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15 + lift(id)).join(','))
           return ps.length > 1 && <g key={`r-${i}`}>
             <polyline className="m-route-casing" points={ps.join(' ')} strokeWidth={9 * k} />
             <polyline className="m-route" points={ps.join(' ')} strokeWidth={6 * k} />
           </g>
         })}
+        {rooms && pxPerM >= ICONS_FROM && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
         {labels.map((l, i) => <text key={`l-${i}`} x={l.x} y={l.y} fontSize={l.size * k} className={l.cls}>{l.text}</text>)}
-        {hereNode && (() => { const [x, y] = at(hereNode, 0.15); return <g><circle cx={x} cy={y} r={15 * k} className="m-here-halo" /><circle cx={x} cy={y} r={8 * k} className="m-here" strokeWidth={2.5 * k} /></g> })()}
+        {hereNode && (() => { const [x, y] = at(hereNode, 0.15 + lift(hereNode)); return <g><circle cx={x} cy={y} r={15 * k} className="m-here-halo" /><circle cx={x} cy={y} r={8 * k} className="m-here" strokeWidth={2.5 * k} /></g> })()}
         {pinNode && (() => {
-          const [x, y] = at(pinNode.node, 0.15), label = short(pinNode.label), w = (label.length * 6.6 + 24) * k
+          const [x, y] = at(pinNode.node, 0.15 + lift(pinNode.node)), label = short(pinNode.label), w = (label.length * 6.6 + 24) * k
           const left = x - view[0] + 16 * k + w > vw / 2 - 64 * k // flip the callout so it stays clear of the edge and the zoom buttons
           const rx = left ? x - 16 * k - w : x + 16 * k
           return <g>

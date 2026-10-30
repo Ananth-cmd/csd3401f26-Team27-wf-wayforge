@@ -462,10 +462,10 @@ export default function App() {
         <span className="eyebrow muted">SUGGESTED</span>
         {suggestions.map(({ p, why }) => <Row key={p.id} title={p.title} sub={sub(p, why)} icon={placeIcon(p)} onClick={() => { chooseDest(p); go('find') }} {...saveBtn(p)} />)}
       </>,
-      mobile: dest ? <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} onClick={() => go('find')} {...saveBtn(dest)} /> : <p className="muted small center">Tap a room on the map to pick it.</p>,
+      mobile: dest ? <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} onClick={() => go('find')} {...saveBtn(dest)} /> : <p className="muted small center">Tap a building to look inside, then a room to pick it.</p>,
       actions: [{ label: desktop ? 'Plan a route →' : dest ? 'Next: choose start' : 'Find a destination', onClick: planIt }],
       map: { building: b, floor, here: start && start.level === floor ? start.node : null, pin: dest && dest.level === floor ? { node: dest.node, label: dest.title } : null },
-      floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore rooms and facilities floor by floor. Tap a room to pick it.' },
+      floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore the campus floor by floor. Tap a building to look inside.' },
     }; break
 
     case 'find': spec = {
@@ -631,7 +631,7 @@ export default function App() {
     </div>
   )
   const legend = (
-    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap a room to pick it' : 'Drag to move · right-drag to turn'}</em></div>
+    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap a building or room' : 'Drag to move · right-drag to turn'}</em></div>
   )
   const actions = (list: Action[]) => <div className="actions">{list.map(a => <div key={a.label} className="act">
     {a.disabled && a.hint && <p className="hint" id={`h-${a.label.length}`}>{a.hint}</p>}

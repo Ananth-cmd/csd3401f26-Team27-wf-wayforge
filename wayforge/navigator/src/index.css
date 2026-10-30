@@ -380,3 +380,46 @@ html, body { overflow-x: hidden; }
 .nav-dest b { min-width: 0; }
 .m-wall.s3 { fill: #c6ddd4; stroke: none; }
 .m-done { fill: none; stroke: #9db3ad; stroke-linecap: round; stroke-linejoin: round; opacity: 0.8; }
+/* ---- map look: rooms coloured by type (like an indoor map), low dark walls, destination room filled ---- */
+.m-slab { fill: #f7f8f6; }
+.m-slab-side { fill: #aebdb6; }
+.m-room { stroke: none; }
+.r-room { fill: #ffffff; }
+.r-corr { fill: #eef0ee; }
+.r-lobby { fill: #f2efe6; }
+.r-toilet { fill: #d9efeb; }
+.r-lift { fill: #dbe7f5; }
+.r-stair { fill: #f7e6cc; }
+.r-food { fill: #f8edcf; }
+.r-lib { fill: #e7eedb; }
+.r-lab { fill: #e5ecf3; }
+.r-office { fill: #ece9f4; }
+.r-store { fill: #e9ebea; }
+.r-dest { fill: #ffd9b3; stroke: #e8892f; }
+.m-wall.s0, .m-wall.s3 { fill: #6f8a81; }
+.m-wall.s1 { fill: #879f97; }
+.m-wall.s2 { fill: #a3b7b0; }
+.m-wall { stroke: none; }
+.flat .m-wall.s0 { fill: #5f7a71; }
+.m-icon circle { stroke: #fff; }
+.m-icon.wf-i-toilet circle { fill: #2f8f83; }
+.m-icon.wf-i-lift circle { fill: #3c6fb0; }
+.m-icon.wf-i-stair circle { fill: #c9852f; }
+.m-icon.wf-i-food circle { fill: #e07b2e; }
+.m-icon { pointer-events: none; }
+.m-label { fill: #3b4f4a; }
+.m-label.vert { fill: #3b4f4a; }
+.has-rooms .m-zone.stairs, .has-rooms .m-zone.lift { opacity: 0; } /* the coloured stair / lift rooms replace the squares */
+.far .m-wall.s0, .far .m-wall.s3 { fill: #94aaa2; } .far .m-wall.s1 { fill: #a6b9b2; } .far .m-wall.s2 { fill: #bccbc5; } /* zoomed out: rooms, not walls */
+.m-route { stroke: #0b7a6b; }
+.d.stairs { background: #c9852f; } .d.lift { background: #3c6fb0; }
+/* ---- 3D campus (zoomed out): buildings with floors, windows and roofs; the floor you're on in teal ---- */
+.m-face.a { fill: #e3e6e1; } .m-face.b { fill: #cbd1ca; }
+.m-face { stroke: #b3bab2; stroke-width: 0.12; stroke-linejoin: round; }
+.m-win { fill: #9db7c2; opacity: 0.85; }
+.m-roof { fill: #f1f3ef; stroke: #b3bab2; stroke-width: 0.15; }
+.m-mass.cur .m-face.a { fill: #b8e0d2; } .m-mass.cur .m-face.b { fill: #9fcfbf; }
+.m-mass.cur .m-roof { fill: #cfeee3; stroke: #0b7a6b; stroke-width: 0.35; }
+.m-mass.cur .m-win { fill: #4f8d80; }
+/* the floor plan underneath is hidden while the campus shows as buildings */
+.mass .m-wall, .mass .m-slab, .mass .m-slab-side, .mass .m-zone, .mass .m-room { display: none; }
