@@ -56,7 +56,7 @@ export const EDITOR_TOUR = [
   {
     target: ".room-table", place: "inside", view: "rooms",
     title: "Name rooms quickly",
-    text: "All the rooms in one list. Type a code and press Enter to jump to the next row. Tick \"Only rooms still to name\" to see what's left.",
+    text: "All the rooms in one list. Type a code and press Enter to jump to the next row. Block is which building a room is in, the Navigator shows each block as a 3D building. Set block changes it for all the rooms shown.",
   },
   {
     target: ".side-links", place: "right", view: "2d",

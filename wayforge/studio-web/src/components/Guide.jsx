@@ -47,7 +47,8 @@ const SECTIONS = [
   {
     title: "4. Name the rooms",
     steps: [
-      <>Click a room on the plan and fill in its code (e.g. L1-01), name and type at the bottom.</>,
+      <>Click a room on the plan and fill in its code, name and type at the bottom. Codes go block-level-room, like <b>E2-01-05</b>.</>,
+      <>The <b>block</b> (E2) is which building the room is in. The Navigator uses it to show each block as a 3D building. One building: set it once in <b>Building details</b>. A campus: in <b>Rooms</b>, pick a level or search, then <b>Set block</b> for the rooms shown.</>,
       <>Quicker for many rooms: open <b>Rooms</b>. Type the codes down the column, Enter moves to the next row.</>,
       <>Tick <b>Only rooms still to name</b> to see what's left. <b>Show</b> takes you to that room on the plan.</>,
       <>Corridors don't need a name.</>,

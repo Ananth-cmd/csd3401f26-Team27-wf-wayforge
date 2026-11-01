@@ -387,3 +387,11 @@ a.button { text-decoration: none; }
 .tour-card p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--ink); }
 .tour-card .tour-count { margin: 0 0 4px; font-size: 12px; color: var(--graphite); }
 .tour-buttons { display: flex; gap: 6px; align-items: center; }
+
+/* ---------- blocks (Rooms table and Building details) ---------- */
+.block-setter { display: inline-flex; gap: 6px; align-items: center; }
+.block-setter input, .room-table td input.block-input { width: 64px; text-transform: uppercase; }
+input.bad { border-color: var(--signal); background: #fdf1ef; }
+.block-chip { display: inline-block; margin: 0 6px 6px 0; padding: 2px 8px; border-radius: 999px; background: var(--on-bg); color: var(--on-ink); font-weight: 600; }
+.block-chip em { font-style: normal; font-weight: 400; color: var(--graphite); }
+.block-chip.none { background: #fdf1ef; color: var(--signal); }

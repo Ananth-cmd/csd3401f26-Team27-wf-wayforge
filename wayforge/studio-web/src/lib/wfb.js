@@ -95,6 +95,28 @@ export function roomCentre(r) {
 
 // corridors don't need a name, people never search for "corridor 3"
 export const needsName = (r) => r.kind !== "corridor";
+
+// ---------- blocks (which building of a campus a room is in) ----------
+// the Navigator's 3D campus view (navigator/src/massing.ts) groups rooms into buildings by the start
+// of the room code: one or two letters and one or two digits, then - or _. so "E2-05-12" is in
+// block E2 and "W1_r185" in W1. there's no separate block field in the .wfb, the code carries it.
+// keep this pattern the same as blockOf in massing.ts, or the two sides won't agree.
+const BLOCK_PREFIX = /^([A-Za-z]{1,2}\d{1,2})[-_]/;
+export const BLOCK_NAME = /^[A-Za-z]{1,2}\d{1,2}$/; // what a block name on its own looks like (E2, W1, A12)
+
+// the block a room code starts with ("" if it doesn't start with one)
+export const blockOf = (code) => BLOCK_PREFIX.exec((code || "").trim())?.[1].toUpperCase() || "";
+
+// a room's code with its block swapped for another one ("" takes the block off).
+// "05-12" + E2 -> "E2-05-12", "W1-01-15" + E2 -> "E2-01-15".
+// a room with no code yet gets its id after the block ("E2-r232"), so codes stay unique
+// (the checks don't allow two rooms with the same code) until someone types a real one
+export function withBlock(room, block) {
+  const rest = (room.code || "").trim().replace(BLOCK_PREFIX, "");
+  const b = block.trim().toUpperCase();
+  if (!b) return rest;
+  return `${b}-${rest || room.id}`;
+}
 // a room is done when it has a code or a name, and its type is set
 export const isNamed = (r) => !!(r.code || r.name) && r.kind !== "unknown";
 
@@ -167,6 +189,14 @@ export function validate(doc) {
     if (!(l.nodes || []).length) out.push({ level: l.id, type: "error", text: `${l.id}: no navigation points` });
   }
   if (!exits) out.push({ type: "warn", text: "No exit marked" });
+  // blocks: without them the Navigator shows a flat plan instead of 3D buildings
+  const named = doc.levels.flatMap((l) => (l.rooms || []).filter((r) => needsName(r) && r.code));
+  const noBlock = named.filter((r) => !blockOf(r.code)).length;
+  if (!named.some((r) => blockOf(r.code))) {
+    out.push({ type: "warn", text: "No block set, the Navigator will show a flat plan instead of 3D buildings (Building details > Block)" });
+  } else if (noBlock) {
+    out.push({ type: "warn", text: `${noBlock} room code${noBlock === 1 ? "" : "s"} without a block (like E2-05-12)` });
+  }
   if (!doc.levels.some((l) => (l.anchors || []).length)) {
     out.push({ type: "warn", text: "No starting point (Navigator will use exits and lobbies)" });
   }
