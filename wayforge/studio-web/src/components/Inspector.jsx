@@ -3,7 +3,7 @@
  * \brief the panels on the right side of the editor
  *
  * SelectionPanel - edit whatever you clicked (room, wall or door)
- * BuildingPanel  - building name, location, floor names and heights
+ * BuildingPanel  - building name, location, block, floor names and heights
  * LinksPanel     - stairs/lifts that join two floors
  * ChecksPanel    - problems to fix before publishing
  *
@@ -13,7 +13,9 @@
  * \author Katie Lim
  */
 import { useState } from "react";
-import { ROOM_KINDS, KIND_COLOURS, kindLabel, wallLength, polygonArea, isStartPoint, setStartPoint } from "../lib/wfb.js";
+import { ROOM_KINDS, KIND_COLOURS, kindLabel, wallLength, polygonArea, isStartPoint, setStartPoint,
+  needsName, blockOf, withBlock } from "../lib/wfb.js";
+import { BlockSetter } from "./RoomTable.jsx";
 
 const num = (v, d = 2) => (v == null || Number.isNaN(v) ? "-" : Number(v).toFixed(d));
 
@@ -36,7 +38,8 @@ export function SelectionPanel({ level, selection, onChange, onDelete }) {
       <div className="fields">
         <span className="what"><i className="swatch" style={{ background: KIND_COLOURS[r.kind] }} />Room {r.id}</span>
         <label>Code
-          <input className="code-input" value={r.code || ""} placeholder={`${level.id}-01`} onChange={(e) => set("code", e.target.value)} />
+          <input className="code-input" value={r.code || ""} placeholder="E2-01-05" title="Block-level-room, like E2-01-05. The block (E2) is which building it's in"
+            onChange={(e) => set("code", e.target.value)} />
         </label>
         <label className="wide">Name
           <input value={r.name || ""} placeholder="Lecture Theatre 1" onChange={(e) => set("name", e.target.value)} />
@@ -138,6 +141,21 @@ export function BuildingPanel({ doc, onChange, current, onPick }) {
     if (id === current) onPick(doc.levels.find((l) => l.id !== id).id);
   };
 
+  // blocks: which buildings the rooms are in, from the start of their codes (see blockOf in wfb.js)
+  const rooms = doc.levels.flatMap((l) => (l.rooms || []).filter(needsName));
+  const blockCount = new Map();
+  for (const r of rooms) { const k = blockOf(r.code) || "none"; blockCount.set(k, (blockCount.get(k) || 0) + 1); }
+  const blockList = [...blockCount].sort((x, y) => (x[0] === "none") - (y[0] === "none") || x[0].localeCompare(y[0]));
+  // one block for every room (corridors left out, the Navigator puts them with the rooms next to them).
+  // a campus already split into blocks would lose them all, so that asks first
+  const setBlockAll = (block) => {
+    const others = blockList.filter(([k]) => k !== "none" && k !== block).length;
+    if (others && !window.confirm(`This puts all ${rooms.length} rooms in block ${block}, replacing the ${others} block${others === 1 ? "" : "s"} they're in now. Go ahead?`)) return;
+    onChange((d) => {
+      for (const l of d.levels) for (const r of l.rooms || []) if (needsName(r)) r.code = withBlock(r, block);
+    }, true);
+  };
+
   // set every floor to the same floor-to-floor height
   const spaceAll = (h) => onChange((d) => {
     const order = [...d.levels].sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
@@ -155,6 +173,16 @@ export function BuildingPanel({ doc, onChange, current, onPick }) {
       <label>Heading (° clockwise from north)
         <input type="number" step="1" value={b.heading ?? 0} onChange={(e) => setB("heading", Number(e.target.value))} />
       </label>
+
+      <h3>Block</h3>
+      <p className="muted small">
+        The Navigator shows each block as a 3D building, using the start of the room codes (E2-01-05 is in block E2).
+        For a campus, set blocks per area in the Rooms table instead.
+      </p>
+      <p className="small">
+        {blockList.map(([k, n]) => <span key={k} className={"block-chip" + (k === "none" ? " none" : "")}>{k === "none" ? "No block" : k} <em>{n}</em></span>)}
+      </p>
+      <BlockSetter count={rooms.length} onApply={setBlockAll} label="Set for all rooms" />
 
       <h3>Levels</h3>
       <table className="mini levels-table">

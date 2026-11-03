@@ -4,7 +4,7 @@
 // (header + map card + actions). Following a route has its own look (navigation mode) on both.
 // Routes come from findRoute (api.ts). Place names / search (places.ts) and directions text (directions.ts) only
 // change what's shown; the data and the pathfinding are never changed.
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Building } from './types'
 import { findRoute, loadBuilding } from './api'
@@ -16,6 +16,7 @@ import { landmarkFinder, routeSummary, sameRoute, verticalNames, walkSteps } fro
 import type { Step } from './directions'
 import MapView from './MapView'
 import type { MapProps } from './MapView'
+const Route3D = lazy(() => import('./Route3D')) // three.js only downloads when a route is shown
 
 type Screen = 'explore' | 'find' | 'where' | 'qr' | 'routes' | 'guide' | 'arrived' | 'saved' | 'prefs' | 'lost' | 'help'
 type Tab = 'explore' | 'saved' | 'prefs' | 'help'
@@ -137,6 +138,7 @@ type Spec = {
   hero?: { title: ReactNode; sub: string }
   tallMap?: boolean // mobile: give the map more height
   showMapOnMobile?: boolean
+  view3d?: ReactNode // the route in real 3D (shown instead of the map unless switched off)
 }
 
 export default function App() {
@@ -158,6 +160,9 @@ export default function App() {
   const [menu, setMenu] = useState(false) // mobile hamburger drawer
   const [flat, setFlatState] = useState(pref.get('wayforge.topDown') === '1') // 2D map instead of 3D
   const setFlat = useCallback((v: boolean) => { setFlatState(v); pref.set('wayforge.topDown', v ? '1' : '0') }, [])
+  const [use3d, setUse3dState] = useState(pref.get('wayforge.walk3d') !== '0') // routes in real 3D (walk-through)
+  const setUse3d = (v: boolean) => { setUse3dState(v); pref.set('wayforge.walk3d', v ? '1' : '0') }
+  const [no3d, setNo3d] = useState(false) // this device can't do WebGL: always the map
   const dq = useDeferredValue(query) // typing stays smooth, the list catches up
   const dsq = useDeferredValue(startQuery)
   const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight })
@@ -307,6 +312,8 @@ export default function App() {
     setDest(p); setQuery(''); if (screen !== 'find') go('find')
   }
   const mapEl = (m: MapProps, pick = false) => <MapView {...m} names={P.names} topDown={m.topDown ?? flat} onTopDown={setFlat} onPick={pick ? pickOnMap : undefined} />
+  const show3d = use3d && !no3d
+  const switch3d = <button className="r3d-switch" onClick={() => setUse3d(!show3d)}>{show3d ? 'Map view' : '3D walk-through'}</button>
 
   const go = (s: Screen) => setStack(st => [...st, s])
   const tab = (t: Tab) => setStack([t === 'explore' ? 'explore' : t])
@@ -374,6 +381,15 @@ export default function App() {
       })}
     </ol>
   )
+
+  const view3d = (stage?: number) => {
+    const sl = stage === undefined ? null : legs[stage]
+    return <Suspense fallback={<div className="r3d-loading">Loading 3D…</div>}>
+      <Route3D building={b} legs={legs} stage={stage} names={P.names} captions={legs.map(l => legText(l).title)} onFail={() => setNo3d(true)}
+        start={sl ? { node: sl.nodes[0], title: 'You' } : start ? { node: start.node, title: start.title } : undefined}
+        dest={dest ? { node: dest.node, title: dest.title } : undefined} />
+    </Suspense>
+  }
 
   // ---------- navigation actions ----------
   // mid-route (came here from the guide): the visitor is somewhere along the current step, not at the old start
@@ -462,10 +478,10 @@ export default function App() {
         <span className="eyebrow muted">SUGGESTED</span>
         {suggestions.map(({ p, why }) => <Row key={p.id} title={p.title} sub={sub(p, why)} icon={placeIcon(p)} onClick={() => { chooseDest(p); go('find') }} {...saveBtn(p)} />)}
       </>,
-      mobile: dest ? <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} onClick={() => go('find')} {...saveBtn(dest)} /> : <p className="muted small center">Tap a room on the map to pick it.</p>,
+      mobile: dest ? <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} onClick={() => go('find')} {...saveBtn(dest)} /> : <p className="muted small center">Tap the map to look inside or pick a room.</p>,
       actions: [{ label: desktop ? 'Plan a route →' : dest ? 'Next: choose start' : 'Find a destination', onClick: planIt }],
       map: { building: b, floor, here: start && start.level === floor ? start.node : null, pin: dest && dest.level === floor ? { node: dest.node, label: dest.title } : null },
-      floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore rooms and facilities floor by floor. Tap a room to pick it.' },
+      floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore floor by floor. Tap the map to look inside or pick a room.' },
     }; break
 
     case 'find': spec = {
@@ -549,6 +565,7 @@ export default function App() {
         actions: [{ label: o ? (routes?.same || choice === 'shortest' ? (desktop ? 'Start route →' : 'Start route') : (desktop ? 'Start step-free route →' : 'Start step-free route')) : 'No route available', onClick: startGuide, disabled: !o || legs.length === 0 }],
         map: o && legs.length ? { building: b, floor: start!.level, lines: legs.filter(l => l.kind === 'walk' && l.level === start!.level).map(l => l.nodes), here: start!.node, focus: legs[0].nodes, pin: legs[0].kind === 'walk' ? { node: legs[0].nodes[legs[0].nodes.length - 1], label: legEnd(legs[0]) } : null } : { building: b, floor: start ? start.level : 0, here: start?.node, focus: start ? [start.node] : undefined },
         tallMap: true,
+        view3d: o && legs.length ? view3d() : undefined,
       }
       if (desktop && o && firstT) spec.body = <>{spec.body}<Info title="Know your first landmark">Head to {vname(firstT.nodes[0])}, then {firstT.kind === 'lift' ? 'lift' : 'stairs'} {firstT.to > firstT.from ? 'up' : 'down'} to {L(firstT.to)}.</Info></>
     } break
@@ -631,7 +648,7 @@ export default function App() {
     </div>
   )
   const legend = (
-    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap a room to pick it' : 'Drag to move · right-drag to turn'}</em></div>
+    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap to look inside or pick a room' : 'Drag to move · right-drag to turn'}</em></div>
   )
   const actions = (list: Action[]) => <div className="actions">{list.map(a => <div key={a.label} className="act">
     {a.disabled && a.hint && <p className="hint" id={`h-${a.label.length}`}>{a.hint}</p>}
@@ -678,7 +695,7 @@ export default function App() {
           </aside>
           <section className="maparea">
             {mapHead(map.floor, false)}
-            <div className="mapbox">{mapEl(map)}</div>
+            <div className="mapbox">{!arrived && show3d ? view3d(li) : mapEl(map)}{!arrived && !no3d && switch3d}</div>
             {legend}
           </section>
         </main>
@@ -687,7 +704,7 @@ export default function App() {
     return (
       <div className={`mob nav-mode${arrived ? ' arrived' : ''}`} onClickCapture={onClickCapture}>
         {banner}{then}
-        <div className="nav-map">{mapEl(map)}</div>
+        <div className="nav-map">{!arrived && show3d ? view3d(li) : mapEl(map)}{!arrived && !no3d && switch3d}</div>
         <section className="nav-sheet">
           {progress}
           {turns.length > 1 && <details className="turns-d"><summary>Directions for this stage ({turns.length})</summary>{stepList(li, true)}</details>}
@@ -720,7 +737,7 @@ export default function App() {
           {spec.pane ?? <>
             {mapHead()}
             {spec.hero && <div className="hero"><h2>{spec.hero.title}</h2><p className="muted">{spec.hero.sub}</p></div>}
-            <div className="mapbox">{spec.map && mapEl(spec.map, pickable)}</div>
+            <div className="mapbox">{spec.view3d && show3d ? spec.view3d : spec.map && mapEl(spec.map, pickable)}{spec.view3d && !no3d && switch3d}</div>
             {legend}
           </>}
         </section>
@@ -743,7 +760,7 @@ export default function App() {
         <h1>{spec.title}</h1>
         {spec.sub && <p className="muted lead">{spec.sub}</p>}
         {spec.top && <div className="stackv">{spec.top}</div>}
-        {showMap && <div className={`mcard${spec.tallMap ? ' tall' : ''}`}><div className="mapbox">{mapEl(spec.map!, pickable)}</div><span className="maplabel">{(spec.map!.topDown ?? flat) ? '2D VIEW · NORTH UP' : '3D VIEW'}</span></div>}
+        {showMap && <div className={`mcard${spec.tallMap ? ' tall' : ''}`}><div className="mapbox">{spec.view3d && show3d ? spec.view3d : mapEl(spec.map!, pickable)}{spec.view3d && !no3d && switch3d}</div>{!(spec.view3d && show3d) && <span className="maplabel">{(spec.map!.topDown ?? flat) ? '2D VIEW · NORTH UP' : '3D VIEW'}</span>}</div>}
         {(spec.mobile || spec.body) && <div className="stackv">{spec.mobile}{spec.body}</div>}
       </main>
       {actions(spec.mobileActions ?? spec.actions)}
