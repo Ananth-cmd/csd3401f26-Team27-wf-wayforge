@@ -14,9 +14,9 @@ popd
 
 echo == building the Navigator (Shri's site) too, so one run updates both sites
 pushd navigator
-if not exist node_modules (
-  call npm.cmd ci || goto :fail
-)
+rem install every time so new packages a teammate added (like three for the 3D view) get picked up
+rem it is quick when nothing changed
+call npm.cmd install --no-audit --no-fund || goto :fail
 call npm.cmd run build || goto :fail
 popd
 

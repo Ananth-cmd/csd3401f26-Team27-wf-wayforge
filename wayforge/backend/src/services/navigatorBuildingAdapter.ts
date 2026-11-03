@@ -75,6 +75,40 @@ function mapNodeKind(kind: unknown): NavigatorNodeKind {
     return "turn";
 }
 
+// returns a quick "does this line go through a wall" test for one level.
+// walls are put into 5 m grid squares first so each line only checks the walls near it
+function wallChecker(walls: { a: Vec2; b: Vec2 }[]): (p: Vec2, q: Vec2) => boolean {
+    const CELL = 5;
+    const grid = new Map<string, { a: Vec2; b: Vec2 }[]>();
+    const cells = (p: Vec2, q: Vec2) => {
+        const keys: string[] = [];
+        for (let x = Math.floor(Math.min(p[0], q[0]) / CELL); x <= Math.floor(Math.max(p[0], q[0]) / CELL); x++)
+            for (let y = Math.floor(Math.min(p[1], q[1]) / CELL); y <= Math.floor(Math.max(p[1], q[1]) / CELL); y++)
+                keys.push(`${x},${y}`);
+        return keys;
+    };
+    for (const w of walls) for (const k of cells(w.a, w.b)) {
+        const list = grid.get(k) ?? [];
+        list.push(w);
+        grid.set(k, list);
+    }
+    // which side of line a-b point c is on (+ / - / 0)
+    const side = (a: Vec2, b: Vec2, c: Vec2) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // true only for a proper crossing, just touching a wall end (like a door edge) doesn't count
+    const crosses = (p: Vec2, q: Vec2, w: { a: Vec2; b: Vec2 }) =>
+        side(w.a, w.b, p) * side(w.a, w.b, q) < -1e-9 && side(p, q, w.a) * side(p, q, w.b) < -1e-9;
+
+    return (p, q) => {
+        const seen = new Set<{ a: Vec2; b: Vec2 }>();
+        for (const k of cells(p, q)) for (const w of grid.get(k) ?? []) {
+            if (seen.has(w)) continue;
+            seen.add(w);
+            if (crosses(p, q, w)) return true;
+        }
+        return false;
+    };
+}
+
 export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
     const doc = requireObject(input, "document");
     const meta = requireObject(doc.building, "building");
@@ -122,14 +156,39 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             result.nodes.push({ id: `${levelId}:${id}`, label, level: index, pos, kind });
         }
 
-        const walls = requireArray(level.walls ?? [], `${levelId}.walls`).map((value, i) => {
+        // doors live in level.openings, not in the walls, so cut a gap in each wall where a door is
+        // (Navigator draws every wall piece as solid, a gap is how it shows a door). windows stay as wall
+        const doorsOnWall = new Map<string, { offset: number; width: number }[]>();
+        for (const value of Array.isArray(level.openings) ? level.openings : []) {
+            if (!object(value) || (value.type !== "door" && value.type !== "opening")) continue;
+            if (typeof value.wall !== "string") continue;
+            const list = doorsOnWall.get(value.wall) ?? [];
+            list.push({ offset: number(value.offset, 0), width: number(value.width, 0) });
+            doorsOnWall.set(value.wall, list);
+        }
+
+        const walls: { a: Vec2; b: Vec2; thickness: number }[] = [];
+        for (const [i, value] of requireArray(level.walls ?? [], `${levelId}.walls`).entries()) {
             const wall = requireObject(value, `${levelId}.walls[${i}]`);
-            return {
-                a: vec2(wall.a, `${levelId}.walls[${i}].a`),
-                b: vec2(wall.b, `${levelId}.walls[${i}].b`),
-                thickness: number(wall.thickness, 0.15)
-            };
-        });
+            const a = vec2(wall.a, `${levelId}.walls[${i}].a`);
+            const b = vec2(wall.b, `${levelId}.walls[${i}].b`);
+            const thickness = number(wall.thickness, 0.15);
+            const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            const doors = (typeof wall.id === "string" ? doorsOnWall.get(wall.id) : undefined) ?? [];
+
+            // point along the wall, d metres from a
+            const at = (d: number): Vec2 => len ? [a[0] + (b[0] - a[0]) * d / len, a[1] + (b[1] - a[1]) * d / len] : a;
+
+            // walk from a to b, adding a wall piece before each door and skipping over the door itself
+            let from = 0;
+            for (const door of [...doors].sort((x, y) => x.offset - y.offset)) {
+                const start = Math.min(Math.max(door.offset, 0), len);
+                const end = Math.min(Math.max(door.offset + door.width, 0), len);
+                if (start - from > 0.05) walls.push({ a: at(from), b: at(start), thickness });
+                from = Math.max(from, end);
+            }
+            if (len - from > 0.05 || (!doors.length)) walls.push({ a: from ? at(from) : a, b, thickness });
+        }
 
         // The demo .wfb has rooms, but no guaranteed full-floor slab outlines.
         // Never misrepresent each room polygon as a complete floor slab.
@@ -144,6 +203,12 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             index, name: typeof level.name === "string" ? level.name : levelId,
             elevation, height: number(level.ceilingHeight, 3), floors, walls
         });
+
+        // paths that cut straight through a solid wall (bad links in the path data, the route would
+        // be drawn through the wall). they get checked below once all the paths are in
+        const levelEdges: NavigatorBuilding["edges"] = [];
+        const throughWall = new Set<NavigatorBuilding["edges"][number]>();
+        const hitsWall = wallChecker(walls);
 
         for (const [i, value] of requireArray(level.edges ?? [], `${levelId}.edges`).entries()) {
             const edge = requireObject(value, `${levelId}.edges[${i}]`);
@@ -161,12 +226,45 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             const dx = n1.pos[0] - n2.pos[0], dy = n1.pos[1] - n2.pos[1];
             const directDistance = Math.hypot(dx, dy);
             const edgeCost = number(edge.cost, directDistance);
-            result.edges.push({
+            const out = {
                 from: `${levelId}:${a}`, to: `${levelId}:${b}`, kind,
                 bidirectional: edge.bidirectional !== false,
                 blocked: edge.blocked === true,
                 extraCost: Math.max(0, edgeCost - directDistance)
-            });
+            };
+            levelEdges.push(out);
+            if (kind === "walk" && hitsWall(n1.pos, n2.pos)) throughWall.add(out);
+        }
+
+        // drop a through-wall path only if its two ends can still reach each other another way,
+        // so nothing gets cut off (a room with no door at all keeps it until someone adds a door)
+        const links = new Map<string, Set<NavigatorBuilding["edges"][number]>>();
+        for (const e of levelEdges) for (const n of [e.from, e.to]) {
+            if (!links.has(n)) links.set(n, new Set());
+            links.get(n)!.add(e);
+        }
+        const stillJoined = (from: string, to: string) => {
+            const seen = new Set([from]);
+            const todo = [from];
+            while (todo.length) {
+                const n = todo.pop()!;
+                if (n === to) return true;
+                for (const e of links.get(n) ?? []) {
+                    const next = e.from === n ? e.to : e.from;
+                    if (!seen.has(next)) { seen.add(next); todo.push(next); }
+                }
+            }
+            return false;
+        };
+        for (const e of throughWall) {
+            links.get(e.from)!.delete(e);
+            links.get(e.to)!.delete(e);
+            if (stillJoined(e.from, e.to)) continue; // fine without it
+            links.get(e.from)!.add(e); // only way through, put it back
+            links.get(e.to)!.add(e);
+        }
+        for (const e of levelEdges) {
+            if (links.get(e.from)!.has(e)) result.edges.push(e);
         }
 
         // Starting points come from the level's anchors (Studio saves one per room ticked as
