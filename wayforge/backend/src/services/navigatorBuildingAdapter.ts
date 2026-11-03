@@ -75,6 +75,40 @@ function mapNodeKind(kind: unknown): NavigatorNodeKind {
     return "turn";
 }
 
+// returns a quick "does this line go through a wall" test for one level.
+// walls are put into 5 m grid squares first so each line only checks the walls near it
+function wallChecker(walls: { a: Vec2; b: Vec2 }[]): (p: Vec2, q: Vec2) => boolean {
+    const CELL = 5;
+    const grid = new Map<string, { a: Vec2; b: Vec2 }[]>();
+    const cells = (p: Vec2, q: Vec2) => {
+        const keys: string[] = [];
+        for (let x = Math.floor(Math.min(p[0], q[0]) / CELL); x <= Math.floor(Math.max(p[0], q[0]) / CELL); x++)
+            for (let y = Math.floor(Math.min(p[1], q[1]) / CELL); y <= Math.floor(Math.max(p[1], q[1]) / CELL); y++)
+                keys.push(`${x},${y}`);
+        return keys;
+    };
+    for (const w of walls) for (const k of cells(w.a, w.b)) {
+        const list = grid.get(k) ?? [];
+        list.push(w);
+        grid.set(k, list);
+    }
+    // which side of line a-b point c is on (+ / - / 0)
+    const side = (a: Vec2, b: Vec2, c: Vec2) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // true only for a proper crossing, just touching a wall end (like a door edge) doesn't count
+    const crosses = (p: Vec2, q: Vec2, w: { a: Vec2; b: Vec2 }) =>
+        side(w.a, w.b, p) * side(w.a, w.b, q) < -1e-9 && side(p, q, w.a) * side(p, q, w.b) < -1e-9;
+
+    return (p, q) => {
+        const seen = new Set<{ a: Vec2; b: Vec2 }>();
+        for (const k of cells(p, q)) for (const w of grid.get(k) ?? []) {
+            if (seen.has(w)) continue;
+            seen.add(w);
+            if (crosses(p, q, w)) return true;
+        }
+        return false;
+    };
+}
+
 export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
     const doc = requireObject(input, "document");
     const meta = requireObject(doc.building, "building");
@@ -170,6 +204,12 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             elevation, height: number(level.ceilingHeight, 3), floors, walls
         });
 
+        // paths that cut straight through a solid wall (bad links in the path data, the route would
+        // be drawn through the wall). they get checked below once all the paths are in
+        const levelEdges: NavigatorBuilding["edges"] = [];
+        const throughWall = new Set<NavigatorBuilding["edges"][number]>();
+        const hitsWall = wallChecker(walls);
+
         for (const [i, value] of requireArray(level.edges ?? [], `${levelId}.edges`).entries()) {
             const edge = requireObject(value, `${levelId}.edges[${i}]`);
             const a = requireString(edge.a, `${levelId}.edges[${i}].a`);
@@ -186,12 +226,45 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             const dx = n1.pos[0] - n2.pos[0], dy = n1.pos[1] - n2.pos[1];
             const directDistance = Math.hypot(dx, dy);
             const edgeCost = number(edge.cost, directDistance);
-            result.edges.push({
+            const out = {
                 from: `${levelId}:${a}`, to: `${levelId}:${b}`, kind,
                 bidirectional: edge.bidirectional !== false,
                 blocked: edge.blocked === true,
                 extraCost: Math.max(0, edgeCost - directDistance)
-            });
+            };
+            levelEdges.push(out);
+            if (kind === "walk" && hitsWall(n1.pos, n2.pos)) throughWall.add(out);
+        }
+
+        // drop a through-wall path only if its two ends can still reach each other another way,
+        // so nothing gets cut off (a room with no door at all keeps it until someone adds a door)
+        const links = new Map<string, Set<NavigatorBuilding["edges"][number]>>();
+        for (const e of levelEdges) for (const n of [e.from, e.to]) {
+            if (!links.has(n)) links.set(n, new Set());
+            links.get(n)!.add(e);
+        }
+        const stillJoined = (from: string, to: string) => {
+            const seen = new Set([from]);
+            const todo = [from];
+            while (todo.length) {
+                const n = todo.pop()!;
+                if (n === to) return true;
+                for (const e of links.get(n) ?? []) {
+                    const next = e.from === n ? e.to : e.from;
+                    if (!seen.has(next)) { seen.add(next); todo.push(next); }
+                }
+            }
+            return false;
+        };
+        for (const e of throughWall) {
+            links.get(e.from)!.delete(e);
+            links.get(e.to)!.delete(e);
+            if (stillJoined(e.from, e.to)) continue; // fine without it
+            links.get(e.from)!.add(e); // only way through, put it back
+            links.get(e.to)!.add(e);
+        }
+        for (const e of levelEdges) {
+            if (links.get(e.from)!.has(e)) result.edges.push(e);
         }
 
         // Starting points come from the level's anchors (Studio saves one per room ticked as
