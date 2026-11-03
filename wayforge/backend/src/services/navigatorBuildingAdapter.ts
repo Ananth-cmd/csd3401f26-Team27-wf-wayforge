@@ -122,14 +122,39 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             result.nodes.push({ id: `${levelId}:${id}`, label, level: index, pos, kind });
         }
 
-        const walls = requireArray(level.walls ?? [], `${levelId}.walls`).map((value, i) => {
+        // doors live in level.openings, not in the walls, so cut a gap in each wall where a door is
+        // (Navigator draws every wall piece as solid, a gap is how it shows a door). windows stay as wall
+        const doorsOnWall = new Map<string, { offset: number; width: number }[]>();
+        for (const value of Array.isArray(level.openings) ? level.openings : []) {
+            if (!object(value) || (value.type !== "door" && value.type !== "opening")) continue;
+            if (typeof value.wall !== "string") continue;
+            const list = doorsOnWall.get(value.wall) ?? [];
+            list.push({ offset: number(value.offset, 0), width: number(value.width, 0) });
+            doorsOnWall.set(value.wall, list);
+        }
+
+        const walls: { a: Vec2; b: Vec2; thickness: number }[] = [];
+        for (const [i, value] of requireArray(level.walls ?? [], `${levelId}.walls`).entries()) {
             const wall = requireObject(value, `${levelId}.walls[${i}]`);
-            return {
-                a: vec2(wall.a, `${levelId}.walls[${i}].a`),
-                b: vec2(wall.b, `${levelId}.walls[${i}].b`),
-                thickness: number(wall.thickness, 0.15)
-            };
-        });
+            const a = vec2(wall.a, `${levelId}.walls[${i}].a`);
+            const b = vec2(wall.b, `${levelId}.walls[${i}].b`);
+            const thickness = number(wall.thickness, 0.15);
+            const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            const doors = (typeof wall.id === "string" ? doorsOnWall.get(wall.id) : undefined) ?? [];
+
+            // point along the wall, d metres from a
+            const at = (d: number): Vec2 => len ? [a[0] + (b[0] - a[0]) * d / len, a[1] + (b[1] - a[1]) * d / len] : a;
+
+            // walk from a to b, adding a wall piece before each door and skipping over the door itself
+            let from = 0;
+            for (const door of [...doors].sort((x, y) => x.offset - y.offset)) {
+                const start = Math.min(Math.max(door.offset, 0), len);
+                const end = Math.min(Math.max(door.offset + door.width, 0), len);
+                if (start - from > 0.05) walls.push({ a: at(from), b: at(start), thickness });
+                from = Math.max(from, end);
+            }
+            if (len - from > 0.05 || (!doors.length)) walls.push({ a: from ? at(from) : a, b, thickness });
+        }
 
         // The demo .wfb has rooms, but no guaranteed full-floor slab outlines.
         // Never misrepresent each room polygon as a complete floor slab.
