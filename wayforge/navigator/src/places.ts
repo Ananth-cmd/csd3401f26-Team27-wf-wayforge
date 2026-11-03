@@ -18,8 +18,13 @@ export type Place = Poi & {
   codeKey: string // code without spaces / hyphens, lowercase
 }
 
-const BLOCK = /^([A-Za-z]{1,2}\d{1,2})[-_\s]/
-export const blockFrom = (s: string) => BLOCK.exec(s.trim() + ' ')?.[1]?.toUpperCase() ?? ''
+const BLOCK = /^([A-Za-z]{1,2}\d{1,2})[-_\s]/, BLOCK_ID = /^([A-Za-z]{1,2}\d{1,2})[-_]/
+const LEVEL_LIKE = /^[LBF]\d{1,2}$/i // "L1-H1" names a floor, not a block
+// block from a code / name ("W1-01-15", "W1 Lift Lobby"); strict = from an id ("W1_r183", never "n69")
+export const blockFrom = (s: string, strict = false) => {
+  const m = (strict ? BLOCK_ID : BLOCK).exec(s.trim() + (strict ? '' : ' '))?.[1]?.toUpperCase() ?? ''
+  return LEVEL_LIKE.test(m) ? '' : m
+}
 const PLACEHOLDER = /^(room\s+)?[a-z]{1,2}\d{0,2}_[a-z]+\d+$/i // "Room W1_r185"
 const tidy = (s: string) => s.replace(/\s*\(Level \d+\)/i, '').replace(/\s+/g, ' ').trim()
 const titleCase = (s: string) => s.replace(/\b[a-z]/g, c => c.toUpperCase())
@@ -90,7 +95,7 @@ export function buildPlaces(b: Building, nodeIndex: Map<string, Node>) {
     const hit = blockCache.get(id)
     if (hit !== undefined) return hit
     const n = nodeIndex.get(id)
-    let bl = blockFrom(id.replace(/^[^:]*:/, '')) || (n ? blockFrom(n.label.replace(/^Room\s+/i, '')) : '')
+    let bl = blockFrom(id.replace(/^[^:]*:/, ''), true) || (n ? blockFrom(n.label.replace(/^Room\s+/i, '')) : '')
     if (!bl && n) {
       let d = 60 * 60
       for (const c of byLevel.get(n.level) ?? []) { const e = (c.x - n.pos[0]) ** 2 + (c.z - n.pos[1]) ** 2; if (e < d) { d = e; bl = c.bl } }

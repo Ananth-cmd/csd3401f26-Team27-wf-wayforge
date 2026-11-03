@@ -78,7 +78,7 @@ export type MapProps = {
 const short = (s: string) => s.replace(/\s*\(Level \d+\)/, '')
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
-const blockOf = (s: string) => /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase()
+const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
 function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick }: MapProps) {
   const pickRef = useRef(onPick)
@@ -176,7 +176,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const vw = vh * aspect
   const k = vh / size.h // metres per screen pixel
   const pxPerM = 1 / k
-  const massMode = !!mass && mass.length > 0 && !topDown && zoom >= MASS_ZOOM
+  const massMode = !!mass && mass.filter(m => m.levels.some(l => l.elev <= 0.01)).length >= 2 && !topDown && zoom >= MASS_ZOOM // a campus (2+ blocks on the ground); one building stays a floor plan
   const lift = (id: string) => (massMode ? building.levels[node.get(id)?.level ?? floor]?.elevation ?? 0 : 0) // markers sit on their floor
 
   // floor slab (top + visible edges)

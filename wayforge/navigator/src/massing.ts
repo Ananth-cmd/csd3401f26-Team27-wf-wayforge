@@ -11,7 +11,7 @@ export type MassLevel = { level: number; elev: number; h: number; rings: Vec2[][
 export type MassBlock = { name: string; levels: MassLevel[]; centre: Vec2; box: [number, number, number, number]; top: number }
 
 const CELL = 1 // metres per grid cell (plenty for a whole-building outline)
-export const blockOf = (s: string) => /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase()
+export const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
 const inPoly = (x: number, z: number, poly: Vec2[]) => {
   let inside = false
