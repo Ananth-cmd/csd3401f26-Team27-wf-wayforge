@@ -9,7 +9,9 @@
  * every route has a door step the app can announce. A stair or lift
  * standing open in a corridor or hall joins that space directly. Rooms left
  * outside the main connected group get a fallback edge to the nearest door
- * or corridor node, with a cost penalty.
+ * or corridor node, with a cost penalty. Passing through a room that is not
+ * a corridor, lobby or exit costs extra, so routes keep to the corridors, and
+ * two doors in one wall are not joined along the inside of that wall.
  *
  * Links: wf_api::wf_build_graph -> buildGraph -> buildLevelGraph for every
  * level. The nodes/edges written here are what Route.cpp searches.
@@ -25,6 +27,7 @@
  *   - Corridor nodes along the corridor centre line
  *   - Door-to-room tolerance, edges for open stairs and lifts
  *   - Fallback edges joining disconnected rooms to the main graph
+ *   - Extra cost for passing through rooms, no door-to-door edges inside a wall
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
  *
@@ -98,6 +101,40 @@ namespace {
         if (o.kind == NodeKind::Corridor) return true;
         const Room* host = level.findRoom(o.room);
         return host && host->id != r.room && host->polygon.size() >= 3 && pointInPolygon(r.pos, host->polygon);
+    }
+
+    // Spaces people walk through on the way somewhere else; any other room is only a start or an end.
+    bool openSpace(RoomKind k) { return k == RoomKind::Corridor || k == RoomKind::Lobby || k == RoomKind::Exit; }
+
+    // True when the walk line a-b runs through the inside of a room that is not an open space:
+    // a point a quarter, half or three quarters of the way along lies in that room, over 0.3 m
+    // from its outline (a line along a wall of the room does not count).
+    bool crossesRoom(const Level& level, const Vec2& a, const Vec2& b) {
+        for (const float t : { 0.25f, 0.5f, 0.75f }) {
+            const Vec2 q = a + (b - a) * t;
+            for (const Room& r : level.rooms) {
+                if (openSpace(r.kind) || r.polygon.size() < 3 || !pointInPolygon(q, r.polygon)) continue;
+                float edge = 1e30f;
+                for (size_t k = 0; k < r.polygon.size(); ++k)
+                    edge = std::min(edge, distancePointToSegment(q, r.polygon[k], r.polygon[(k + 1) % r.polygon.size()]));
+                if (edge > 0.3f) return true;
+            }
+        }
+        return false;
+    }
+
+    // True when q lies inside the body of a wall (within half its thickness of the centre line) and
+    // not in one of that wall's door spans. A walk line through q would run inside the wall.
+    bool insideWall(const Level& level, const Vec2& q) {
+        for (const Wall& w : level.walls) {
+            if (distancePointToSegment(q, w.a, w.b) >= w.thickness * 0.5f) continue;
+            const float s = dot(q - w.a, w.direction());       // distance along the wall from end a
+            bool inDoor = false;
+            for (const Opening& o : level.openings)
+                if (o.wall == w.id && o.type != OpeningType::Window && s >= o.offset && s <= o.offset + o.width) { inDoor = true; break; }
+            if (!inDoor) return true;
+        }
+        return false;
     }
 
     // Stairs, lifts and exits get their own node kinds so routing and instructions can spot them.
@@ -187,8 +224,18 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
             if (aInRoom && !roomNodeMayJoin(level, a, b)) continue;
             if (bInRoom && !roomNodeMayJoin(level, b, a)) continue;
             if (!lineOfSight(level, a.pos, b.pos, p.wallClearance)) continue;
+            // Two doors in the same wall line see each other along the wall; that line runs inside the
+            // wall, so the walk goes through the corridor or room nodes in front of the doors instead.
+            if (a.kind == NodeKind::Door && b.kind == NodeKind::Door && insideWall(level, (a.pos + b.pos) * 0.5f)) continue;
             // Edge cost is the walking distance; every edge on one level is step-free (stairs are links).
             Edge e; e.a = a.id; e.b = b.id; e.cost = d; e.stepFree = true;
+            // Passing through a room costs throughRoomPenalty more, so an equally short corridor wins.
+            // Edges at a room node carry half of it each: a trip starting or ending in a room always
+            // pays the same half, a trip passing through the room pays both halves.
+            const Room* aRoom = a.kind == NodeKind::Room ? level.findRoom(a.room) : nullptr;
+            const Room* bRoom = b.kind == NodeKind::Room ? level.findRoom(b.room) : nullptr;
+            if ((aRoom && !openSpace(aRoom->kind)) || (bRoom && !openSpace(bRoom->kind))) e.cost += p.throughRoomPenalty * 0.5f;
+            else if (!aInRoom && !bInRoom && crossesRoom(level, a.pos, b.pos)) e.cost += p.throughRoomPenalty;
             if (a.kind == NodeKind::Door || b.kind == NodeKind::Door) {
                 // record which opening the edge passes through
                 const Node& door = a.kind == NodeKind::Door ? a : b;

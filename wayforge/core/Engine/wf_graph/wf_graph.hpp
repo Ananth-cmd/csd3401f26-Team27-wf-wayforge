@@ -16,9 +16,12 @@
  *
  * \author Joel Chua (c.jialiang@digipen.edu)
  *
- * Contribution: Joel Chua 100%
+ * Contribution: Joel Chua 95%, Ananthan Elangovan 5%
+ *   Joel Chua
  *   - Graph parameters, route / instruction data types and the public API
  *   - "LEVEL:NODE" reference scheme for routing across levels
+ *   Ananthan Elangovan
+ *   - Graph parameters for rooms without a found door and for passing through rooms
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
  *
@@ -49,6 +52,7 @@ struct GraphParams {
     bool  connectRoomsThroughDoors = true;   // room nodes only connect to the doors on their outline
     float missingDoorReach   = 3.f;   // fallback edges: max distance from a disconnected room's outline to the node it joins
     float missingDoorPenalty = 10.f;  // extra cost added to each fallback edge
+    float throughRoomPenalty = 5.f;   // extra cost for passing through a room (not a corridor, lobby or exit) on the way
 };
 
 // Summary returned after building; isolatedNodes > 0 usually means a room has no reachable door.
