@@ -27,6 +27,20 @@ export default function App() {
 
   const go = (to) => { window.location.hash = to; };
 
+  // "How to use" plays the editor walkthrough again: it opens the last edited building and
+  // the tour starts by itself there. no buildings yet (or no server) -> the written steps instead
+  const startTour = async (e) => {
+    e.preventDefault();
+    try { sessionStorage.removeItem("wf.tour.done"); } catch { /* blocked, the tour shows anyway */ }
+    let to = "/help";
+    try {
+      const list = await api.listBuildings();
+      const last = [...list].sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0];
+      if (last) to = `/b/${encodeURIComponent(last.id)}`;
+    } catch { /* can't list buildings, show the written steps */ }
+    go(to);
+  };
+
   let page;
   const m = /^\/b\/(.+)$/.exec(path);
   if (m) page = <EditorPage key={m[1]} id={decodeURIComponent(m[1])} go={go} />;
@@ -43,7 +57,7 @@ export default function App() {
         <nav>
           <a href="#/" className={path === "/" ? "on" : ""}>Buildings</a>
           <a href="#/new" className={path === "/new" ? "on" : ""}>New building</a>
-          <a href="#/help" className={path === "/help" ? "on" : ""}>How to use</a>
+          <a href="#/help" className={path === "/help" ? "on" : ""} onClick={startTour}>How to use</a>
         </nav>
         <span className={"backend " + api.mode} title={api.mode === "mock" ? "Data is kept in this browser" : "Connected to the server"}>
           {api.mode === "mock" ? "Offline demo data (no server running)" : "Connected to the Studio server"}
