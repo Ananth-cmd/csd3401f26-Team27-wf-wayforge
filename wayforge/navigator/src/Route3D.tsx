@@ -9,6 +9,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Building, Vec2 } from './types'
 import type { Leg } from './legs'
+import { drawnRoute } from './routeline'
 
 type Props = {
   building: Building
@@ -128,6 +129,30 @@ function label(text: string, bg: string, fg: string, screen = true, px = 40) {
   return s
 }
 
+// a lift / stairs sign: the icon (and where it goes), always drawn on top at the same size on screen
+const ICON_PATH = { lift: 'M4 9h16v12.5H4zM12 9v12.5M9 1.8 6.6 5h4.8zM15 5.4l2.4-3.2h-4.8z', stairs: 'M4 19h5v-5h5V9h6' }
+function badge(kind: 'lift' | 'stairs', text: string) {
+  const px = 36, h = Math.ceil(px * 1.9), c = document.createElement('canvas'), g = c.getContext('2d')!
+  const bg = kind === 'lift' ? '#3c6fb0' : '#c9852f'
+  g.font = `700 ${px}px Manrope, system-ui, sans-serif`
+  const w = text ? h + Math.ceil(g.measureText(text).width) + px * 0.8 : h
+  c.width = w; c.height = h
+  g.fillStyle = bg; g.beginPath(); g.roundRect(0, 0, w, h, h / 4); g.fill()
+  g.strokeStyle = '#ffffff'; g.lineWidth = 4; g.beginPath(); g.roundRect(2, 2, w - 4, h - 4, h / 4 - 2); g.stroke()
+  g.save(); g.translate(h * 0.16, h * 0.16); g.scale((h * 0.68) / 24, (h * 0.68) / 24)
+  g.lineWidth = 2.2; g.lineCap = 'round'; g.lineJoin = 'round'; g.strokeStyle = '#ffffff'; g.fillStyle = '#ffffff'
+  const path = new Path2D(ICON_PATH[kind]); g.stroke(path); if (kind === 'lift') g.fill(new Path2D('M9 1.8 6.6 5h4.8zM15 5.4l2.4-3.2h-4.8z'))
+  g.restore()
+  if (text) { g.font = `700 ${px}px Manrope, system-ui, sans-serif`; g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.fillText(text, h, h / 2 + 1) }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }))
+  s.renderOrder = 11
+  const k = text ? 0.05 : 0.045
+  s.scale.set((k * w) / h, k, 1)
+  s.center.set(0.5, 0)
+  return s
+}
+
 export default function Route3D({ building, legs, stage, start, dest, names, captions, onFail }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const api = useRef<{ play: () => void; view: (v: 'eye' | 'follow' | 'orbit') => void } | null>(null)
@@ -182,7 +207,11 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     // the route: one line through every stage (lifts / stairs go straight up between the floors)
     const pts: THREE.Vector3[] = [], legAt: number[] = []
     for (const [i, l] of use.entries()) {
-      for (const id of l.nodes) { const p = P(id, 0.35); if (!pts.length || pts[pts.length - 1].distanceTo(p) > 0.01) { pts.push(p); legAt.push(whole ? i : stage!) } }
+      // walking: down the middle of the corridors and through the doorways (routeline.ts; the route is unchanged)
+      const ps = l.kind === 'walk' && l.nodes.length > 1
+        ? drawnRoute(building, l.level, l.nodes.map(id => node.get(id)!.pos), l.nodes.map(id => node.get(id)!.kind !== 'turn')).map(q => new THREE.Vector3(q[0], elev(l.level) + 0.35, -q[1]))
+        : l.nodes.map(id => P(id, 0.35))
+      for (const p of ps) if (!pts.length || pts[pts.length - 1].distanceTo(p) > 0.01) { pts.push(p); legAt.push(whole ? i : stage!) }
     }
     if (pts.length < 2) pts.push(pts[0].clone().add(new THREE.Vector3(0.01, 0, 0)))
     if (whole) {
@@ -231,7 +260,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       you.add(ball, ring, t); you.position.copy(P(start.node)); scene.add(you); scaled.push(you)
     }
     const endNode = whole ? dest?.node : legs[stage!].nodes[legs[stage!].nodes.length - 1]
-    const endName = whole ? dest?.title : legs[stage!].kind === 'walk' && (legs[stage!] as Extract<Leg, { kind: 'walk' }>).final ? dest?.title : names.get(endNode ?? '')
+    const nextV = whole ? undefined : legs[stage! + 1], goes = !!nextV && nextV.kind !== 'walk' && legs[stage!].kind === 'walk'
+    const endName = whole ? dest?.title : legs[stage!].kind === 'walk' && (legs[stage!] as Extract<Leg, { kind: 'walk' }>).final ? dest?.title : goes ? undefined : names.get(endNode ?? '') // walking to a lift / stairs: its sign says it
     if (endNode && node.has(endNode)) {
       const pin = new THREE.Group(), r = 0.5
       const pm = mat(new THREE.MeshLambertMaterial({ color: 0xf2a15a, emissive: 0xe8892f, emissiveIntensity: 0.4 }))
@@ -241,17 +271,40 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       if (endName) { const t = label(endName, '#ffffff', '#0b5f53'); t.position.y = r * 4.6; keep.push(t); pin.add(t) }
       pin.position.copy(P(endNode)); scene.add(pin); ends.push(head); scaled.push(pin)
     }
+    // lifts / stairs on the way: a lift / stairs sign (always on top, so nothing pokes through walls) saying where it
+    // goes, and a pulsing ring on the floor at the one you're heading for / taking
+    const rings: THREE.Mesh[] = [], labelled = new Set<string>()
+    const vNear = whole ? [...legs.keys()] : [stage! - 1, stage!, stage! + 1]
+    for (const j of vNear) {
+      const l = legs[j]
+      if (!l || l.kind === 'walk') continue
+      const up = l.to > l.from, live = whole || j === stage || j === stage! + 1
+      for (const [id, side] of [[l.nodes[0], -1], [l.nodes[l.nodes.length - 1], 1]] as const) {
+        const nd = node.get(id)
+        if (!nd || !shown.get(nd.level)) continue
+        const g = new THREE.Group()
+        g.position.copy(P(id))
+        if (side < 0 && live) {
+          const ring = new THREE.Mesh(geo(new THREE.RingGeometry(0.9, 1.25, 40)), mat(new THREE.MeshBasicMaterial({ color: l.kind === 'lift' ? 0x3c6fb0 : 0xe0902e, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false })))
+          ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; g.add(ring); rings.push(ring)
+        }
+        if (side < 0) labelled.add(id)
+        const t = badge(l.kind, side < 0 ? `${names.get(id) ?? (l.kind === 'lift' ? 'Lift' : 'Stairs')} · ${up ? '↑' : '↓'} ${building.levels[l.to]?.name ?? ''}` : '')
+        t.position.y = side < 0 ? 3.0 : 2.2; keep.push(t); g.add(t)
+        scene.add(g); scaled.push(g)
+      }
+    }
     // room names near the route (only on solid floors, at most 40); the whole-route view only names the lifts / stairs used
     const roomLabels: THREE.Sprite[] = []
     const changes = new Set(legs.filter(l => l.kind !== 'walk').flatMap(l => [l.nodes[0], l.nodes[l.nodes.length - 1]]))
-    if (whole) for (const id of changes) { const title = names.get(id); if (title && node.has(id)) { const t = label(title, 'rgba(255,255,255,0.92)', '#3b4f4a', false, 34); t.position.copy(P(id, WALL_H + 0.3)); scene.add(t) } }
+    if (whole) for (const id of changes) { const title = names.get(id); if (title && node.has(id) && !labelled.has(id)) { const t = label(title, 'rgba(255,255,255,0.92)', '#3b4f4a', false, 34); t.position.copy(P(id, WALL_H + 0.3)); scene.add(t) } }
     if (!whole) {
       let n = 0
       const seen = new Set<string>()
       for (const nd of building.nodes) {
         if (n >= 40 || !shown.get(nd.level)) continue
         const title = names.get(nd.id)
-        if (!title || seen.has(title + nd.level) || nd.id === endNode) continue
+        if (!title || seen.has(title + nd.level) || nd.id === endNode || labelled.has(nd.id)) continue
         const p = P(nd.id)
         let near = false
         for (let i = 0; i < pts.length && !near; i += Math.max(1, Math.floor(pts.length / 200))) near = Math.abs(pts[i].y - p.y - 0.35) < 1 && Math.hypot(pts[i].x - p.x, pts[i].z - p.z) < (whole ? 14 : 9)
@@ -336,6 +389,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       }
       arrows.instanceMatrix.needsUpdate = true
       for (const e of ends) e.rotation.y += dt * 0.8
+      const pz = ((now / 1000) % 1.6) / 1.6
+      for (const r of rings) { r.scale.setScalar(1 + pz * 0.9); (r.material as THREE.MeshBasicMaterial).opacity = 0.65 * (1 - pz) }
       if (++frame % 10 === 0) for (const t of roomLabels) t.visible = view === 'orbit' || t.position.distanceTo(camera.position) < 28
       if (flying) {
         at(s, tmp); at(Math.min(total, s + 1), tmp2)

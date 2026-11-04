@@ -15,7 +15,7 @@ import type { Place } from './places'
 import { landmarkFinder, routeSummary, sameRoute, verticalNames, walkSteps } from './directions'
 import type { Step } from './directions'
 import MapView from './MapView'
-import type { MapProps } from './MapView'
+import type { MapProps, Vertical } from './MapView'
 const Route3D = lazy(() => import('./Route3D')) // three.js only downloads when a route is shown
 
 type Screen = 'explore' | 'find' | 'where' | 'qr' | 'routes' | 'guide' | 'arrived' | 'saved' | 'prefs' | 'lost' | 'help'
@@ -48,6 +48,9 @@ const DoorIcon = () => <svg {...ic}><path d="M6 21V4.5L14 3v18M6 21h12V6h-4M11 1
 const RouteIcon = () => <svg {...ic}><circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M8 18h6.5a3.5 3.5 0 0 0 0-7h-5a3.5 3.5 0 0 1 0-7H16" /></svg>
 const MenuIcon = () => <svg {...ic}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
 const CloseIcon = () => <svg {...ic}><path d="m6 6 12 12M18 6 6 18" /></svg>
+const GearIcon = () => <svg {...ic}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+const HelpIcon = () => <svg {...ic}><circle cx="12" cy="12" r="9" /><path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 3.9M12 17.2h.01" /></svg>
+const MapIcon = () => <svg {...ic}><path d="M4 6.5 9 4l6 2.5L20 4v13.5L15 20l-6-2.5L4 20z" /><path d="M9 4v13.5M15 6.5V20" /></svg>
 const Logo = () => <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round" aria-hidden><path d="M4 6.5 9 4l6 2.5L20 4v13.5L15 20l-6-2.5L4 20z" /><path d="M9 4v13.5M15 6.5V20" /></svg>
 const stepIcon = (s: Step) => s.turn === 'left' ? <TurnL /> : s.turn === 'right' ? <TurnR /> : s.turn === 'arrive' ? <PinIcon /> : <Arrow d="up" />
 
@@ -79,6 +82,20 @@ function FloorSelect({ names, value, onChange, compact }: { names: string[]; val
       </select>
       <svg className="chev" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M7 10l5 5 5-5z" /></svg>
     </label>
+  )
+}
+// Google-Maps-style floor switcher floating on the map (scrolls when there are many floors)
+function FloorRail({ names, value, onChange, fixed }: { names: string[]; value: number; onChange: (f: number) => void; fixed?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => { // keep the current floor in view
+    const centreOn = () => { const el = ref.current, on = el?.querySelector<HTMLElement>('.on'); if (el && on) el.scrollTop = on.offsetTop - el.clientHeight / 2 + on.offsetHeight / 2 }
+    centreOn(); const id = requestAnimationFrame(centreOn); return () => cancelAnimationFrame(id)
+  }, [value, fixed])
+  const short = (n: string, i: number) => { const m = /(\d+|[A-Z]\d*)\s*$/i.exec(n.replace(/^level\s*/i, '')); return m && m[1].length <= 3 ? m[1].toUpperCase() : `L${i + 1}` }
+  return (
+    <div className="floor-rail" ref={ref} role="group" aria-label="Floor">
+      {[...names.keys()].reverse().map(i => <button key={i} className={i === value ? 'on' : ''} aria-pressed={i === value} aria-label={names[i]} title={names[i]} disabled={fixed && i !== value} onClick={() => onChange(i)}>{short(names[i], i)}</button>)}
+    </div>
   )
 }
 function Option({ title, sub, selected, onClick, icon }: { title: string; sub: string; selected?: boolean; onClick?: () => void; icon?: ReactNode }) {
@@ -165,7 +182,16 @@ export default function App() {
   const [no3d, setNo3d] = useState(false) // this device can't do WebGL: always the map
   const dq = useDeferredValue(query) // typing stays smooth, the list catches up
   const dsq = useDeferredValue(startQuery)
-  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight })
+  const readVp = () => {
+    // foldables: the two screens of a spanned window (Viewport Segments API, where the browser has it)
+    const segs = ((window as unknown as { viewport?: { segments?: DOMRect[] } }).viewport?.segments ?? []).map(r => ({ x: r.x, y: r.y, w: r.width, h: r.height }))
+    return { w: window.innerWidth, h: window.innerHeight, segs }
+  }
+  const [vp, setVp] = useState(readVp)
+  type Snap = 'peek' | 'half' | 'full'
+  const [sheetFor, setSheetFor] = useState<{ s: Screen; snap: Snap } | null>(null) // phone bottom sheet, per screen
+  const [dragH, setDragH] = useState<number | null>(null)
+  const grab = useRef<{ y: number; h: number; moved: boolean } | null>(null)
 
   useEffect(() => { loadBuilding().then(setB).catch(e => setErr(String(e))) }, [])
   // web app manifest (the page already asks iOS to run it as a home-screen app)
@@ -206,7 +232,7 @@ export default function App() {
     return () => { document.removeEventListener('visibilitychange', ask); void lock?.release().catch(() => {}) }
   }, [guiding])
   useLayoutEffect(() => {
-    const f = () => setVp({ w: window.innerWidth, h: window.innerHeight })
+    const f = () => setVp(readVp())
     window.addEventListener('resize', f); return () => window.removeEventListener('resize', f)
   }, [])
   const first = useRef(true)
@@ -277,8 +303,15 @@ export default function App() {
     return { shortest, stepfree, same: sameRoute(shortest?.r, stepfree?.r) }
   }, [b, start, dest])
 
-  const desktop = vp.w >= 768 && vp.h >= 500 // tablets get the side-panel layout too
-  const tablet = desktop && vp.w < 1180
+  // layout: phones (and folded cover screens) get the full-screen map + bottom sheet; tablets, unfolded foldables,
+  // landscape phones and desktops get the full-screen map + a floating side panel; a window spanning two screens puts
+  // the panel on the left screen and the map on the right one
+  const segs = vp.segs
+  const spanned = segs.length === 2 && segs[1].x > segs[0].x + 10
+  const stackedFold = segs.length === 2 && segs[1].y > segs[0].y + 10
+  const desktop = spanned || (!stackedFold && vp.w >= 600 && (vp.h >= 500 || vp.w >= vp.h * 1.6))
+  const panelW = spanned ? segs[0].w : Math.round(Math.min(400, Math.max(300, vp.w * 0.3)))
+  const padL = spanned ? segs[1].x : panelW + 28 // map hidden under the panel
 
   // search results (destination and start)
   const near = start ? nodeIndex.get(start.node) ?? null : null
@@ -300,9 +333,6 @@ export default function App() {
   const placesOn = (f: number) => P.visible.filter(p => p.level === f)
   const zone = (f: number) => { const n = placesOn(f).filter(p => p.kind !== 'lift' && p.kind !== 'stairs').length; return `${n} place${n === 1 ? '' : 's'}` }
   const vname = (id: string) => P.vnames.get(id) ?? P.byNode.get(id)?.title ?? node(id).label
-  const levelChips = (v: number, on: (f: number) => void, short?: boolean) => short && b.levels.length <= 5
-    ? <Chips label="Floor" value={v} onChange={on} items={b.levels.map((_, i) => ({ v: i, label: `L${i + 1}` }))} />
-    : <FloorSelect names={b.levels.map(l => l.name)} value={v} onChange={on} compact={short} />
   const saveBtn = (p: Place) => ({ saved: isSaved(p), onSave: () => toggleSave(p) })
   const placeIcon = (p: Place) => ({ toilet: <ToiletIcon />, food: <FoodIcon />, library: <BookIcon />, lift: <Lift />, stairs: <Stairs />, entrance: <DoorIcon />, lecture: undefined, room: undefined })[p.kind]
   const pickOnMap = (id: string) => {
@@ -311,7 +341,8 @@ export default function App() {
     if (screen === 'where') { setPending(p); return }
     setDest(p); setQuery(''); if (screen !== 'find') go('find')
   }
-  const mapEl = (m: MapProps, pick = false) => <MapView {...m} names={P.names} topDown={m.topDown ?? flat} onTopDown={setFlat} onPick={pick ? pickOnMap : undefined} />
+  let mapPad: MapProps['pad'] = undefined // set below, once the layout is known
+  const mapEl = (m: MapProps, pick = false) => <MapView {...m} pad={mapPad} names={P.names} topDown={m.topDown ?? flat} onTopDown={setFlat} onPick={pick ? pickOnMap : undefined} />
   const show3d = use3d && !no3d
   const switch3d = <button className="r3d-switch" onClick={() => setUse3d(!show3d)}>{show3d ? 'Map view' : '3D walk-through'}</button>
 
@@ -359,14 +390,24 @@ export default function App() {
     if (l.final) return "I've arrived"
     return n?.kind === 'lift' ? "I'm at the lift" : "I'm at the stairs"
   }
+  // the lifts / stairs the route uses, for the map: where each one takes you; the one you're heading for (or riding) moves
+  const verticals = (cur?: number): Vertical[] => legs.flatMap((l, j) => {
+    if (l.kind === 'walk') return []
+    const up = l.to > l.from, first = legs.findIndex(x => x.kind !== 'walk')
+    const active = cur === undefined ? j === first : j === cur || (j === cur + 1 && legs[cur].kind === 'walk')
+    return [
+      { node: l.nodes[0], kind: l.kind, up, label: `${vname(l.nodes[0])} · ${up ? 'up' : 'down'} to ${L(l.to)}`, active },
+      { node: l.nodes[l.nodes.length - 1], kind: l.kind, up, label: '', active: false },
+    ]
+  })
   // what the map shows for a leg
   const legMap = (i: number): MapProps => {
     const l = legs[i]
     if (!l) return { building: b, floor }
     // stairs / lift: keep the corridor just walked (greyed out as done), but the visitor is now at the stairs / lift
-    if (l.kind !== 'walk') { const prev = legs[i - 1]; const walked = prev ? legMap(i - 1) : null; return walked ? { ...walked, lines: [], done: walked.lines, here: l.nodes[0], pin: null } : { building: b, floor: l.from, here: l.nodes[0] } }
+    if (l.kind !== 'walk') { const prev = legs[i - 1]; const walked = prev ? legMap(i - 1) : null; return walked ? { ...walked, lines: [], done: walked.lines, here: l.nodes[0], pin: null, vertical: verticals(i) } : { building: b, floor: l.from, here: l.nodes[0], vertical: verticals(i) } }
     const end = l.nodes[l.nodes.length - 1]
-    return { building: b, floor: l.level, lines: [l.nodes], here: l.nodes[0], pin: { node: end, label: legEnd(l) }, focus: l.nodes }
+    return { building: b, floor: l.level, lines: [l.nodes], here: l.nodes[0], pin: { node: end, label: legEnd(l) }, focus: l.nodes, vertical: verticals(i) }
   }
   const stepList = (current?: number, compact?: boolean) => (
     <ol className="steps">
@@ -469,17 +510,20 @@ export default function App() {
   switch (screen) {
     case 'explore': spec = {
       eyebrow: 'EXPLORE THE BUILDING', title: 'Find your way.', sub: desktop ? "Choose a place. We'll help you get there." : b.name,
-      top: <>
-        {desktop && <Field label="FROM · YOUR START" value={start ? `${start.title} · ${L(start.level)}` : 'Set starting location'} onClick={openWhere} />}
-        <Field label={desktop ? 'TO · DESTINATION' : 'DESTINATION'} value={dest ? `${dest.title} · ${L(dest.level)}` : 'Search rooms or facilities'} onClick={() => go('find')} />
-        {!desktop && levelChips(floor, setFloor)}
-      </>,
+      top: desktop ? <>
+        <Field label="FROM · YOUR START" value={start ? `${start.title} · ${L(start.level)}` : 'Set starting location'} onClick={openWhere} />
+        <Field label="TO · DESTINATION" value={dest ? `${dest.title} · ${L(dest.level)}` : 'Search rooms or facilities'} onClick={() => go('find')} />
+      </> : undefined,
       desk: <>
         <span className="eyebrow muted">SUGGESTED</span>
         {suggestions.map(({ p, why }) => <Row key={p.id} title={p.title} sub={sub(p, why)} icon={placeIcon(p)} onClick={() => { chooseDest(p); go('find') }} {...saveBtn(p)} />)}
       </>,
-      mobile: dest ? <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} onClick={() => go('find')} {...saveBtn(dest)} /> : <p className="muted small center">Tap the map to look inside or pick a room.</p>,
-      actions: [{ label: desktop ? 'Plan a route →' : dest ? 'Next: choose start' : 'Find a destination', onClick: planIt }],
+      mobile: <>
+        {dest && <Row title={dest.title} sub={sub(dest)} icon={placeIcon(dest)} selected onClick={() => go('find')} {...saveBtn(dest)} onClear={() => setDest(null)} />}
+        <span className="eyebrow muted">SUGGESTED</span>
+        {suggestions.map(({ p, why }) => <Row key={p.id} title={p.title} sub={sub(p, why)} icon={placeIcon(p)} onClick={() => { chooseDest(p); go('find') }} {...saveBtn(p)} />)}
+      </>,
+      actions: desktop ? [{ label: 'Plan a route →', onClick: planIt }] : dest ? [{ label: 'Next: choose start', onClick: planIt }] : [],
       map: { building: b, floor, here: start && start.level === floor ? start.node : null, pin: dest && dest.level === floor ? { node: dest.node, label: dest.title } : null },
       floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore floor by floor. Tap the map to look inside or pick a room.' },
     }; break
@@ -487,7 +531,7 @@ export default function App() {
     case 'find': spec = {
       eyebrow: 'DESTINATION', title: dest && desktop && !query.trim() ? dest.title : 'Find a destination', sub: dest && desktop && !query.trim() ? `${b.name} · ${sub(dest)}` : 'Search by room name, code or facility.',
       top: <>
-        <SearchBox value={query} onChange={setQuery} placeholder="Room name or code" label="Search rooms" count={results.length} active={hi} onKey={keys(results, chooseDest)} autoFocus={!dest} />
+        <SearchBox value={query} onChange={v => { setQuery(v); if (!desktop && v.trim()) setSheetFor({ s: screen, snap: 'full' }) }} placeholder="Room name or code" label="Search rooms" count={results.length} active={hi} onKey={keys(results, chooseDest)} autoFocus={!dest} />
         {query.trim() ? (results.length ? resultList(results, chooseDest, p => (start && !reach(start, p) ? 'No route from your start' : undefined), dest?.id) : dq.trim() === query.trim() && noMatch)
           : dest ? <Row title={dest.title} sub={sub(dest, !reach(start, dest) ? 'No route from your start' : undefined)} icon={placeIcon(dest)} selected {...saveBtn(dest)} onClear={() => setDest(null)} />
           : <div className="list"><span className="eyebrow muted">SUGGESTED</span>
@@ -514,7 +558,7 @@ export default function App() {
         eyebrow: 'SET YOUR LOCATION', title: 'Where are you?', sub: 'Pick a room, lobby or sign you can see.',
         top: <>
           {desktop && qrSupported && <Chips label="Method" value="manual" onChange={v => v === 'qr' && go('qr')} items={[{ v: 'manual', label: 'Pick a place' }, { v: 'qr', label: 'Scan QR' }]} />}
-          <SearchBox value={startQuery} onChange={setStartQuery} placeholder="Search where you are" label="Search starting point" count={startResults.length} active={hi} onKey={keys(startResults, pick)} />
+          <SearchBox value={startQuery} onChange={v => { setStartQuery(v); if (!desktop && v.trim()) setSheetFor({ s: screen, snap: 'full' }) }} placeholder="Search where you are" label="Search starting point" count={startResults.length} active={hi} onKey={keys(startResults, pick)} />
           {startQuery.trim() ? (startResults.length ? resultList(startResults, pick, mark, pending?.id) : dsq.trim() === startQuery.trim() && noMatch) : <>
             {pending && <Row title={pending.title} sub={sub(pending, 'Selected')} icon={placeIcon(pending)} selected onClear={() => setPending(null)} />}
             <FloorSelect names={b.levels.map(l => l.name)} value={floor} onChange={setFloor} />
@@ -563,7 +607,7 @@ export default function App() {
             <Option title={optTitle(f, 'Step-free')} sub={optSub(f, true)} selected={choice === 'stepfree'} onClick={() => setChoice('stepfree')} icon={<Lift />} />
           </>,
         actions: [{ label: o ? (routes?.same || choice === 'shortest' ? (desktop ? 'Start route →' : 'Start route') : (desktop ? 'Start step-free route →' : 'Start step-free route')) : 'No route available', onClick: startGuide, disabled: !o || legs.length === 0 }],
-        map: o && legs.length ? { building: b, floor: start!.level, lines: legs.filter(l => l.kind === 'walk' && l.level === start!.level).map(l => l.nodes), here: start!.node, focus: legs[0].nodes, pin: legs[0].kind === 'walk' ? { node: legs[0].nodes[legs[0].nodes.length - 1], label: legEnd(legs[0]) } : null } : { building: b, floor: start ? start.level : 0, here: start?.node, focus: start ? [start.node] : undefined },
+        map: o && legs.length ? { building: b, floor: start!.level, lines: legs.filter(l => l.kind === 'walk' && l.level === start!.level).map(l => l.nodes), here: start!.node, focus: legs[0].nodes, pin: legs[0].kind === 'walk' ? { node: legs[0].nodes[legs[0].nodes.length - 1], label: legEnd(legs[0]) } : null, vertical: verticals() } : { building: b, floor: start ? start.level : 0, here: start?.node, focus: start ? [start.node] : undefined },
         tallMap: true,
         view3d: o && legs.length ? view3d() : undefined,
       }
@@ -641,20 +685,49 @@ export default function App() {
   // ---------- shared pieces ----------
   const pickable = screen === 'explore' || screen === 'find' || screen === 'where'
   const mapFloor = spec.map?.floor ?? floor
-  const mapHead = (fl = mapFloor, tabs = !!spec.floorTabs) => (
-    <div className="map-head">
-      <div><h2>{b.name}</h2><p className="muted">{L(fl)} · {zone(fl)}</p></div>
-      {tabs ? levelChips(floor, setFloor, true) : <div className="route-floor"><span className="eyebrow muted">FLOOR</span><span className="pill">{L(fl)}</span></div>}
-    </div>
-  )
   const legend = (
-    <div className="legend"><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span><em>{pickable ? 'Tap to look inside or pick a room' : 'Drag to move · right-drag to turn'}</em></div>
+    <div className="wf-legend" aria-hidden><span><i className="d route" />Route</span><span><i className="d you" />You</span><span><i className="d dest" />Destination</span><span><i className="d stairs" />Stairs</span><span><i className="d lift" />Lift</span></div>
   )
-  const actions = (list: Action[]) => <div className="actions">{list.map(a => <div key={a.label} className="act">
-    {a.disabled && a.hint && <p className="hint" id={`h-${a.label.length}`}>{a.hint}</p>}
-    <button className={a.kind ?? 'pri'} disabled={a.disabled} aria-describedby={a.disabled && a.hint ? `h-${a.label.length}` : undefined} onClick={a.onClick}>{a.label}</button>
-  </div>)}</div>
+  // compact actions: secondary buttons small on the left, one main button; a short hint when it's not ready yet
+  const actions = (list: Action[]) => {
+    if (!list.length) return null
+    const hint = list.find(a => a.disabled && a.hint)?.hint
+    return <div className="wf-actions">
+      {hint && <p className="hint" id="act-hint">{hint}</p>}
+      <div className="wf-act-row">{list.map(a => <button key={a.label} className={a.kind === 'sec' ? 'wf-sec' : 'wf-pri'} disabled={a.disabled} aria-describedby={a.disabled && a.hint ? 'act-hint' : undefined} onClick={a.onClick}>{a.label}</button>)}</div>
+    </div>
+  }
   const onClickCapture = (e: React.MouseEvent) => { if ((e.target as Element).closest('button')) sound('tap') }
+  const tabs = (['explore', 'saved', 'prefs', 'help'] as Tab[])
+  const tabIcon: Record<Tab, ReactNode> = { explore: <MapIcon />, saved: <Bookmark />, prefs: <GearIcon />, help: <HelpIcon /> }
+  const floorRail = (m: MapProps | null | undefined, interactive: boolean) => m && b.levels.length > 1
+    ? <FloorRail names={b.levels.map(l => l.name)} value={interactive ? floor : m.floor} onChange={setFloor} fixed={!interactive} /> : null
+
+  // phone bottom sheet: peek / half / full (drag the handle, or tap it)
+  const TOP_H = 64 // floating search bar
+  const fullH = stackedFold ? vp.h - segs[1].y : vp.h - TOP_H - 8
+  const snapH: Record<Snap, number> = stackedFold
+    ? { peek: fullH, half: fullH, full: fullH }
+    : { peek: Math.min(fullH, screen === 'explore' ? (dest ? 262 : 212) : 172), half: Math.round(vp.h * 0.48), full: fullH }
+  const defSnap: Snap = screen === 'explore' ? 'peek' : screen === 'find' && query.trim() ? 'full' : spec.showMapOnMobile === false ? 'full' : 'half'
+  const snap: Snap = sheetFor && sheetFor.s === screen ? sheetFor.snap : defSnap
+  const sheetH = dragH ?? snapH[snap]
+  const setSnap = (x: Snap) => setSheetFor({ s: screen, snap: x })
+  const onGrabDown = (e: React.PointerEvent) => { grab.current = { y: e.clientY, h: snapH[snap], moved: false }; (e.currentTarget as Element).setPointerCapture(e.pointerId) }
+  const onGrabMove = (e: React.PointerEvent) => {
+    const g = grab.current; if (!g) return
+    if (Math.abs(e.clientY - g.y) > 6) g.moved = true
+    if (g.moved) setDragH(Math.max(96, Math.min(fullH, g.h - (e.clientY - g.y))))
+  }
+  const onGrabUp = () => {
+    const g = grab.current; grab.current = null
+    if (!g) return
+    if (!g.moved) setSnap(snap === 'peek' ? 'half' : snap === 'half' ? 'full' : 'half')
+    else { const h = dragH ?? g.h; setSnap((['peek', 'half', 'full'] as Snap[]).reduce((best, k) => (Math.abs(snapH[k] - h) < Math.abs(snapH[best] - h) ? k : best), 'peek')) }
+    setDragH(null)
+  }
+  mapPad = desktop ? { l: padL } : { t: TOP_H, b: stackedFold ? fullH : snapH[snap] }
+  const visible = desktop ? { left: padL, top: 0, bottom: 0 } : { left: 0, top: TOP_H, bottom: mapPad.b ?? 0 } // where the 3D view and camera go
 
   // ---------- navigation mode + arrival (phone and desktop) ----------
   if ((screen === 'guide' && leg && dest) || (screen === 'arrived' && dest)) {
@@ -677,32 +750,32 @@ export default function App() {
       : <div className="nav-actions"><button className="end" onClick={endRoute}><CloseIcon /> End</button><button className="pri" onClick={nextLeg}>{confirmLabel(li)}</button></div>
     const lost = <button className="link lost" onClick={arrived ? openWhere : () => go('lost')}>{arrived ? 'Not here? Update my location' : 'Lost? Update my location'}</button>
     const turns = !arrived && leg.kind === 'walk' ? stepsOf(leg) : []
-    if (desktop) return (
-      <div className={`desk navdesk${tablet ? ' tablet' : ''}`} onClickCapture={onClickCapture}>
-        <header className="topnav">
-          <button className="brand" onClick={() => (arrived ? finish() : endRoute())}><span className="logo"><Logo /></span>WayForge</button>
-          <div className="venue"><small>{arrived ? 'Arrived at' : 'Navigating to'}</small><b>{dest.title}{dest.code ? ` · ${dest.code}` : ''}</b></div>
-          <nav>{arrived ? <button onClick={finish}>Done</button> : <button className="endroute" onClick={endRoute}><CloseIcon /> End route</button>}</nav>
-        </header>
-        <main className="desk-main">
-          <aside className="panel navpanel">
+    if (desktop) {
+      mapPad = { l: padL }
+      return (
+        <div className={`wf wf-desk wf-nav${spanned ? ' spanned' : ''}`} style={{ '--pad-l': `${padL}px`, '--panel-w': `${panelW}px` } as React.CSSProperties} onClickCapture={onClickCapture}>
+          <div className="wf-map">{!arrived && show3d ? <div className="wf-r3d" style={{ left: padL }}>{view3d(li)}{!no3d && switch3d}</div> : <>{mapEl(map)}{!arrived && !no3d && switch3d}</>}</div>
+          <aside className="wf-panel nav">
+            <div className="wf-navhead">
+              <span className="logo"><Logo /></span>
+              <div><small>{arrived ? 'Arrived at' : 'Navigating to'}</small><b>{dest.title}{dest.code ? ` · ${dest.code}` : ''}</b></div>
+              {!arrived && <button className="wf-end" onClick={endRoute} aria-label="End route"><CloseIcon /></button>}
+            </div>
             {banner}{then}
-            <div className="scroll">
+            <div className="wf-scroll">
               {progress}
               {arrived ? <Info title={dest.title}>{dest.type}{dest.block ? ` · block ${dest.block}` : ''} · {L(dest.level)}. {isSaved(dest) ? 'Saved for next time.' : 'Save it for an easier visit next time.'}</Info> : stepList(li, true)}
             </div>
-            <div className="actions">{buttons}{lost}</div>
+            <div className="wf-navfoot">{buttons}{lost}</div>
           </aside>
-          <section className="maparea">
-            {mapHead(map.floor, false)}
-            <div className="mapbox">{!arrived && show3d ? view3d(li) : mapEl(map)}{!arrived && !no3d && switch3d}</div>
-            {legend}
-          </section>
-        </main>
-      </div>
-    )
+          {!(!arrived && show3d) && floorRail(map, false)}
+          {!(!arrived && show3d) && legend}
+        </div>
+      )
+    }
+    mapPad = undefined
     return (
-      <div className={`mob nav-mode${arrived ? ' arrived' : ''}`} onClickCapture={onClickCapture}>
+      <div className={`mob nav-mode wf-navmob${arrived ? ' arrived' : ''}`} onClickCapture={onClickCapture}>
         {banner}{then}
         <div className="nav-map">{!arrived && show3d ? view3d(li) : mapEl(map)}{!arrived && !no3d && switch3d}</div>
         <section className="nav-sheet">
@@ -714,63 +787,74 @@ export default function App() {
     )
   }
 
-  // ---------- desktop / tablet ----------
+  // the map (or the 3D route view, or the camera) filling the screen behind everything
+  const mapLayer = (
+    <div className="wf-map">
+      {spec.pane && desktop ? <div className="wf-pane" style={{ left: padL }}>{spec.pane}</div>
+        : spec.view3d && show3d ? <div className="wf-r3d" style={visible}>{spec.view3d}{!no3d && switch3d}</div>
+        : spec.map ? <>{mapEl(spec.map, pickable)}{spec.view3d && !no3d && switch3d}</> : null}
+    </div>
+  )
+  const showRail = !!spec.map && !(spec.view3d && show3d) && !(spec.pane && desktop)
+
+  // ---------- desktop / tablet / unfolded / spanned: full map + floating panel ----------
   if (desktop) return (
-    <div className={`desk${tablet ? ' tablet' : ''}`} onClickCapture={onClickCapture}>
-      <header className="topnav">
-        <button className="brand" onClick={() => tab('explore')}><span className="logo"><Logo /></span>WayForge</button>
-        <div className="venue"><b>{b.name}</b><small>{b.site}</small></div>
-        <nav>{(['explore', 'saved', 'prefs', 'help'] as Tab[]).map(t => <button key={t} className={TAB_OF[screen] === t ? 'on' : ''} aria-current={TAB_OF[screen] === t ? 'page' : undefined} onClick={() => tab(t)}>{TAB_NAME[t]}</button>)}</nav>
-      </header>
-      <main className="desk-main">
-        <aside className="panel">
-          <div className="scroll">
-            {stack.length > 1 && <button className="back" onClick={back}>‹ Back</button>}
-            <span className="eyebrow">{spec.eyebrow}</span>
-            <h1>{spec.title}</h1>
-            {spec.sub && <p className="muted lead">{spec.sub}</p>}
-            <div className="stackv">{spec.top}{spec.desk}{spec.body}</div>
-          </div>
-          {actions(spec.actions)}
-        </aside>
-        <section className="maparea">
-          {spec.pane ?? <>
-            {mapHead()}
-            {spec.hero && <div className="hero"><h2>{spec.hero.title}</h2><p className="muted">{spec.hero.sub}</p></div>}
-            <div className="mapbox">{spec.view3d && show3d ? spec.view3d : spec.map && mapEl(spec.map, pickable)}{spec.view3d && !no3d && switch3d}</div>
-            {legend}
-          </>}
-        </section>
-      </main>
+    <div className={`wf wf-desk${spanned ? ' spanned' : ''}`} style={{ '--pad-l': `${padL}px`, '--panel-w': `${panelW}px` } as React.CSSProperties} onClickCapture={onClickCapture}>
+      {mapLayer}
+      <aside className="wf-panel">
+        <div className="wf-head">
+          <button className="wf-brand" onClick={() => tab('explore')}><span className="logo"><Logo /></span><span><b>WayForge</b><small>{b.name}</small></span></button>
+          <nav className="wf-tabs">{tabs.map(t => <button key={t} className={TAB_OF[screen] === t ? 'on' : ''} aria-current={TAB_OF[screen] === t ? 'page' : undefined} aria-label={TAB_NAME[t]} title={TAB_NAME[t]} onClick={() => tab(t)}>{tabIcon[t]}</button>)}</nav>
+        </div>
+        <div className="wf-scroll">
+          {stack.length > 1 && <button className="back" onClick={back}>‹ Back</button>}
+          <h1>{spec.title}</h1>
+          {spec.sub && <p className="muted lead">{spec.sub}</p>}
+          <div className="stackv">{spec.top}{spec.desk}{spec.body}</div>
+        </div>
+        {actions(spec.actions)}
+      </aside>
+      {showRail && floorRail(spec.map, !!spec.floorTabs)}
+      {showRail && <div className="wf-level">{L(spec.floorTabs ? floor : mapFloor)} · {zone(spec.floorTabs ? floor : mapFloor)}</div>}
+      {showRail && legend}
     </div>
   )
 
-  // ---------- phone ----------
-  const showMap = !!spec.map && spec.showMapOnMobile !== false
+  // ---------- phone / folded: full map + floating search bar + bottom sheet ----------
   const menuItems: Tab[] = ['explore', 'saved', 'prefs', 'help']
+  const root = stack.length === 1
+  const sheetTitle = screen === 'explore' ? b.name : spec.title
+  const sheetSub = screen === 'explore' ? `${L(floor)} · ${zone(floor)}` : spec.sub
   return (
-    <div className="mob" onClickCapture={onClickCapture}>
-      <header className="mhead">
-        {stack.length > 1 && <button className="back" onClick={back} aria-label="Back">‹</button>}
-        <button className="menu-btn" onClick={() => setMenu(true)} aria-label="Open menu" aria-expanded={menu}><MenuIcon /></button>
-        <button className="mbrand" onClick={() => tab('explore')}>WayForge</button>
-        <button className="link help" onClick={() => tab('help')}>Help</button>
+    <div className={`wf wf-mob${stackedFold ? ' stacked' : ''}`} style={{ '--sheet': `${sheetH}px`, '--sheet-snap': `${mapPad.b ?? 0}px`, '--top': `${TOP_H}px` } as React.CSSProperties} onClickCapture={onClickCapture}>
+      {mapLayer}
+      <header className="wf-top">
+        {root ? <button className="wf-round" onClick={() => setMenu(true)} aria-label="Open menu" aria-expanded={menu}><MenuIcon /></button>
+          : <button className="wf-round" onClick={back} aria-label="Back">‹</button>}
+        {screen === 'explore'
+          ? <button className="wf-search" onClick={() => go('find')}><SearchIcon /><span>{dest ? dest.title : 'Search rooms or facilities'}</span></button>
+          : <div className="wf-toptitle" />}
+        {!root && <button className="wf-round" onClick={() => setMenu(true)} aria-label="Open menu" aria-expanded={menu}><MenuIcon /></button>}
+        {root && screen === 'explore' && <button className="wf-round" onClick={() => tab('help')} aria-label="Help"><HelpIcon /></button>}
       </header>
-      <main className="scroll mmain">
-        <h1>{spec.title}</h1>
-        {spec.sub && <p className="muted lead">{spec.sub}</p>}
-        {spec.top && <div className="stackv">{spec.top}</div>}
-        {showMap && <div className={`mcard${spec.tallMap ? ' tall' : ''}`}><div className="mapbox">{spec.view3d && show3d ? spec.view3d : mapEl(spec.map!, pickable)}{spec.view3d && !no3d && switch3d}</div>{!(spec.view3d && show3d) && <span className="maplabel">{(spec.map!.topDown ?? flat) ? '2D VIEW · NORTH UP' : '3D VIEW'}</span>}</div>}
-        {(spec.mobile || spec.body) && <div className="stackv">{spec.mobile}{spec.body}</div>}
-      </main>
-      {actions(spec.mobileActions ?? spec.actions)}
+      {showRail && snap !== 'full' && floorRail(spec.map, !!spec.floorTabs)}
+      <section className={`wf-sheet ${dragH === null ? snap : 'dragging'}`} style={{ height: sheetH }} aria-label={sheetTitle}>
+        <div className="wf-grab" onPointerDown={onGrabDown} onPointerMove={onGrabMove} onPointerUp={onGrabUp} onPointerCancel={onGrabUp}>
+          <button className="wf-handle" aria-label={snap === 'full' ? 'Show more map' : 'Show more details'} onClick={e => e.preventDefault()}><i /></button>
+          <div className="wf-sheet-title"><h1>{sheetTitle}</h1>{sheetSub && <p className="muted">{sheetSub}</p>}</div>
+        </div>
+        <div className="wf-scroll">
+          <div className="stackv">{spec.top}{spec.mobile}{spec.body}</div>
+        </div>
+        {actions(spec.mobileActions ?? spec.actions)}
+      </section>
       <div className={`drawer-backdrop${menu ? ' open' : ''}`} onClick={() => setMenu(false)} aria-hidden={!menu} />
       <nav className={`drawer${menu ? ' open' : ''}`} aria-label="Menu" aria-hidden={!menu}>
         <div className="drawer-head">
           <button className="menu-btn" onClick={() => setMenu(false)} aria-label="Close menu" tabIndex={menu ? 0 : -1}><CloseIcon /></button>
           <span className="mbrand">WayForge</span>
         </div>
-        {menuItems.map(t => <button key={t} className={TAB_OF[screen] === t ? 'on' : ''} aria-current={TAB_OF[screen] === t ? 'page' : undefined} tabIndex={menu ? 0 : -1} onClick={() => { setMenu(false); tab(t) }}>{TAB_NAME[t]}</button>)}
+        {menuItems.map(t => <button key={t} className={TAB_OF[screen] === t ? 'on' : ''} aria-current={TAB_OF[screen] === t ? 'page' : undefined} tabIndex={menu ? 0 : -1} onClick={() => { setMenu(false); tab(t) }}>{tabIcon[t]}{TAB_NAME[t]}</button>)}
       </nav>
     </div>
   )
