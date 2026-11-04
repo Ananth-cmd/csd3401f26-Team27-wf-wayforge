@@ -9,6 +9,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import type { Building, Vec2 } from './types'
 import { buildMassing, massInput } from './massing'
 import type { MassBlock } from './massing'
+import { drawnRoute } from './routeline'
 
 const WALL_H = 1.2 // low walls: reads like a floor plan, and nearer walls hide less of the rooms behind them
 const SLAB_T = 0.45
@@ -71,16 +72,19 @@ export type MapProps = {
   here?: string | null // "you are here" node (blue)
   pin?: { node: string; label: string } | null // destination / next landmark (orange)
   focus?: string[] // node ids to zoom in on (e.g. the current stretch of the route)
+  pad?: { l?: number; t?: number; b?: number } // px of the map hidden under floating panels: what you look at is centred in the rest
   names?: Map<string, string> // node id -> name to show (only these get room labels; corridors etc. stay unlabelled)
   onPick?: (node: string) => void // tap on a named point
+  vertical?: Vertical[] // lifts / stairs the route uses (marked on their floor; active = the one you're heading for)
 }
+export type Vertical = { node: string; kind: 'lift' | 'stairs'; up: boolean; label: string; active?: boolean }
 
 const short = (s: string) => s.replace(/\s*\(Level \d+\)/, '')
 const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
 const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
-function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick }: MapProps) {
+function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, pad, vertical = [] }: MapProps) {
   const pickRef = useRef(onPick)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
@@ -151,14 +155,24 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const focusKey = (focus ?? []).filter(id => node.get(id)?.level === floor).join('|')
   const framed = () => {
     const ids = focusKey ? focusKey.split('|') : []
-    if (!ids.length) return { t: centre, zoom: 1, yaw: defYaw }
-    const { right: r0, up: u0 } = basis(defYaw)
-    const ps = ids.map(id => node.get(id)!.pos)
-    const c: V3 = [ps.reduce((s, p) => s + p[0], 0) / ps.length, 0, ps.reduce((s, p) => s + p[1], 0) / ps.length]
-    let mx = 10, my = 10 // at least ~20 m across
-    for (const p of ps) { const r: V3 = [p[0] - c[0], 0, p[1] - c[2]]; mx = Math.max(mx, Math.abs(dot(r, r0))); my = Math.max(my, Math.abs(dot(r, u0))) }
-    const vh = Math.max(my * 2 * 1.5, (mx * 2 * 1.35) / aspect)
-    return { t: c, zoom: Math.min(1, Math.max(0.02, vh / baseVh)), yaw: defYaw }
+    const { right: r0, up: u0, fwdH: f0 } = basis(defYaw)
+    // the part of the map you can see (floating panels cover the rest)
+    const pl = pad?.l ?? 0, pt = pad?.t ?? 0, pb = pad?.b ?? 0
+    const visW = Math.max(120, size.w - pl), visH = Math.max(120, size.h - pt - pb)
+    const kFit = Math.max((2 * fit.mx) / visW, (2 * fit.my) / visH) // metres per px for the whole floor
+    let c: V3 = centre, k = kFit
+    if (ids.length) {
+      const ps = ids.map(id => node.get(id)!.pos)
+      c = [ps.reduce((s, p) => s + p[0], 0) / ps.length, 0, ps.reduce((s, p) => s + p[1], 0) / ps.length]
+      let mx = 10, my = 10 // at least ~20 m across
+      for (const p of ps) { const r: V3 = [p[0] - c[0], 0, p[1] - c[2]]; mx = Math.max(mx, Math.abs(dot(r, r0))); my = Math.max(my, Math.abs(dot(r, u0))) }
+      k = Math.min(kFit, Math.max((my * 2 * 1.5) / visH, (mx * 2 * 1.35) / visW))
+    }
+    const zoom = Math.max(0.02, (k * size.h) / baseVh)
+    // move the camera so that point sits in the middle of the visible part
+    const ox = pl / 2, oy = (pt - pb) / 2, sp = Math.sin(pitch)
+    const t: V3 = [c[0] - r0[0] * ox * k + (f0[0] * oy * k) / sp, 0, c[2] - r0[2] * ox * k + (f0[2] * oy * k) / sp]
+    return { t, zoom, yaw: defYaw }
   }
   const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>(framed)
   const reset = () => setCam(framed())
@@ -291,6 +305,45 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const pinRoom = pinNode && rooms ? rooms.which(node.get(pinNode.node)!.pos[0], node.get(pinNode.node)!.pos[1]) : -1
   const entrances = useMemo(() => floorNodes.filter(n => /\bentrance\b/i.test(names?.get(n.id) ?? n.label)), [floorNodes, names])
   const hereNode = here && node.get(here)?.level === floor ? here : null
+  // the route line on this floor: each unbroken stretch drawn down the middle of the corridors, through doorways and
+  // round the corners (routeline.ts; the route itself is findRoute's, unchanged)
+  const runsOf = (ids: string[]) => {
+    const runs: string[][] = []
+    let cur: string[] = []
+    for (const id of ids) { if (node.get(id)?.level === floor) cur.push(id); else if (cur.length) { runs.push(cur); cur = [] } }
+    if (cur.length) runs.push(cur)
+    return runs.filter(r => r.length > 1).map(r => drawnRoute(building, floor, r.map(id => node.get(id)!.pos), r.map(id => node.get(id)!.kind !== 'turn')))
+  }
+  const onFloor = (ids: string[]) => { const y = 0.15 + (ids[0] ? lift(ids.find(id => node.get(id)?.level === floor) ?? ids[0]) : 0); return runsOf(ids).map(r => r.map(p => proj([p[0], y, p[1]]).join(',')).join(' ')) }
+  // lifts / stairs on the route: the room lit up, and a lift / stairs sign over it saying where it takes you
+  // (the one you're heading for pulses). Drawn at screen size, in px around the point.
+  const vts = vertical.filter(v => node.get(v.node)?.level === floor)
+  const vtMarker = (v: Vertical) => {
+    const [x, y] = at(v.node, 0.15 + lift(v.node)), w = v.label ? v.label.length * 7.1 + 22 : 0, sk = k * 1.2
+    const left = x - view[0] + (24 + w) * sk > vw / 2 - 64 * k
+    return <g key={`vt-${v.node}`} className={`m-vt ${v.kind}${v.active ? ' on' : ''}`} transform={`translate(${x} ${y}) scale(${sk})`}>
+      {v.active && <circle className="m-vt-pulse" r="14" />}
+      <circle className="m-vt-foot" r="4" />
+      <path className="m-vt-sign" d="M-15 -45h30a4 4 0 0 1 4 4v26a4 4 0 0 1-4 4H5l-5 6-5-6h-10a4 4 0 0 1-4-4v-26a4 4 0 0 1 4-4z" />
+      <use href={v.kind === 'lift' ? '#wf-i-lift' : '#wf-i-stair'} x="-12" y="-40" width="24" height="24" />
+      {v.label && <g transform={`translate(${left ? -22 - w : 22} -40)`}>
+        <rect className="m-vt-tag" width={w} height="24" rx="7" />
+        <text className="m-vt-tag-t" x="10" y="16" fontSize="12">{v.label}</text>
+      </g>}
+    </g>
+  }
+  // "you are here" sits on the drawn line (the nearest point of it), not off to the side where the graph point is
+  const hereAt = (id: string): Vec2 => {
+    const p = node.get(id)!.pos
+    let best: Vec2 = p, d = 3.5
+    for (const ids of lines) for (const r of runsOf(ids)) for (let i = 1; i < r.length; i++) {
+      const a = r[i - 1], c = r[i], ex = c[0] - a[0], ez = c[1] - a[1], L2 = ex * ex + ez * ez || 1
+      const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * ex + (p[1] - a[1]) * ez) / L2)), q: Vec2 = [a[0] + ex * t, a[1] + ez * t]
+      const e = Math.hypot(q[0] - p[0], q[1] - p[1])
+      if (e < d) { d = e; best = q }
+    }
+    return proj([best[0], 0.15 + lift(id), best[1]])
+  }
 
   // ---- labels: never overlapping; block names when far, room names when close ----
   type Lab = { x: number; y: number; text: string; cls: string; size: number }
@@ -442,7 +495,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         onContextMenu={e => e.preventDefault()} onDoubleClick={e => { const [px, py] = fromCentre(e.clientX, e.clientY); zoomAt(0.6, px, py) }} role="img" aria-label={`${lvl.name} map`}>
         <defs>
           <symbol id="wf-i-toilet" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="5" r="1.6" /><circle cx="16" cy="5" r="1.6" /><path d="M8 9v11M16 9l-3 7h6zM16 16v4" /></g></symbol>
-          <symbol id="wf-i-lift" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m8 9 4-4 4 4M8 15l4 4 4-4" /></g></symbol>
+          <symbol id="wf-i-lift" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="9" width="16" height="12.5" rx="1.5" /><path d="M12 9v12.5" /><path d="M9 1.8 6.6 5h4.8zM15 5.4l2.4-3.2h-4.8z" fill="#fff" strokeWidth="1.2" /></g></symbol>
           <symbol id="wf-i-stair" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19h5v-5h5V9h6" /></g></symbol>
           <symbol id="wf-i-food" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2.5 1.5-3.5 4-3.5 7.5H17" /></g></symbol>
         </defs>
@@ -451,23 +504,21 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         {massShapes}
         {pinRoom >= 0 ? <polygon className="m-room r-dest" points={lvl.floors[pinRoom].map(p => pt([p[0], 0.02, p[1]])).join(' ')} strokeWidth={2 * k} />
           : pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
+        {vts.map(v => { const ri = rooms ? rooms.which(node.get(v.node)!.pos[0], node.get(v.node)!.pos[1]) : -1
+          return ri >= 0 ? <polygon key={`vr-${v.node}`} className={`m-vt-room ${v.kind}${v.active ? ' on' : ''}`} points={lvl.floors[ri].map(p => pt([p[0], 0.03, p[1]])).join(' ')} strokeWidth={2.5 * k} />
+            : <g key={`vr-${v.node}`}>{zone(v.node, 2.4, `m-vt-room ${v.kind}${v.active ? ' on' : ''}`)}</g> })}
         {wallShapes}
-        {done.map((ids, i) => {
-          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15 + lift(id)).join(','))
-          return ps.length > 1 && <polyline key={`d-${i}`} className="m-done" points={ps.join(' ')} strokeWidth={6 * k} />
-        })}
-        {lines.map((ids, i) => {
-          const ps = ids.filter(id => node.get(id)?.level === floor).map(id => at(id, 0.15 + lift(id)).join(','))
-          return ps.length > 1 && <g key={`r-${i}`}>
-            <polyline className="m-route-casing" points={ps.join(' ')} strokeWidth={9 * k} />
-            <polyline className="m-route" points={ps.join(' ')} strokeWidth={6 * k} />
-          </g>
-        })}
+        {done.map((ids, i) => onFloor(ids).map((r, j) => <polyline key={`d-${i}-${j}`} className="m-done" points={r} strokeWidth={6 * k} />))}
+        {lines.map((ids, i) => onFloor(ids).map((r, j) => <g key={`r-${i}-${j}`}>
+          <polyline className="m-route-casing" points={r} strokeWidth={9 * k} />
+          <polyline className="m-route" points={r} strokeWidth={6 * k} />
+        </g>))}
         {rooms && pxPerM >= ICONS_FROM && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
         {labels.map((l, i) => <text key={`l-${i}`} x={l.x} y={l.y} fontSize={l.size * k} className={l.cls}>{l.text}</text>)}
-        {hereNode && (() => { const [x, y] = at(hereNode, 0.15 + lift(hereNode)); return <g><circle cx={x} cy={y} r={15 * k} className="m-here-halo" /><circle cx={x} cy={y} r={8 * k} className="m-here" strokeWidth={2.5 * k} /></g> })()}
-        {pinNode && (() => {
+        {vts.map(v => vtMarker(v))}
+        {hereNode && (() => { const [x, y] = hereAt(hereNode); return <g><circle cx={x} cy={y} r={15 * k} className="m-here-halo" /><circle cx={x} cy={y} r={8 * k} className="m-here" strokeWidth={2.5 * k} /></g> })()}
+        {pinNode && !vts.some(v => v.node === pinNode.node) && (() => {
           const [x, y] = at(pinNode.node, 0.15 + lift(pinNode.node)), label = short(pinNode.label), w = (label.length * 6.6 + 24) * k
           const left = x - view[0] + 16 * k + w > vw / 2 - 64 * k // flip the callout so it stays clear of the edge and the zoom buttons
           const rx = left ? x - 16 * k - w : x + 16 * k
@@ -499,10 +550,12 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
 
 // Don't redraw the map while typing elsewhere on the page: only when what it shows changes.
 const same = (a: MapProps, b: MapProps) =>
+  a.pad?.l === b.pad?.l && a.pad?.t === b.pad?.t && a.pad?.b === b.pad?.b &&
   a.building === b.building && a.floor === b.floor && !!a.topDown === !!b.topDown && !!a.onTopDown === !!b.onTopDown &&
   a.here === b.here && a.pin?.node === b.pin?.node && a.pin?.label === b.pin?.label && a.names === b.names && !!a.onPick === !!b.onPick &&
   (a.focus ?? []).join('|') === (b.focus ?? []).join('|') &&
   (a.lines ?? []).map(l => l.join(',')).join('|') === (b.lines ?? []).map(l => l.join(',')).join('|') &&
-  (a.done ?? []).map(l => l.join(',')).join('|') === (b.done ?? []).map(l => l.join(',')).join('|')
+  (a.done ?? []).map(l => l.join(',')).join('|') === (b.done ?? []).map(l => l.join(',')).join('|') &&
+  JSON.stringify(a.vertical ?? []) === JSON.stringify(b.vertical ?? [])
 
 export default memo(MapView, same)
