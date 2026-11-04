@@ -524,7 +524,10 @@ export default function App() {
         {suggestions.map(({ p, why }) => <Row key={p.id} title={p.title} sub={sub(p, why)} icon={placeIcon(p)} onClick={() => { chooseDest(p); go('find') }} {...saveBtn(p)} />)}
       </>,
       actions: desktop ? [{ label: 'Plan a route →', onClick: planIt }] : dest ? [{ label: 'Next: choose start', onClick: planIt }] : [],
-      map: { building: b, floor, here: start && start.level === floor ? start.node : null, pin: dest && dest.level === floor ? { node: dest.node, label: dest.title } : null },
+      // zoom to the start / destination you've picked on this floor (both in one block = just that block),
+      // instead of always showing the whole campus
+      map: { building: b, floor, here: start && start.level === floor ? start.node : null, pin: dest && dest.level === floor ? { node: dest.node, label: dest.title } : null,
+        focus: [start, dest].flatMap(p => (p && p.level === floor ? [p.node] : [])) }, // none picked = whole campus like before
       floorTabs: true, hero: { title: <>A little direction.<br />A lot less wandering.</>, sub: 'Explore floor by floor. Tap the map to look inside or pick a room.' },
     }; break
 
