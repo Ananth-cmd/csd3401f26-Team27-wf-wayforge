@@ -2,7 +2,8 @@
  * \file Guide.jsx
  * \brief "How to use" - short instructions for the Studio
  *
- * the full written steps, on their own page (#/help, "How to use" in the top bar).
+ * the full written steps, on their own page (#/help). "How to use" in the top bar replays the
+ * editor walkthrough, and only lands here when there's no building to show it on yet.
  * inside the editor, "How to use" starts the walkthrough instead (Tour.jsx)
  *
  * it's just text, written for someone at a company who has never used the
