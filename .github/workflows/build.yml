@@ -60,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4          # get the repo
+        with: 
+            lfs: true
       - uses: actions/setup-python@v5      # any Python 3 is fine
         with:
           python-version: "3.x"
