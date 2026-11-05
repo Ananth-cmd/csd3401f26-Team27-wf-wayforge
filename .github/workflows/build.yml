@@ -11,9 +11,9 @@
 #                    Studio backend parses
 #   deploy-navigator : main only - put the Navigator build from web live on the team server
 #
-# Order: golden-checker runs first; desktop and docker only start if it passes,
-# so a broken checker can't make the golden tests pass by mistake. web is independent
-# of all three and runs straight away.
+# Order: golden-checker runs first; desktop only starts if it passes, so a broken checker
+# can't make the golden tests pass by mistake. docker (no golden tests, and the check main
+# requires) and web are independent and run straight away.
 #
 # The project used to ship an Android app, so there was a job here that cross-compiled
 # libwayforge.so for the NDK. It went when the product became a website; the old phone
@@ -122,16 +122,27 @@ jobs:
 
   # ------------------------------------------------------------------ docker
   # Build and test inside the same container teammates use locally.
+  # It is the check main requires, so it starts straight away: it runs no golden tests, so it doesn't
+  # need to wait for golden-checker.
   docker:
-    needs: golden-checker
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: .           # docker-compose.yml is at the repo root, not in wayforge/
     steps:
       - uses: actions/checkout@v4
-      - name: Build dev image (Ubuntu 24.04)
-        run: docker compose build
+      # Same image as `docker compose build`, but through GitHub's build cache: it is only really
+      # rebuilt when the Dockerfile changes, otherwise it comes back in seconds (was ~55 s every run).
+      # load + tags: keep it in the runner's Docker as wayforge-dev, the image the test service runs.
+      - uses: docker/setup-buildx-action@v3
+      - name: Build dev image (Ubuntu 24.04, cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: wayforge-dev
+          cache-from: type=gha,scope=wayforge-dev
+          cache-to: type=gha,scope=wayforge-dev,mode=max
       - name: Build + test in container
         run: docker compose run --rm -T test   # -T: no terminal on CI runners
 
