@@ -176,8 +176,22 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   }
   const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>(framed)
   const reset = () => setCam(framed())
-  useEffect(reset, [centre, topDown, focusKey, size.ready]) // eslint-disable-line
+  // changing level keeps the view: same spot, same scale, same rotation (the levels share one plan), so you stay on
+  // the building you were looking at. it still reframes when the new level has something to show (a route stretch,
+  // a picked place) or nothing near where you were looking (that block has no such level)
+  const seen = useRef({ building, floor, topDown, vh: 0 })
+  useEffect(() => {
+    const s = seen.current
+    seen.current = { ...s, building, floor, topDown }
+    if (s.vh > 0 && s.floor !== floor && s.building === building && s.topDown === topDown && !focusKey) {
+      const half = Math.max(10, (s.vh * aspect) / 2) // metres either side of where you were looking
+      const near = lvl.floors.some(f => f.some(p => Math.abs(p[0] - cam.t[0]) < half && Math.abs(p[1] - cam.t[2]) < half))
+      if (near) { setCam(c => ({ ...c, zoom: Math.min(2.5, Math.max(0.02, s.vh / baseVh)) })); return }
+    }
+    reset()
+  }, [centre, floor, topDown, focusKey, size.ready]) // eslint-disable-line
   const { t: target, zoom, yaw } = cam
+  useEffect(() => { seen.current.vh = baseVh * zoom }, [baseVh, zoom]) // the scale you were at, for the next level change
 
   const { right, fwdH, fwd, up } = basis(yaw)
   const projAt = (p: V3, t: V3): Vec2 => { const r: V3 = [p[0] - t[0], p[1] - t[1], p[2] - t[2]]; return [dot(r, right), -dot(r, up)] }
