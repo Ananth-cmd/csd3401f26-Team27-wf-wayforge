@@ -431,6 +431,7 @@ html, body { overflow-x: hidden; }
 .r3d-bar > * { pointer-events: auto; }
 .r3d-play { background: var(--teal); color: #fff; font-weight: 700; font-size: 14px; min-height: 40px; padding: 0 16px; border-radius: 999px; box-shadow: 0 2px 8px rgba(18, 48, 44, 0.2); }
 .r3d-play[aria-pressed="true"] { background: #00463d; }
+.r3d-restart { background: #fff; color: var(--teal); font-weight: 700; font-size: 14px; min-height: 40px; padding: 0 14px; border-radius: 999px; box-shadow: 0 1px 4px rgba(18, 48, 44, 0.18); }
 .r3d-seg { display: flex; background: #fff; border-radius: 999px; padding: 3px; box-shadow: 0 1px 4px rgba(18, 48, 44, 0.15); }
 .r3d-seg button { min-height: 34px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: var(--muted); }
 .r3d-seg button.on { background: var(--mint); color: var(--teal); }

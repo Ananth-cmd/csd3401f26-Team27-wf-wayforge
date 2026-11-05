@@ -155,9 +155,10 @@ function badge(kind: 'lift' | 'stairs', text: string) {
 
 export default function Route3D({ building, legs, stage, start, dest, names, captions, onFail }: Props) {
   const host = useRef<HTMLDivElement>(null)
-  const api = useRef<{ play: () => void; view: (v: 'eye' | 'follow' | 'orbit') => void } | null>(null)
+  const api = useRef<{ play: () => void; pause: (p: boolean) => void; view: (v: 'eye' | 'follow' | 'orbit') => void } | null>(null)
   const [mode, setMode] = useState<'eye' | 'follow' | 'orbit'>('orbit')
   const [playing, setPlaying] = useState(false)
+  const [paused, setPaused] = useState(false) // walk-through stopped part way (Resume carries on from there)
   const [caption, setCaption] = useState('')
   const failRef = useRef(onFail)
   failRef.current = onFail // eslint-disable-line react-hooks/refs -- latest callback
@@ -329,7 +330,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       controls.update()
     }
     let view: 'eye' | 'follow' | 'orbit' = 'orbit'
-    let s = 0, speed = 0, flying = false, arrowK = 1
+    let s = 0, speed = 0, flying = false, held = false, arrowK = 1
+    const hold = (p: boolean) => { held = p && flying; setPaused(held); if (!held) speed = 0 } // resume eases back up to speed
     const look = new THREE.Vector3(), want = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3()
     const place = (snap: boolean) => {
       const p = at(s, tmp)
@@ -358,14 +360,14 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       you.visible = v !== 'eye' // at eye level you are the camera
       for (const o of above) o.visible = v !== 'follow' // the floor above would block the view from behind you
       if (v === 'orbit') { s = 0; const p0 = at(0, tmp); you.position.set(p0.x, p0.y - 0.35, p0.z) }
-      if (v === 'orbit') { flying = false; setPlaying(false); setCaption(''); camera.fov = 45; camera.updateProjectionMatrix(); orbitHome() }
+      if (v === 'orbit') { flying = false; hold(false); setPlaying(false); setCaption(''); camera.fov = 45; camera.updateProjectionMatrix(); orbitHome() }
       else { camera.fov = v === 'eye' ? 72 : 60; camera.updateProjectionMatrix(); place(true) }
     }
     const play = () => {
       if (view === 'orbit') setView('follow')
-      s = 0; flying = true; setPlaying(true); place(true)
+      s = 0; flying = true; hold(false); setPlaying(true); place(true)
     }
-    api.current = { play, view: setView }
+    api.current = { play, pause: hold, view: setView }
     const walkStage = !whole && legs[stage!].kind === 'walk'
     if (!walkStage) setView('orbit'); else { setView('follow'); setTimeout(() => { if (api.current) play() }, 700) }
 
@@ -392,7 +394,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       const pz = ((now / 1000) % 1.6) / 1.6
       for (const r of rings) { r.scale.setScalar(1 + pz * 0.9); (r.material as THREE.MeshBasicMaterial).opacity = 0.65 * (1 - pz) }
       if (++frame % 10 === 0) for (const t of roomLabels) t.visible = view === 'orbit' || t.position.distanceTo(camera.position) < 28
-      if (flying) {
+      if (flying && held) place(false) // paused: stay put (Eye level / Follow still switch)
+      else if (flying) {
         at(s, tmp); at(Math.min(total, s + 1), tmp2)
         const vertical = Math.abs(tmp2.y - tmp.y) > 0.5
         const target = vertical ? 4 : view === 'eye' ? 4.2 : 7
@@ -419,7 +422,10 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     <div className="r3d" ref={host}>
       {caption && <div className="r3d-cap" aria-live="polite">{caption}</div>}
       <div className="r3d-bar" role="group" aria-label="3D view">
-        <button className="r3d-play" onClick={() => api.current?.play()} aria-pressed={playing}>{playing ? 'Walking…' : stage === undefined ? '▶ Walk me through' : '▶ Replay'}</button>
+        {playing
+          ? <button className="r3d-play" onClick={() => api.current?.pause(!paused)} aria-pressed={!paused} aria-label={paused ? 'Resume walk-through' : 'Pause walk-through'}>{paused ? '▶ Resume' : '❚❚ Pause'}</button>
+          : <button className="r3d-play" onClick={() => api.current?.play()}>{stage === undefined ? '▶ Walk me through' : '▶ Replay'}</button>}
+        {playing && paused && <button className="r3d-restart" onClick={() => api.current?.play()} aria-label="Start the walk-through again">↺ Restart</button>}
         <div className="r3d-seg">
           <button className={mode === 'eye' ? 'on' : ''} aria-pressed={mode === 'eye'} onClick={() => api.current?.view('eye')}>Eye level</button>
           <button className={mode === 'follow' ? 'on' : ''} aria-pressed={mode === 'follow'} onClick={() => api.current?.view('follow')}>Follow</button>
