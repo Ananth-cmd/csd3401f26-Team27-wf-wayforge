@@ -141,9 +141,14 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true                          # the sounds and icons are in Git LFS; without this the site gets placeholder files
+      - uses: actions/checkout@v4          # LFS files arrive as placeholders here; the next step fetches the ones we need
+                                           # Only the Navigator's sounds and icons are needed to build the sites (studio-web has no LFS files).
+                                           # Fetching just these (~1.4 MB) instead of every LFS file (~24 MB, mostly data/ floor plans) keeps
+                                           # CI well inside the repo owner's monthly Git LFS bandwidth. If a site starts using LFS files
+                                           # from somewhere else, add that folder to --include.
+      - name: Pull the Navigator's LFS files
+        working-directory: .
+        run: git lfs pull --include="wayforge/navigator/**"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"                 # current LTS; the Navigator's Vite 8 needs 20.19+, studio-web 18+
