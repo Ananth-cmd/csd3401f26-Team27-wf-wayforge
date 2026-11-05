@@ -60,8 +60,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4          # get the repo
-        with: 
-            lfs: true
       - uses: actions/setup-python@v5      # any Python 3 is fine
         with:
           python-version: "3.x"
@@ -144,6 +142,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true                          # the sounds and icons are in Git LFS; without this the site gets placeholder files
       - uses: actions/setup-node@v4
         with:
           node-version: "24"                 # current LTS; the Navigator's Vite 8 needs 20.19+, studio-web 18+
