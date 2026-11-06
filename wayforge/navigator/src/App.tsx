@@ -560,7 +560,7 @@ export default function App() {
           {desktop && qrSupported && <Chips label="Method" value="manual" onChange={v => v === 'qr' && go('qr')} items={[{ v: 'manual', label: 'Pick a place' }, { v: 'qr', label: 'Scan QR' }]} />}
           <SearchBox value={startQuery} onChange={v => { setStartQuery(v); if (!desktop && v.trim()) setSheetFor({ s: screen, snap: 'full' }) }} placeholder="Search where you are" label="Search starting point" count={startResults.length} active={hi} onKey={keys(startResults, pick)} />
           {startQuery.trim() ? (startResults.length ? resultList(startResults, pick, mark, pending?.id) : dsq.trim() === startQuery.trim() && noMatch) : <>
-            {pending && <Row title={pending.title} sub={sub(pending, 'Selected')} icon={placeIcon(pending)} selected onClear={() => setPending(null)} />}
+            {pending && <Row title={pending.title} sub={sub(pending, 'Selected')} icon={placeIcon(pending)} selected onClear={() => { setPending(null); if (!navigating) { setStart(null); setStack(st => st.filter(s => s !== 'routes')) } }} />}
             <FloorSelect names={b.levels.map(l => l.name)} value={floor} onChange={setFloor} />
             <div className="list">
               {opts.slice(0, limit).map(p => <Row key={p.id} title={p.title} sub={sub(p, mark(p))} icon={placeIcon(p)} selected={pending?.id === p.id} dim={!!mark(p)} onClick={() => setPending(p)} />)}
