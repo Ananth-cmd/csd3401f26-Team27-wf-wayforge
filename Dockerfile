@@ -23,7 +23,8 @@ FROM ubuntu:24.04
 # Stop apt from asking questions (e.g. time zone) while the image builds.
 ENV DEBIAN_FRONTEND=noninteractive
 
-# build-essential = GCC 13 (C++20), cmake 3.28, ninja, git + certs for FetchContent, python3 for golden tests
+# build-essential = GCC 13 (C++20), cmake 3.28, ninja, git + certs for FetchContent, python3 for golden tests,
+# ccache so a rebuild only really compiles the files that changed (docker-compose.yml's test service uses it)
 # --no-install-recommends and deleting the apt lists afterwards keep the image small.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
@@ -32,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
         python3 \
+        ccache \
     && rm -rf /var/lib/apt/lists/*
 
 # The mounted repo is owned by your Windows user, not root; stop git complaining about that.

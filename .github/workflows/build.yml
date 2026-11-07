@@ -143,6 +143,14 @@ jobs:
           tags: wayforge-dev
           cache-from: type=gha,scope=wayforge-dev
           cache-to: type=gha,scope=wayforge-dev,mode=max
+      # Compiled files (ccache, see docker-compose.yml) from the last run, so only changed .cpp files
+      # are really compiled. Saved again under this commit after the job; restore-keys takes the newest.
+      - name: Restore C++ compile cache
+        uses: actions/cache@v4
+        with:
+          path: wayforge/build/ccache
+          key: ccache-docker-${{ github.sha }}
+          restore-keys: ccache-docker-
       - name: Build + test in container
         run: docker compose run --rm -T test   # -T: no terminal on CI runners
 
