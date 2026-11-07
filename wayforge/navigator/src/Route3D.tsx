@@ -1,9 +1,31 @@
-// Real 3D route view (three.js / WebGL), loaded only when a route is shown.
-// - whole route: the floors the route uses, pulled apart so you can see between them, the route as a glowing line,
-//   lift / stair shafts joining the floors; drag to orbit; "Walk me through" flies along the whole route
-// - one stage (navigation mode): that floor solid with the floors above and below see-through; the camera walks the
-//   stage at eye level (like Street View) or from just behind you ("Follow")
-// Built from the same building data as the 2D map (rooms coloured by type, walls, doors as gaps). Nothing is changed.
+/*!
+ * \file Route3D.tsx
+ * \brief Real 3D view of a route (three.js / WebGL), loaded only when a route is shown
+ *
+ * Whole route: the floors the route uses, pulled apart so you can see between
+ * them, the route as a glowing line and lift / stair shafts joining the floors;
+ * drag to orbit, "Walk me through" flies along the whole route. One stage
+ * (navigation mode): that floor solid with the floors above and below
+ * see-through; the camera walks the stage at eye level or follows from just
+ * behind. Built from the same building data as the 2D map (rooms coloured by
+ * type, walls, doors as gaps). Falls back to the 2D map if WebGL fails.
+ *
+ * Links: used by App.tsx (lazy loaded); stages from legs.ts; route line shape
+ * from routeline.ts.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Floor, wall and shaft geometry from the building data
+ *   - Route line, orbit camera and the walk-through / follow cameras
+ *   - Stage view with see-through floors above and below
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-11-07
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
