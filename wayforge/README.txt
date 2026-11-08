@@ -3,15 +3,86 @@
  Floor plan in, navigable building out.
 ================================================================================
 
-Wayforge turns floor plan pictures (one picture per floor) into a building
-you can navigate: walls, doors, windows, rooms, stairs, lifts and walking
-routes, saved as a .wfb file. Buildings are edited and published in the
-Studio website, shown in 3D by the WebGL viewer, and used for directions in
-the Navigator website.
+Wayforge is our CSD3401 Team 27 project. You give it floor plan pictures
+(one per floor) and it works out the walls, doors, rooms, stairs and lifts,
+then saves the whole building as a .wfb file you can navigate. There are
+three parts you can look at:
+
+  - Studio     upload floor plans, fix up the rooms, publish the building
+  - Navigator  pick a room and get walking directions to another room
+  - 3D viewer  walk around the building in 3D in the browser
 
   floor plans --> C++ engine (wf_cli) --> building.wfb --> Studio website
                                                        --> Navigator website
                                                        --> 3D viewer (WebGL)
+
+The two websites are live, so the quickest way to see it is just:
+
+  Studio     https://wayforgestudio.duckdns.org
+  Navigator  https://navigation.duckdns.org
+
+
+================================================================================
+ QUICK START (running it on your own Windows PC)
+================================================================================
+
+  These are the only steps you need to get everything running. The rest of
+  this file is extra detail if something goes wrong or you want to know
+  more.
+
+  1. Install Git, CMake, Visual Studio 2022 (tick "Desktop development with
+     C++"), Python 3 and Node.js. Links are in section 2. You don't need
+     Unity, the 3D viewer is already built and included.
+
+  2. Unzip the project and go into the wayforge folder (the one with this
+     README). Click the File Explorer address bar, type cmd and press Enter.
+     That opens a Command Prompt in the right folder.
+
+  3. Build the engine (takes a few minutes the first time):
+
+       cmake -S core -B build/desktop
+       cmake --build build/desktop --config Release
+
+  4. Open five Command Prompts in the wayforge folder (same trick as step 2)
+     and run one block in each. Leave them all open.
+
+       Window 1 - Studio server
+         cd studio-web
+         npm install
+         npm run server
+
+       Window 2 - Studio website
+         cd studio-web
+         npm run dev -- --port 5175
+
+       Window 3 - Navigator backend
+         set WF_CLI=%CD%\build\desktop\Sandbox\wf_cli\Release\wf_cli.exe
+         cd backend
+         npm install
+         npx tsx src/server.ts
+
+       Window 4 - Navigator website
+         cd navigator
+         npm install
+         npm run dev
+
+       Window 5 - 3D viewer
+         python -m http.server 8000 --directory viewer/Build/WebGL
+
+  5. Open these in Chrome or Edge:
+
+       Studio     http://localhost:5175
+                  New building > upload
+                  studio-web/public/samples/sit-punggol.wfb > Publish
+       Navigator  http://localhost:5173
+                  shows the building you just published, pick two rooms
+                  to get a route
+       3D viewer  http://localhost:8000/index.html?building=sit_punggol.wfb
+                  left-drag to orbit, right-drag to pan, scroll to zoom
+
+  Ctrl+C in each window stops it. Next time you only need step 4 (without
+  the npm install lines) and step 5.
+
 
 What is in this repo (all paths are inside the wayforge/ folder):
 
@@ -29,12 +100,14 @@ What is in this repo (all paths are inside the wayforge/ folder):
 
 
 ================================================================================
- 1. JUST WANT TO TRY IT? (no install)
+ 1. THE LIVE WEBSITES (no install)
 ================================================================================
 
-  Studio website     https://wayforgestudio.duckdns.org   (team login, ask
-                                                          the team for it)
+  Studio website     https://wayforgestudio.duckdns.org
   Navigator website  https://navigation.duckdns.org
+
+  The Studio asks for a login. Use the team login we gave with the
+  submission, or ask any of us for it.
 
   In the Studio: New building > upload one floor plan picture per floor >
   Create building > fix and name rooms > Save > Publish. The Navigator then
@@ -85,9 +158,12 @@ What is in this repo (all paths are inside the wayforge/ folder):
     git clone https://github.com/Ananth-cmd/csd3401f26-Team27-wf-wayforge.git
     cd csd3401f26-Team27-wf-wayforge/wayforge
 
-  (Or on GitHub: Code > Download ZIP, unzip it, and open the wayforge folder
-  inside.) Every command below is run from this wayforge/ folder unless it
-  says otherwise.
+  If you got the project as a zip, just unzip it and open the wayforge
+  folder inside. Every command below is run from this wayforge/ folder
+  unless it says otherwise.
+
+  A fresh copy has no build/ or node_modules/ folders. That's normal, step 4
+  and npm install (step 6) make them.
 
 
 ================================================================================
@@ -175,6 +251,11 @@ What is in this repo (all paths are inside the wayforge/ folder):
     npm run dev -- --port 5175
 
   Terminal 3 - backend for the Navigator (port 3000):
+    The backend runs wf_cli to work out every route, so tell it where
+    wf_cli is first (run this in the wayforge/ folder, before cd backend):
+      Command Prompt:  set WF_CLI=%CD%\build\desktop\Sandbox\wf_cli\Release\wf_cli.exe
+      PowerShell:      $env:WF_CLI = "$PWD\build\desktop\Sandbox\wf_cli\Release\wf_cli.exe"
+      Mac / Linux:     export WF_CLI=$PWD/build/desktop/Sandbox/wf_cli/wf_cli
     cd backend
     npm install
     npx tsx src/server.ts
@@ -186,7 +267,8 @@ What is in this repo (all paths are inside the wayforge/ folder):
 
   Then:
     1. Open http://localhost:5175 (Studio). The top right should say
-       "Connected to the Studio server".
+       "Connected to the Studio server". If it says "Offline demo data"
+       instead, terminal 1 isn't running.
     2. New building > upload the floor plans, or upload a ready .wfb such as
        studio-web/public/samples/sit-punggol.wfb > Publish.
     3. Open http://localhost:5173 (Navigator). It shows the building
@@ -201,6 +283,9 @@ What is in this repo (all paths are inside the wayforge/ folder):
 ================================================================================
  7. THE 3D VIEWER (Unity WebGL)
 ================================================================================
+
+  If viewer/Build/WebGL/index.html is already there (it is in the zip we
+  submitted), the viewer is built, so skip straight to point 4.
 
   1. Unity Hub > Add > Add project from disk > pick the viewer/ folder.
      Open it with Unity 6000.6.0f1 and wait for the import to finish.
@@ -281,6 +366,14 @@ What is in this repo (all paths are inside the wayforge/ folder):
   The Navigator shows no building
       Publish one in the Studio first, and check the backend (terminal 3)
       is running.
+
+  The Navigator shows the building but routes fail
+      The backend can't find wf_cli. Stop terminal 3, run the set WF_CLI
+      line from step 6 and start it again.
+
+  'cmake' (or node, python) is not recognized
+      It isn't installed or isn't on PATH yet. Install it (step 2) and open
+      a new Command Prompt so it picks up the change.
 
   The 3D viewer page stays blank
       Open it through http://localhost:8000 (step 7), not by double-clicking
