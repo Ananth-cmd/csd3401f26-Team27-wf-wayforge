@@ -29,12 +29,6 @@ python tools/build_sit_punggol.py <path/to/wf_cli>
 | `actual_same.wfb` | Same geometry, different ids, so it must match |
 | `actual_wrong.wfb` | Different geometry, so it must fail |
 
-## Android app models (`android-prototype/Assets/WayforgeApp/Models/WayForge/`)
-
-| File | What it is |
-|---|---|
-| `Level 1.obj`, `Level 2.obj`, `Level 3.obj` | 3D level models from "Way Forge Models.zip", imported at scale 0.05. Room names and routes in the app are demo data |
-
 ## Adding a new plan
 1. Put it in `data/plans/` (one folder per building).
 2. Add a row above with its size, scale and where it came from.
