@@ -1,11 +1,11 @@
 # Wayforge Architecture
 
-Wayforge turns a floor plan picture into a building with walls, doors and rooms. The C++ engine does the processing. Unity is used for the editor tool (Studio) and the phone app.
+Wayforge turns a floor plan picture into a building with walls, doors and rooms. The C++ engine does the processing. The Studio website edits and publishes buildings, the Navigator website gives directions, and a Unity WebGL viewer shows buildings in 3D.
 
 Rules:
-1. The engine has no Unity code, so it also runs on Linux, Docker and Android.
+1. The engine has no Unity code, so it also runs on Linux and Docker (the Studio server runs `wf_cli`).
 2. `building.wfb` (JSON) is the main building file.
-3. The phone app only reads buildings.
+3. The Navigator and the 3D viewer only read buildings.
 
 ## Layers
 Unity Studio (StudioWindow, RoomBuilder, StudioAudio, WayforgeDocument)
@@ -75,17 +75,19 @@ SVG files skip steps 3 and the start of 4. Saved `.wfb` files are loaded by wf_d
 ## Folders
 wayforge/
 core/Engine/ C++ libraries
-core/Sandbox/ wf_cli, wf_viewer
+core/Sandbox/ wf_cli
 core/cmake/ build helpers
-unity/ Studio project
-android-prototype/ phone app project
-data/plans/ sample floor plans
-tools/ test scripts
+unity/ Studio project (Unity editor tool)
+viewer/ 3D WebGL viewer
+studio-web/ Studio website
+navigator/ Navigator website
+backend/ API between the Studio and the Navigator
+data/plans/ floor plans (SIT Punggol campus)
+tools/ test and build scripts
 docs/ documents
 
 ## Not done yet
 
-- Save button in Studio
-- wf_graph switched on
-- Phone app using the engine
-- More than one floor
+- Save button in the Unity Studio
+- Routes between buildings
+- Reading room names and the scale from the drawing

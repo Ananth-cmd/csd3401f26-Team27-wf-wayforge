@@ -15,9 +15,8 @@
 # can't make the golden tests pass by mistake. docker (no golden tests, and the check main
 # requires) and web are independent and run straight away.
 #
-# The project used to ship an Android app, so there was a job here that cross-compiled
-# libwayforge.so for the NDK. It went when the product became a website; the old phone
-# app is kept as a prototype in wayforge/android-prototype and is not built by CI.
+# There is no Android build: the product is the Studio and Navigator websites, and the
+# engine runs on the server as wf_cli.
 #
 # \author Joel Chua (c.jialiang@digipen.edu)
 #

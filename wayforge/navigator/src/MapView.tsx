@@ -1,10 +1,33 @@
-// 3D / 2D floor map (orthographic camera, tilt 48° in 3D, straight down in 2D). North is up in both until you rotate;
-// the compass shows where north is and puts it back up. Fills its parent.
-// Left-drag / 1 finger = move, right-drag (or Shift + left-drag) = rotate, 2 fingers = move + pinch zoom + twist to
-// rotate, wheel = zoom, tap a room = pick it.
-// Labels: far away only the block names (E1, W1...), closer in the room names, never on top of each other.
-// Speed for large buildings (Ananth): shapes are projected around the floor centre, so panning and zooming only move
-// the SVG viewBox; slabs, zones and walls are rebuilt only when the floor or the rotation changes.
+/*!
+ * \file MapView.tsx
+ * \brief The 3D / 2D floor map shown behind every screen
+ *
+ * Orthographic camera, tilted 48 degrees in 3D and straight down in 2D. North
+ * is up until you rotate; the compass shows north and puts it back up.
+ * Controls: left-drag / 1 finger = move, right-drag (or Shift + left-drag) =
+ * rotate, 2 fingers = move + pinch zoom + twist, wheel = zoom, tap a room =
+ * pick it. Labels: far away only block names (E1, W1...), closer in the room
+ * names, never overlapping. Also draws the 3D campus view (block massing),
+ * the route line, the you-are-here dot and the destination pin.
+ *
+ * Links: used by App.tsx; block outlines from massing.ts (worker in
+ * massing.worker.ts); route line shape from routeline.ts.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Kannan Shrinivasan, Ananthan Elangovan
+ *   - Kannan: map drawing, camera and controls, labels, campus view, route line
+ *   - Ananthan: speed-up for large buildings (shapes projected around the floor
+ *     centre, so pan and zoom only move the SVG viewBox; slabs, zones and walls
+ *     are rebuilt only when the floor or the rotation changes)
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-11-07
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Building, Vec2 } from './types'
 import { buildMassing, massInput } from './massing'

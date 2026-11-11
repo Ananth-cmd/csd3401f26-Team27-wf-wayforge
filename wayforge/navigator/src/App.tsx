@@ -1,9 +1,34 @@
-// WayForge Navigator, layouts from Wayforge_SIT (desktop web) and Wayforge_SIT_1 (mobile).
-// Each screen is described once (title, panel content, actions, map) and drawn by
-// the desktop/tablet layout (top nav + side panel + large map) or the phone layout
-// (header + map card + actions). Following a route has its own look (navigation mode) on both.
-// Routes come from findRoute (api.ts). Place names / search (places.ts) and directions text (directions.ts) only
-// change what's shown; the data and the pathfinding are never changed.
+/*!
+ * \file App.tsx
+ * \brief The WayForge Navigator app: every screen, the navigation flow and the layouts
+ *
+ * Each screen (Explore, Find, Where are you?, QR, Routes, Guide, Arrived, Saved,
+ * Settings, Help) is described once as a spec (title, panel content, actions,
+ * map) and drawn by either the desktop/tablet layout (full map + floating side
+ * panel) or the phone layout (full map + bottom sheet). Following a route has
+ * its own navigation mode on both. The address bar keeps your place
+ * (?to=, ?from=, ?step=) so refresh, Back and shared links work.
+ * Layouts follow the Wayforge_SIT (desktop) and Wayforge_SIT_1 (mobile) designs.
+ *
+ * Links: data and routes from api.ts (loadBuilding, findRoute); stages from
+ * legs.ts; place names and search from places.ts; directions text from
+ * directions.ts; the map from MapView.tsx and the 3D route from Route3D.tsx.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ *
+ * Contribution: Kannan Shrinivasan 100%
+ *   - Screen flow, back stack and URL state
+ *   - Desktop side panel and phone bottom sheet layouts
+ *   - Search, start picking (list, map tap, QR) and saved places
+ *   - Route options, step-by-step guidance and arrival
+ *   - Accessibility: keyboard search, ARIA, Esc as Back
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-11-07
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 import { Suspense, lazy, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Building } from './types'
@@ -560,7 +585,7 @@ export default function App() {
           {desktop && qrSupported && <Chips label="Method" value="manual" onChange={v => v === 'qr' && go('qr')} items={[{ v: 'manual', label: 'Pick a place' }, { v: 'qr', label: 'Scan QR' }]} />}
           <SearchBox value={startQuery} onChange={v => { setStartQuery(v); if (!desktop && v.trim()) setSheetFor({ s: screen, snap: 'full' }) }} placeholder="Search where you are" label="Search starting point" count={startResults.length} active={hi} onKey={keys(startResults, pick)} />
           {startQuery.trim() ? (startResults.length ? resultList(startResults, pick, mark, pending?.id) : dsq.trim() === startQuery.trim() && noMatch) : <>
-            {pending && <Row title={pending.title} sub={sub(pending, 'Selected')} icon={placeIcon(pending)} selected onClear={() => setPending(null)} />}
+            {pending && <Row title={pending.title} sub={sub(pending, 'Selected')} icon={placeIcon(pending)} selected onClear={() => { setPending(null); if (!navigating) { setStart(null); setStack(st => st.filter(s => s !== 'routes')) } }} />}
             <FloorSelect names={b.levels.map(l => l.name)} value={floor} onChange={setFloor} />
             <div className="list">
               {opts.slice(0, limit).map(p => <Row key={p.id} title={p.title} sub={sub(p, mark(p))} icon={placeIcon(p)} selected={pending?.id === p.id} dim={!!mark(p)} onClick={() => setPending(p)} />)}

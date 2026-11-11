@@ -1,8 +1,26 @@
+/*!
+ * \file testMultiFloorAdapter.ts
+ * \brief Tests Navigator building and route adapters with sample graph data.
+ *
+ * First verifies a single-floor fixture, then exercises a synthetic
+ * three-floor building with stairs and lift links. Checks route passages,
+ * step-free safety, and rejection of an unknown link kind. These checks
+ * exercise adapter logic; they do NOT verify real multi-floor .wfb output
+ * from the C++ engine. No running servers are required.
+ *
+ * Author: Kervin Ong Guan Cheng
+ * Links: navigatorBuildingAdapter.ts, navigatorAdapter.ts, wfbLinks.ts.
+ * Contribution: Multi-floor adapter and accessibility regression tests.
+ * AI declaration: ChatGPT assisted with refining documentation comments.
+ * \date 2026-11-07
+ */
+
 import { toNavigatorBuilding } from '../services/navigatorBuildingAdapter';
 import { toNavigatorRoute } from '../services/navigatorAdapter';
 import { parseWfbLinks, UnsupportedWfbError } from '../services/wfbLinks';
 import type { EngineRoute } from '../types/engineRoute';
 
+/** Stop immediately and identify which adapter expectation failed. */
 function assert(cond: boolean, message: string) {
     if (!cond) throw new Error(`FAILED: ${message}`);
 }
@@ -15,8 +33,10 @@ const simple = {
     edges:[{a:'n1',b:'n8',cost:7.5,stepFree:true}]
   }], links:[]
 };
+// Expected route for the small single-floor navigation graph.
 const route1: EngineRoute = {ok:true,from:'L1:n1',to:'L1:n8',totalCost:7.5,stepFree:true,
   steps:[{level:'L1',node:'n1',kind:'room',x:2.5,y:9.5,z:0},{level:'L1',node:'n8',kind:'door',x:0,y:2.45,z:0}],directions:[]};
+// Verify the simple building and its route still convert correctly.
 const converted1 = toNavigatorBuilding(simple);
 assert(converted1.nodes.length === 2 && converted1.edges.length === 1 && converted1.links.length === 0, 'single-floor building');
 const r1 = toNavigatorRoute(route1, simple);
@@ -37,21 +57,28 @@ const multi = {
     {a:'L2:stair',b:'L3:stair',kind:'stair',cost:4,stepFree:false},
   ]
 };
+// Convert the synthetic levels, nodes, and four inter-floor links.
 const converted = toNavigatorBuilding(multi);
 assert(converted.levels.length === 3 && converted.links.length === 4, 'multi building links');
+// Step-free path between floors using the lift nodes.
 const liftRoute: EngineRoute = {ok:true,from:'L1:room',to:'L3:room',totalCost:16,stepFree:true,directions:[],
  steps:[{level:'L1',node:'room',kind:'room',x:0,y:0,z:0},{level:'L1',node:'lift',kind:'lift',x:2,y:0,z:0},
  {level:'L2',node:'lift',kind:'lift',x:2,y:0,z:3.5},{level:'L3',node:'lift',kind:'lift',x:2,y:0,z:7},
  {level:'L3',node:'room',kind:'room',x:0,y:0,z:7}]};
+// The two floor transitions should be classified as lifts.
 const lr = toNavigatorRoute(liftRoute,multi);
 assert(lr.passages.join(',')==='walk,lift,lift,walk', 'lift route');
+// Separate non-step-free path using a stair connection.
 const stairsRoute: EngineRoute = {ok:true,from:'L1:stair',to:'L2:stair',totalCost:4,stepFree:false,directions:[],
  steps:[{level:'L1',node:'stair',kind:'stairs',x:4,y:0,z:0},{level:'L2',node:'stair',kind:'stairs',x:4,y:0,z:3.5}]};
+// Check that the adapter preserves the stairs passage type.
 const sr = toNavigatorRoute(stairsRoute,multi);
 assert(sr.passages[0]==='stairs','stairs route');
+// A route containing stairs cannot be accepted as step-free.
 let rejected = false;
 try { toNavigatorRoute({...stairsRoute,stepFree:true},multi); } catch(e) { rejected = e instanceof UnsupportedWfbError; }
 assert(rejected, 'reject stairs in step-free response');
+// Unknown inter-floor connection kinds must fail instead of being guessed.
 rejected=false;
 try { parseWfbLinks([{from:'L1:lift',to:'L2:lift',kind:'escalator'}]); }catch(e) {rejected=e instanceof UnsupportedWfbError;}
 assert(rejected, 'reject unknown link type');

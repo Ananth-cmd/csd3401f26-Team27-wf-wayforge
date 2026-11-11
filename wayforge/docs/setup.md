@@ -24,8 +24,8 @@ Mac: `clang++ --version`. Linux: `g++ --version` (need C++20: GCC 11+, Clang 14+
 | Compiler, Mac | `xcode-select --install` |
 | Compiler, Linux | `sudo apt install build-essential` |
 | Python 3 | https://python.org (tick "Add to PATH" on Windows) |
-| Unity 6 (LTS) + Android Build Support | Unity Hub. Android module includes SDK, NDK and OpenJDK. |
-| Android NDK (if not via Unity) | Android Studio > SDK Manager > SDK Tools > NDK (Side by side) |
+| Unity 6000.6.0f1 + WebGL Build Support | Unity Hub > Installs > Add modules (for the Studio tool and the 3D viewer) |
+| Node.js 20+ | https://nodejs.org (for the Studio and Navigator websites) |
 
 ## 3. Build and test the tool
 
