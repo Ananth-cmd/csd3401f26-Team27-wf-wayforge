@@ -15,11 +15,14 @@
  *
  * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
  *
- * Contribution: Kannan Shrinivasan 100%
+ * Contribution: Kannan Shrinivasan 98%, Ananthan Elangovan 2%
+ *   Kannan Shrinivasan
  *   - Structs for the building, levels, walls, openings, rooms, nodes, edges,
  *     POIs, anchors and links
  *   - Enums and their text name tables
  *   - Registering every struct with the property system
+ *   Ananthan Elangovan
+ *   - Building::site, the surroundings kept with the building
  *
  * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
  *   
@@ -198,6 +201,10 @@ namespace wf
         std::vector<Level> levels;
         std::vector<Link> links;
         SourceInfo source;
+        // Optional "site" object of the file (surroundings: ground, water, roads, landmarks) as JSON text.
+        // Not interpreted by the engine: Serialize.cpp reads it and writes it back unchanged. Empty when
+        // the file has none.
+        std::string site;
 
         Level* findLevel(std::string_view id) noexcept;
         const Level* findLevel(std::string_view id) const noexcept;

@@ -16,11 +16,14 @@
  *
  * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
  *
- * Contribution: Kannan Shrinivasan 100%
+ * Contribution: Kannan Shrinivasan 98%, Ananthan Elangovan 2%
+ *   Kannan Shrinivasan
  *   - Writing a building to JSON, including the exact float text
  *   - Reading JSON back with the version check and error paths
  *   - Comparing two buildings with a tolerance
  *   - File save and load
+ *   Ananthan Elangovan
+ *   - The "site" object (surroundings) read and written back unchanged
  *
  * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
  *
@@ -129,6 +132,12 @@ namespace wf {
             for (const Level& lv : b.levels) levels.push_back(levelToJson(lv));
             j["levels"] = levels;
             j["links"] = listToJson(b.links);
+            // "site" is stored as JSON text and written back unchanged. Text that fails to parse is omitted.
+            if (!b.site.empty())
+            {
+                json site = json::parse(b.site, nullptr, false);
+                if (!site.is_discarded()) j["site"] = site;
+            }
             return j;
         }
 
@@ -313,6 +322,11 @@ namespace wf {
             if (!s.ok) return Result<Building>::fail(s.message);
             s = readList(j, "links", "", out.links, NoExtra{});
             if (!s.ok) return Result<Building>::fail(s.message);
+
+            // "site" is not interpreted by the engine. It is stored as JSON text and written back by
+            // buildingToJsonValue().
+            auto site = j.find("site");
+            if (site != j.end() && site->is_object()) out.site = site->dump();
 
             return Result<Building>(std::move(out));
         }

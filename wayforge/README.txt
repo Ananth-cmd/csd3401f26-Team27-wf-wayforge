@@ -229,6 +229,11 @@ What is in this repo (all paths are inside the wayforge/ folder):
 
     Output: studio-web/public/samples/sit-punggol.wfb
 
+    The file also carries what is around the campus (water, parks, roads,
+    neighbouring buildings, landmarks) from data/plans/sit-punggol/
+    surroundings.json, which the Navigator draws. To fetch that again from
+    OpenStreetMap (needs internet): python tools/sit_surroundings.py
+
   Every wf_cli command and option: docs/wf_cli.md
 
 
