@@ -33,18 +33,24 @@ services:
     tty: true
 
   # Full configure -> build -> unit tests -> wf_cli smoke run; exits non-zero on any failure.
+  # Compiles through ccache, so a rebuild only really compiles the files that changed; the last
+  # line prints how many files came from the cache. (CI keeps build/ccache between runs.)
   # (No comments inside the command below: they would become part of the bash script.)
   test:
-    image: wayforge-dev                # same image as dev (run `docker compose build` first)
+    image: wayforge-dev                # same image as dev (run `docker compose build` first, and again after Dockerfile changes)
     volumes:
       - .:/workspace
     working_dir: /workspace/wayforge
+    environment:
+      CCACHE_DIR: /workspace/wayforge/build/ccache   # inside the git-ignored build/ folder
+      CCACHE_MAXSIZE: 500M
     command: >
       bash -c "set -e
-      && cmake -S core -B build/docker -G Ninja -DCMAKE_BUILD_TYPE=Release
+      && cmake -S core -B build/docker -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       && cmake --build build/docker
       && ctest --test-dir build/docker --output-on-failure
-      && build/docker/Sandbox/wf_cli/wf_cli --version"
+      && build/docker/Sandbox/wf_cli/wf_cli --version
+      && ccache --show-stats"
 
   # Just wf_cli, for the backend (see wayforge/core/Dockerfile.cli). Build: docker compose build cli
   # Run: docker compose run --rm cli convert /workspace/plan.png /workspace/out.wfb

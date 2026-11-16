@@ -11,9 +11,9 @@
 #                    Studio backend parses
 #   deploy-navigator : main only - put the Navigator build from web live on the team server
 #
-# Order: golden-checker runs first; desktop and docker only start if it passes,
-# so a broken checker can't make the golden tests pass by mistake. web is independent
-# of all three and runs straight away.
+# Order: golden-checker runs first; desktop only starts if it passes, so a broken checker
+# can't make the golden tests pass by mistake. docker (no golden tests, and the check main
+# requires) and web are independent and run straight away.
 #
 # There is no Android build: the product is the Studio and Navigator websites, and the
 # engine runs on the server as wf_cli.
@@ -121,16 +121,35 @@ jobs:
 
   # ------------------------------------------------------------------ docker
   # Build and test inside the same container teammates use locally.
+  # It is the check main requires, so it starts straight away: it runs no golden tests, so it doesn't
+  # need to wait for golden-checker.
   docker:
-    needs: golden-checker
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: .           # docker-compose.yml is at the repo root, not in wayforge/
     steps:
       - uses: actions/checkout@v4
-      - name: Build dev image (Ubuntu 24.04)
-        run: docker compose build
+      # Same image as `docker compose build`, but through GitHub's build cache: it is only really
+      # rebuilt when the Dockerfile changes, otherwise it comes back in seconds (was ~55 s every run).
+      # load + tags: keep it in the runner's Docker as wayforge-dev, the image the test service runs.
+      - uses: docker/setup-buildx-action@v3
+      - name: Build dev image (Ubuntu 24.04, cached)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: wayforge-dev
+          cache-from: type=gha,scope=wayforge-dev
+          cache-to: type=gha,scope=wayforge-dev,mode=max
+      # Compiled files (ccache, see docker-compose.yml) from the last run, so only changed .cpp files
+      # are really compiled. Saved again under this commit after the job; restore-keys takes the newest.
+      - name: Restore C++ compile cache
+        uses: actions/cache@v4
+        with:
+          path: wayforge/build/ccache
+          key: ccache-docker-${{ github.sha }}
+          restore-keys: ccache-docker-
       - name: Build + test in container
         run: docker compose run --rm -T test   # -T: no terminal on CI runners
 
@@ -140,9 +159,14 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true                          # the sounds and icons are in Git LFS; without this the site gets placeholder files
+      - uses: actions/checkout@v4          # LFS files arrive as placeholders here; the next step fetches the ones we need
+                                           # Only the Navigator's sounds and icons are needed to build the sites (studio-web has no LFS files).
+                                           # Fetching just these (~1.4 MB) instead of every LFS file (~24 MB, mostly data/ floor plans) keeps
+                                           # CI well inside the repo owner's monthly Git LFS bandwidth. If a site starts using LFS files
+                                           # from somewhere else, add that folder to --include.
+      - name: Pull the Navigator's LFS files
+        working-directory: .
+        run: git lfs pull --include="wayforge/navigator/**"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"                 # current LTS; the Navigator's Vite 8 needs 20.19+, studio-web 18+
