@@ -50,7 +50,7 @@ struct GraphParams {
     float stairPenalty    = 12.f;     // extra cost for a stair link
     float liftPenalty     = 25.f;     // extra cost for boarding a lift (waiting), once per ride
     bool  connectRoomsThroughDoors = true;   // room nodes only connect to the doors on their outline
-    float missingDoorReach   = 3.f;   // fallback edges: max distance from a disconnected room's outline to the node it joins
+    float missingDoorReach   = 3.f;   // fallback edges: max distance from a cut-off room's outline (no corridor reachable) to the node it joins
     float missingDoorPenalty = 10.f;  // extra cost added to each fallback edge
     float throughRoomPenalty = 5.f;   // extra cost for passing through a room (not a corridor, lobby or exit) on the way
 };

@@ -6,7 +6,8 @@
  * wf_read, then checks: line of sight through doors but not walls, graph
  * building with no isolated nodes, A* between the two rooms, bad references
  * rejected, and on a second level linked by stairs and a lift: step-free
- * routing and egress to an exit.
+ * routing and egress to an exit. Last, two separate blocks on one level must
+ * not be joined through their walls by the fallback edges.
  *
  * Prints each failed CHECK with its file and line and returns 1, so CTest
  * (and the CI desktop job) fails if anything breaks.
@@ -42,6 +43,23 @@ static wf::Level makeLevel(wf::IdGenerator& ids, const std::string& id, float el
         {{5,2},{5,8}},                                                    // wall between the rooms
         {{0,2},{2,2}}, {{2.9f,2},{7,2}}, {{7.9f,2},{10,2}},               // corridor wall with two gaps
     };
+    auto st = read::interpret(segs, level, ids, {});
+    if (!st) std::cerr << st.error() << "\n";
+    return level;
+}
+
+// Two copies of makeLevel's block on one level: the second 12 m along and 0.5 m up, leaving a 2 m
+// gap with no doors between them (two separate buildings, like neighbouring campus blocks).
+static wf::Level makeTwoBlocks(wf::IdGenerator& ids) {
+    using namespace wf; using vec::Segment;
+    Level level; level.id = "L1"; level.name = "Level 1";
+    const std::vector<Segment> block = {
+        {{0,0},{10,0}}, {{0,8},{10,8}}, {{0,0},{0,8}}, {{10,0},{10,8}},
+        {{5,2},{5,8}},
+        {{0,2},{2,2}}, {{2.9f,2},{7,2}}, {{7.9f,2},{10,2}},
+    };
+    std::vector<Segment> segs = block;
+    for (const Segment& s : block) segs.push_back({ { s.a.x + 12.f, s.a.y + 0.5f }, { s.b.x + 12.f, s.b.y + 0.5f } });
     auto st = read::interpret(segs, level, ids, {});
     if (!st) std::cerr << st.error() << "\n";
     return level;
@@ -129,6 +147,37 @@ int main() {
     // nearest node helper
     auto nn = nearestNode(b, "L1", {2.45f, 2.f});               // a point in the left door
     CHECK(nn.has_value());
+
+    // --- two separate blocks on one level: fallback edges (for rooms with no door found) must not
+    //     join them through their walls. Each block keeps its own corridor, so no route between them.
+    {
+        IdGenerator ids2;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids2));
+        Level& lv = campus.levels[0];
+        CHECK(lv.rooms.size() == 6);                              // 2 rooms + a corridor per block
+        buildLevelGraph(lv, ids2);
+        // Code the rooms, then pick two in the west block and one in the east block by position.
+        int n = 0;
+        std::string west, west2, east;
+        for (auto& r : lv.rooms) {
+            if (r.kind == RoomKind::Corridor) continue;
+            r.code = "B-01-0" + std::to_string(++n);
+            if (r.centroid.x > 11.f) east = r.code;
+            else if (west.empty()) west = r.code;
+            else west2 = r.code;
+        }
+        auto w = nodeForRoom(campus, west), w2 = nodeForRoom(campus, west2), e = nodeForRoom(campus, east);
+        CHECK(w && w2 && e);
+        if (w && w2 && e) {
+            CHECK(findRoute(campus, *w, *w2).ok());               // inside one block: through the corridor
+            CHECK(!findRoute(campus, *w, *e).ok());               // across the gap: no way through the walls
+        }
+        for (const Edge& edge : lv.edges) {                        // no edge spans the 2 m gap (x 10..12)
+            const Node* a = lv.findNode(edge.a); const Node* b2 = lv.findNode(edge.b);
+            if (a && b2) CHECK((a->pos.x < 11.f) == (b2->pos.x < 11.f));
+        }
+    }
 
     // Non-zero exit tells CTest the test failed.
     if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }
