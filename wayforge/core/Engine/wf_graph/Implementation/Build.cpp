@@ -89,6 +89,10 @@ bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearan
     return blockingWalls(level, a, b, clearance, true) == 0;
 }
 
+int wallsCrossed(const Level& level, const Vec2& a, const Vec2& b, float clearance) {
+    return blockingWalls(level, a, b, clearance, false);
+}
+
 namespace {
     // A door belongs to a room if it sits on the room's outline.
     bool doorTouchesRoom(const Level& level, const Vec2& doorPos, const std::string& roomId) {
@@ -241,9 +245,12 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
             Edge e; e.a = a.id; e.b = b.id; e.cost = d; e.stepFree = true;
             // Passing through a room costs throughRoomPenalty more, so an equally short corridor wins.
             // Edges at a room node carry half of it each: a trip starting or ending in a room always
-            // pays the same half, a trip passing through the room pays both halves.
-            const Room* aRoom = a.kind == NodeKind::Room ? level.findRoom(a.room) : nullptr;
-            const Room* bRoom = b.kind == NodeKind::Room ? level.findRoom(b.room) : nullptr;
+            // pays the same half, a trip passing through the room pays both halves. Stair and lift rooms
+            // count too, so a route doesn't use a stairwell as a shortcut between two of its doors
+            // (taking the stairs or lift pays one half on each floor).
+            auto paysForRoom = [](const Node& n) { return n.kind == NodeKind::Room || n.kind == NodeKind::Stair || n.kind == NodeKind::Lift; };
+            const Room* aRoom = paysForRoom(a) ? level.findRoom(a.room) : nullptr;
+            const Room* bRoom = paysForRoom(b) ? level.findRoom(b.room) : nullptr;
             if ((aRoom && !openSpace(aRoom->kind)) || (bRoom && !openSpace(bRoom->kind))) e.cost += p.throughRoomPenalty * 0.5f;
             else if (!aInRoom && !bInRoom && crossesRoom(level, a.pos, b.pos)) e.cost += p.throughRoomPenalty;
             if (a.kind == NodeKind::Door || b.kind == NodeKind::Door) {

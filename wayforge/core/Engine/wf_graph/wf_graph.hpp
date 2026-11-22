@@ -53,6 +53,10 @@ struct GraphParams {
     float missingDoorReach   = 3.f;   // fallback edges: max distance from a cut-off room's outline (no corridor reachable) to the node it joins
     float missingDoorPenalty = 10.f;  // extra cost added to each fallback edge
     float throughRoomPenalty = 5.f;   // extra cost for passing through a room (not a corridor, lobby or exit) on the way
+    float outdoorClearance   = 1.5f;  // outdoor waypoints sit this far outside the corners of each block's outline
+    float exitStep           = 1.f;   // outdoor paths start this far straight out of each exit door
+    float outdoorCostFactor  = 1.f;   // outdoor edge cost = length x this (above 1 favours indoor routes and bridges)
+    float cutOffReach        = 12.f;  // joinCutOffBlocks: longest link allowed for a block with no way in
 };
 
 // Summary returned after building; isolatedNodes > 0 usually means a room has no reachable door.
@@ -72,12 +76,29 @@ int markExitDoors(Level& level);
 // level up (by elevation). Lift links are step-free. Links to missing nodes are removed first and
 // existing links are not duplicated. Returns the number of links added.
 int linkFloors(Building& building, float maxOffset = 3.f);
-struct NavStats { GraphStats graph; int exits = 0; int links = 0; };   // links: total after linking
-// buildGraph() with node ids from 100000, then markExitDoors() on the lowest level and linkFloors().
+// links: total after linking. outdoorEdges / cutOffLinks: added by linkOutdoors / joinCutOffBlocks.
+struct NavStats { GraphStats graph; int exits = 0; int links = 0; int outdoorEdges = 0; int cutOffLinks = 0; };
+// buildGraph() with node ids from 100000, then on the lowest level markExitDoors() and
+// linkOutdoors(), then linkFloors(), then joinCutOffBlocks().
 NavStats prepareNavigation(Building& building, const GraphParams& p = {});
+
+// --- walking outside on the ground floor (Outdoor.cpp) ------------------------------------
+// Lets routes go outside between blocks. Each exit door gets a node exitStep metres straight out of
+// it, and each corner of every block's outline (convex hull of its rooms) a waypoint
+// outdoorClearance metres outside it. Every two of these that can see each other are joined: the
+// straight line crosses no wall, no room and no water (the site's "water" areas, when the file has
+// them). Needs markExitDoors() first. Returns the edges added.
+int linkOutdoors(Building& building, Level& ground, IdGenerator& ids, const GraphParams& p = {});
+// A block on the ground floor that still can't be reached from the rest of the building (no exit
+// door drawn, no bridge) gets one edge to the nearest door or corridor of another part, through the
+// fewest walls and at most cutOffReach long, costing missingDoorPenalty extra. Run after
+// linkFloors() so bridges count. Returns the number of edges added.
+int joinCutOffBlocks(Building& building, Level& ground, const GraphParams& p = {});
 
 // True if segment a-b crosses no wall of the level (openings let it through).
 bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearance = 0.15f);
+// How many walls segment a-b runs into without going through one of their doors.
+int wallsCrossed(const Level& level, const Vec2& a, const Vec2& b, float clearance = 0.15f);
 
 // A route across the building. Node refs are "L5:n3".
 // One step of a route: the node walked through and the total cost to reach it.
