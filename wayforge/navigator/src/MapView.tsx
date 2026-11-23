@@ -216,19 +216,33 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     const t: V3 = [c[0] - r0[0] * ox * k + (f0[0] * oy * k) / sp, 0, c[2] - r0[2] * ox * k + (f0[2] * oy * k) / sp]
     return { t, zoom, yaw: defYaw }
   }
-  // Zoom-out stops where the whole floor just fits the visible part of the map (its borders), and the view can't be
-  // moved off the map: the camera stays inside the floor's outline box.
-  const zoomFit = useMemo(() => {
-    const visW = Math.max(120, size.w - (pad?.l ?? 0)), visH = Math.max(120, size.h - (pad?.t ?? 0) - (pad?.b ?? 0))
-    return Math.max(0.02, (Math.max((2 * fit.mx) / visW, (2 * fit.my) / visH) * size.h) / baseVh)
-  }, [size.w, size.h, pad?.l, pad?.t, pad?.b, fit, baseVh])
+  // Zoom-out stops at the borders of the map: the whole map - the building, plus the campus around it when the
+  // backend sent surroundings - just fills the part of the view the panels don't cover, so there is no dead space
+  // around it. The view can't be moved off the map either: the camera stays inside those same borders. Worked out
+  // at the default rotation, like baseVh, so turning the map never changes the limit.
   const bounds = useMemo(() => {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
-    for (const f of lvl.floors) for (const p of f) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]) }
-    return { x0, x1, z0, z1 }
-  }, [lvl])
+    const add = (x: number, z: number) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z) }
+    for (const f of lvl.floors) for (const p of f) add(p[0], p[1])
+    if (site) { add(site.bounds[0], site.bounds[1]); add(site.bounds[2], site.bounds[3]) }
+    return { x0, x1, z0, z1, cx: (x0 + x1) / 2, cz: (z0 + z1) / 2 }
+  }, [lvl, site])
+  const zoomFit = useMemo(() => {
+    const { right: r0, up: u0 } = basis(defYaw)
+    // half the map on screen, measured around the middle of the map (not the middle of this floor)
+    let mx = 1, my = 1
+    for (const x of [bounds.x0, bounds.x1]) for (const z of [bounds.z0, bounds.z1]) for (const y of [GROUND_Y, topDown ? 0 : Math.max(WALL_H, massTop)]) {
+      const r: V3 = [x - bounds.cx, y, z - bounds.cz]
+      mx = Math.max(mx, Math.abs(dot(r, r0))); my = Math.max(my, Math.abs(dot(r, u0)))
+    }
+    const visW = Math.max(120, size.w - (pad?.l ?? 0)), visH = Math.max(120, size.h - (pad?.t ?? 0) - (pad?.b ?? 0))
+    const kFit = Math.max((2 * mx * 1.02) / visW, (2 * my * 1.02) / visH) // 2% so the edge isn't flush against the frame
+    return Math.max(0.02, (kFit * size.h) / baseVh)
+  }, [bounds, massTop, topDown, size.w, size.h, pad?.l, pad?.t, pad?.b, baseVh]) // eslint-disable-line
   const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>(framed)
   const reset = () => setCam(framed())
+  // the limit moved (window resized, a panel opened, 3D <-> 2D): pull the view back in if it is now too far out
+  useEffect(() => { setCam(c => (c.zoom > zoomFit ? { ...c, zoom: zoomFit } : c)) }, [zoomFit]) // eslint-disable-line react-hooks/set-state-in-effect -- clamping to a new limit, intentional
   // changing level keeps the view: same spot, same scale, same rotation (the levels share one plan), so you stay on
   // the building you were looking at. it still reframes when the new level has something to show (a route stretch,
   // a picked place) or nothing near where you were looking (that block has no such level)
