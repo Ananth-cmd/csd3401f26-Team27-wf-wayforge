@@ -385,17 +385,19 @@ def main():
                    building=dict(id='sit-punggol', name=site['name'], latitude=site['latitude'], longitude=site['longitude'],
                                  heading=0.0, unitsPerMetre=1.0),
                    levels=[levels[k] for k in sorted(levels)], links=[])
+        # "site": the surroundings from surroundings.json (tools/sit_surroundings.py) plus the bridge colours.
+        # Added before wf_cli graph so the outdoor paths between blocks keep out of the water; wf_cli
+        # writes it back unchanged.
+        around = os.path.join(SITE_DIR, 'surroundings.json')
+        if os.path.exists(around):
+            doc['site'] = dict(json.load(open(around, encoding='utf-8')), bridges=bridge_colours)
+        else:
+            print('no surroundings.json: run tools/sit_surroundings.py to add the ground, roads and landmarks')
         merged = os.path.join(tmp, 'campus.wfb')
         json.dump(doc, open(merged, 'w', encoding='utf-8'))
         graphed = os.path.join(tmp, 'campus_graph.wfb')
         print('campus:', run([cli, 'graph', merged, '-o', graphed]).strip().splitlines()[-1])
         final = json.load(open(graphed, encoding='utf-8'))
-    # "site": the surroundings from surroundings.json (tools/sit_surroundings.py) plus the bridge colours.
-    around = os.path.join(SITE_DIR, 'surroundings.json')
-    if os.path.exists(around):
-        final['site'] = dict(json.load(open(around, encoding='utf-8')), bridges=bridge_colours)
-    else:
-        print('no surroundings.json: run tools/sit_surroundings.py to add the ground, roads and landmarks')
     json.dump(final, open(out, 'w', encoding='utf-8'), separators=(',', ':'))
     print(f'wrote {out} ({os.path.getsize(out) / 1e6:.1f} MB)')
     return 0
