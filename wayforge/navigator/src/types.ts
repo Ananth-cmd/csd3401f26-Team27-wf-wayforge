@@ -41,6 +41,7 @@ export type Building = {
   links: Edge[] // between floors (stairs, lift)
   pois: Poi[]
   surroundings?: Site
+  blockColours?: Record<string, string> // block name (E2) -> "#rrggbb", picked in the Studio. Drawing only
 }
 
 // Surroundings of the building (the .wfb "site" object) in level coordinates, metres. Used for drawing only, not for routing.

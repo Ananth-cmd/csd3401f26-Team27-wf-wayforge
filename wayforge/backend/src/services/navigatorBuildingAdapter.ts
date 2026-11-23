@@ -50,6 +50,7 @@ export type NavigatorBuilding = {
     links: { from: string; to: string; kind: NavigatorEdgeKind; bidirectional: boolean; blocked: boolean; extraCost: number }[];
     pois: { id: string; name: string; code: string; node: string; category: string; description: string; startingPoint: boolean }[];
     surroundings?: NavigatorSite;
+    blockColours?: Record<string, string>; // block name (E2) -> "#rrggbb", set in the Studio. Drawing only
 };
 
 // Surroundings of the building in level coordinates (metres). Used for drawing only, not for routing.
@@ -214,6 +215,12 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
     };
     const site = parseSite(doc.site);
     if (site) result.surroundings = site;
+    // block colours from the Studio (Building details > Block > Colours), only well formed ones
+    if (object(meta.blockColours)) {
+        const colours = Object.fromEntries(Object.entries(meta.blockColours)
+            .filter((e): e is [string, string] => /^[A-Za-z]{1,2}\d{1,2}$/.test(e[0]) && typeof e[1] === "string" && /^#[0-9a-fA-F]{6}$/.test(e[1])));
+        if (Object.keys(colours).length) result.blockColours = colours;
+    }
 
     // Convert each .wfb level, keeping a map from original node IDs to positions.
     for (const [index, { level, id: levelId, elevation }] of parsed.entries()) {

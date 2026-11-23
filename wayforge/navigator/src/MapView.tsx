@@ -442,11 +442,13 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       const state = L.level === floor ? ' cur' : L.level > floor ? ' above' : ''
       // Colour family: link bridges (br), west blocks (w), east blocks (e). A bridge with a known colour passes it
       // to the stylesheet as --bc.
-      const fam = /^BR/i.test(m.name) ? 'br' : /^W/i.test(m.name) ? 'w' : 'e', bc = bridgeTint.byBlock.get(m.name)
-      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${state}`} style={bc ? { '--bc': bc } as React.CSSProperties : undefined}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
+      // A colour picked for the block in the Studio wins over all of these (class "tint", also passed as --bc).
+      const own = building.blockColours?.[m.name]
+      const fam = /^BR/i.test(m.name) ? 'br' : /^W/i.test(m.name) ? 'w' : 'e', bc = own ?? bridgeTint.byBlock.get(m.name)
+      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${state}${own ? ' tint' : ''}`} style={bc ? { '--bc': bc } as React.CSSProperties : undefined}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
     }
     return out
-  }, [massMode, mass, yaw, centre, floor, bridgeTint]) // eslint-disable-line
+  }, [massMode, mass, yaw, centre, floor, bridgeTint, building.blockColours]) // eslint-disable-line
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
   const pinRoom = pinNode && rooms ? rooms.which(node.get(pinNode.node)!.pos[0], node.get(pinNode.node)!.pos[1]) : -1
   const entrances = useMemo(() => floorNodes.filter(n => /\bentrance\b/i.test(names?.get(n.id) ?? n.label)), [floorNodes, names])
