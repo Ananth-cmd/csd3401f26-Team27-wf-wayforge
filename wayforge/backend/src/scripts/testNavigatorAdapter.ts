@@ -1,3 +1,19 @@
+/*!
+ * \file testNavigatorAdapter.ts
+ * \brief Tests route conversion against data retrieved from the backend.
+ *
+ * Fetches the published test building and its C++-calculated route through
+ * the backend HTTP endpoints, validates their basic shapes, and converts
+ * the route into Navigator's response format. Requires the backend and
+ * Studio services to be running and backend-integration-test to be published.
+ *
+ * Author: Kervin Ong Guan Cheng
+ * Links: navigatorAdapter.ts, backend HTTP API, Studio published data.
+ * Contribution: Live single-floor adapter integration test.
+ * AI declaration: ChatGPT assisted with refining documentation comments.
+ * \date 2026-11-07
+ */
+
 
 import {
     isEngineRoute,
@@ -5,8 +21,10 @@ import {
     toNavigatorRoute
 } from "../services/navigatorAdapter";
 
+// Default local address of the independent Wayforge backend.
 const BASE_URL = "http://127.0.0.1:3000";
 
+/** Fetch a published sample, validate both responses, and print the adapted route. */
 async function main() {
 
     // Get the actual published building from our backend.
@@ -39,6 +57,7 @@ async function main() {
     }
 
     // Convert the engine route for Navigator.
+    // Confirm that the real route can be converted into Navigator's expected format.
     const navigatorRoute = toNavigatorRoute(
         route,
         building
@@ -49,6 +68,7 @@ async function main() {
     console.log(JSON.stringify(navigatorRoute, null, 2));
 }
 
+// Surface any failed request or conversion as a non-zero process exit code.
 main().catch(error => {
     console.error("Adapter test failed:", error);
     process.exitCode = 1;

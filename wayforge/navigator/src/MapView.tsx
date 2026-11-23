@@ -1,15 +1,46 @@
-// 3D / 2D floor map (orthographic camera, tilt 48° in 3D, straight down in 2D). North is up in both until you rotate;
-// the compass shows where north is and puts it back up. Fills its parent.
-// Left-drag / 1 finger = move, right-drag (or Shift + left-drag) = rotate, 2 fingers = move + pinch zoom + twist to
-// rotate, wheel = zoom, tap a room = pick it.
-// Labels: far away only the block names (E1, W1...), closer in the room names, never on top of each other.
-// Speed for large buildings (Ananth): shapes are projected around the floor centre, so panning and zooming only move
-// the SVG viewBox; slabs, zones and walls are rebuilt only when the floor or the rotation changes.
+/*!
+ * \file MapView.tsx
+ * \brief The 3D / 2D floor map shown behind every screen
+ *
+ * Orthographic camera, tilted 48 degrees in 3D and straight down in 2D. North
+ * is up until you rotate; the compass shows north and puts it back up.
+ * Controls: left-drag / 1 finger = move, right-drag (or Shift + left-drag) =
+ * rotate, 2 fingers = move + pinch zoom + twist, wheel = zoom, tap a room =
+ * pick it. Labels: far away only block names (E1, W1...), closer in the room
+ * names, never overlapping. Also draws the 3D campus view (block massing),
+ * the route line, the you-are-here dot and the destination pin. Draws the
+ * surroundings supplied by the backend (Building.surroundings): water, parks,
+ * roads and paths, neighbouring buildings, trees and landmark signs. On the
+ * floor plan, exterior walls have their own colour, windows are drawn as
+ * glass and each doorway has a sill and a door leaf.
+ *
+ * Links: used by App.tsx; block outlines from massing.ts (worker in
+ * massing.worker.ts); route line shape from routeline.ts; trees from
+ * surroundings.ts.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Kannan Shrinivasan, Ananthan Elangovan
+ *   - Kannan: map drawing, camera and controls, labels, campus view, route line
+ *   - Ananthan: speed-up for large buildings (shapes projected around the floor
+ *     centre, so pan and zoom only move the SVG viewBox; slabs, zones and walls
+ *     are rebuilt only when the floor or the rotation changes); surroundings
+ *     (ground, water, roads, trees, neighbouring buildings, landmarks); block
+ *     and bridge colours; outside walls, windows and doors on the floor plan
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-11-07
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Building, Vec2 } from './types'
 import { buildMassing, massInput } from './massing'
 import type { MassBlock } from './massing'
 import { drawnRoute } from './routeline'
+import { treesOf } from './surroundings'
 
 const WALL_H = 1.2 // low walls: reads like a floor plan, and nearer walls hide less of the rooms behind them
 const SLAB_T = 0.45
@@ -32,6 +63,9 @@ const roomClass = (category: string, name: string) => {
   return 'r-room'
 }
 const ICON_OF: Record<string, string> = { 'r-toilet': 'wf-i-toilet', 'r-lift': 'wf-i-lift', 'r-stair': 'wf-i-stair', 'r-food': 'wf-i-food' }
+const LANDMARK_ICON: Record<string, string> = { mrt: 'wf-i-mrt', bus: 'wf-i-bus', food: 'wf-i-food', shop: 'wf-i-shop', park: 'wf-i-park' }
+const GROUND_Y = -0.45 // height of the ground around the building, metres: the underside of the floor slab
+const DOOR_OPEN = (65 * Math.PI) / 180 // opening angle of the door leaves, radians
 // 3D campus buildings, worked out once per building in a background worker (massing.ts)
 const massCache = new WeakMap<Building, Promise<MassBlock[]>>()
 function loadMassing(b: Building, node: Map<string, { level: number; pos: Vec2 }>): Promise<MassBlock[]> {
@@ -89,6 +123,13 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
   const lvl = building.levels[floor]
+  const site = building.surroundings
+  // Link bridge colours from the surroundings, keyed by place id (floor plan) and by block name (3D campus).
+  const bridgeTint = useMemo(() => {
+    const byPlace = new Map<string, string>(), byBlock = new Map<string, string>()
+    for (const b of site?.bridges ?? []) { byPlace.set(b.room, b.colour); const bl = blockOf(b.room.replace(/^[^:]*:/, '')); if (bl) byBlock.set(bl, b.colour) }
+    return { byPlace, byBlock }
+  }, [site])
   const node = useMemo(() => new Map(building.nodes.map(n => [n.id, n])), [building])
   const floorNodes = useMemo(() => building.nodes.filter(n => n.level === floor), [building, floor])
   // which block (E1, W1...) each point belongs to, from the place codes / names / ids
@@ -176,8 +217,22 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   }
   const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>(framed)
   const reset = () => setCam(framed())
-  useEffect(reset, [centre, topDown, focusKey, size.ready]) // eslint-disable-line
+  // changing level keeps the view: same spot, same scale, same rotation (the levels share one plan), so you stay on
+  // the building you were looking at. it still reframes when the new level has something to show (a route stretch,
+  // a picked place) or nothing near where you were looking (that block has no such level)
+  const seen = useRef({ building, floor, topDown, vh: 0 })
+  useEffect(() => {
+    const s = seen.current
+    seen.current = { ...s, building, floor, topDown }
+    if (s.vh > 0 && s.floor !== floor && s.building === building && s.topDown === topDown && !focusKey) {
+      const half = Math.max(10, (s.vh * aspect) / 2) // metres either side of where you were looking
+      const near = lvl.floors.some(f => f.some(p => Math.abs(p[0] - cam.t[0]) < half && Math.abs(p[1] - cam.t[2]) < half))
+      if (near) { setCam(c => ({ ...c, zoom: Math.min(2.5, Math.max(0.02, s.vh / baseVh)) })); return }
+    }
+    reset()
+  }, [centre, floor, topDown, focusKey, size.ready]) // eslint-disable-line
   const { t: target, zoom, yaw } = cam
+  useEffect(() => { seen.current.vh = baseVh * zoom }, [baseVh, zoom]) // the scale you were at, for the next level change
 
   const { right, fwdH, fwd, up } = basis(yaw)
   const projAt = (p: V3, t: V3): Vec2 => { const r: V3 = [p[0] - t[0], p[1] - t[1], p[2] - t[2]]; return [dot(r, right), -dot(r, up)] }
@@ -211,7 +266,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // whole walls are used (as fast as before); the pieces come back when you let go.
   const [turning, setTurning] = useState(false)
   const walls = useMemo(() => {
-    const out: { depth: number; polys: { pts: V3[]; shade: number }[] }[] = []
+    const out: { depth: number; x: boolean; polys: { pts: V3[]; shade: number; cls?: string }[] }[] = []
     let total = 0
     for (const wl of lvl.walls) total += Math.hypot(wl.b[0] - wl.a[0], wl.b[1] - wl.a[1])
     const piece = topDown || turning ? Infinity : Math.max(PIECE_M, total / MAX_PIECES)
@@ -234,7 +289,20 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           polys.push({ pts: [[p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], WALL_H, q[1]], [p[0], WALL_H, p[1]]], shade: dot([mx, 0, mz], right) < 0 ? 1 : 2 })
         }
         polys.push({ pts: c.map(p => [p[0], WALL_H, p[1]] as V3), shade: n > 1 ? 3 : 0 }) // 3 = top of a cut piece (no outline, so no seams)
-        out.push({ depth: dot([mid[0], 0, mid[1]], fwd), polys })
+        out.push({ depth: dot([mid[0], 0, mid[1]], fwd), x: !!wl.exterior, polys })
+      }
+    }
+    // Doors: one leaf per doorway, hinged at the start of the span and opened by DOOR_OPEN. A span wider than
+    // 1.5 m gets two leaves, one hinged at each end.
+    for (const dr of lvl.doors ?? []) {
+      const dx = dr.b[0] - dr.a[0], dz = dr.b[1] - dr.a[1], len = Math.hypot(dx, dz)
+      if (len < 0.5) continue
+      const ux = dx / len, uz = dz / len, ca = Math.cos(DOOR_OPEN), sa = Math.sin(DOOR_OPEN)
+      const leaves: [Vec2, number, number][] = len > 1.5 ? [[dr.a, 1, len / 2], [dr.b, -1, len / 2]] : [[dr.a, 1, len]]
+      for (const [h, dir, w] of leaves) {
+        const ex = h[0] + (ux * dir * ca - uz * sa) * w, ez = h[1] + (uz * dir * ca + ux * sa) * w
+        const pts: V3[] = topDown ? [[h[0], 0.05, h[1]], [ex, 0.05, ez]] : [[h[0], 0, h[1]], [ex, 0, ez], [ex, WALL_H * 0.95, ez], [h[0], WALL_H * 0.95, h[1]]]
+        out.push({ depth: dot([(h[0] + ex) / 2, 0, (h[1] + ez) / 2], fwd) - 0.2, x: false, polys: [{ pts, shade: 0, cls: 'm-door' }] })
       }
     }
     return out.sort((a, b) => b.depth - a.depth)
@@ -253,8 +321,72 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     {floorNodes.filter(n => n.kind === 'stairs').map(n => zone(n.id, 2.2, 'm-zone stairs'))}
     {floorNodes.filter(n => n.kind === 'lift').map(n => zone(n.id, 2.2, 'm-zone lift'))}
   </>, [slab, floorNodes]) // eslint-disable-line
-  const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={`m-wall s${p.shade}`} points={p.pts.map(pt).join(' ')} />)),
+  const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={p.cls ?? `m-wall s${p.shade}${w.x ? ' x' : ''}`} points={p.pts.map(pt).join(' ')} />)),
     [walls, centre]) // eslint-disable-line
+  // ---- surroundings: areas (water, green, plaza), roads and paths, neighbouring buildings, trees ----
+  const ground = useMemo(() => {
+    if (!site) return null
+    const G = (p: Vec2, y = GROUND_Y) => pt([p[0], y, p[1]])
+    const out: React.ReactElement[] = []
+    site.areas.forEach((a, i) => out.push(<polygon key={`a${i}`} className={`g-area g-${a.kind}`} points={a.polygon.map(p => G(p)).join(' ')} />))
+    // Roads: every casing is drawn before any surface, so the casing of one road does not cross the surface of
+    // another at a junction.
+    site.roads.forEach((r, i) => { if (r.kind === 'road') out.push(<polyline key={`re${i}`} className="g-road-edge" points={r.points.map(p => G(p)).join(' ')} strokeWidth={r.width + 1.6} />) })
+    site.roads.forEach((r, i) => out.push(<polyline key={`r${i}`} className={r.kind === 'road' ? 'g-road' : r.kind === 'cycle' ? 'g-cycle' : 'g-path'} points={r.points.map(p => G(p)).join(' ')} strokeWidth={r.width} />))
+    // Neighbouring buildings: extruded to at most 16 m and drawn far to near. Only the faces towards the camera
+    // are drawn.
+    const mid = (poly: Vec2[]): V3 => [poly.reduce((a, p) => a + p[0], 0) / poly.length, 0, poly.reduce((a, p) => a + p[1], 0) / poly.length]
+    const blds = site.buildings.map(b => ({ b, d: dot(mid(b.polygon), fwd) })).sort((p, q) => q.d - p.d)
+    blds.forEach(({ b }, bi) => {
+      const poly = b.polygon, h = topDown ? 0 : Math.min(16, b.levels * 3.2), y1 = GROUND_Y + h
+      const ccw = poly.reduce((a, p, i) => { const q = poly[(i + 1) % poly.length]; return a + p[0] * q[1] - q[0] * p[1] }, 0) > 0
+      const faces: { d: number; el: React.ReactElement }[] = []
+      if (h > 0) poly.forEach((p, i) => {
+        const q = poly[(i + 1) % poly.length], dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz)
+        if (len < 0.3) return
+        const nx = ((ccw ? dz : -dz) / len), nz = ((ccw ? -dx : dx) / len) // outward normal of the edge
+        if (dot([nx, 0, nz], fwd) >= 0) return
+        faces.push({ d: dot([(p[0] + q[0]) / 2, 0, (p[1] + q[1]) / 2], fwd), el: <polygon key={i} className={`g-bld-face ${dot([nx, 0, nz], right) < 0 ? 'a' : 'b'}`} points={[G(p), G(q), G(q, y1), G(p, y1)].join(' ')} /> })
+      })
+      faces.sort((a, c) => c.d - a.d)
+      out.push(<g key={`b${bi}`}>{faces.map(f => f.el)}<polygon className="g-bld-roof" points={poly.map(p => G(p, y1)).join(' ')} /></g>)
+    })
+    // Trees, far to near: a ground shadow (3D only) and a crown circle raised by the crown height.
+    const crown = topDown ? 0 : 3.4
+    const trees = treesOf(building).map(t => ({ t, d: dot([t[0], 0, t[1]], fwd) })).sort((p, q) => q.d - p.d)
+    trees.forEach(({ t }, i) => {
+      const [gx, gy] = proj([t[0], GROUND_Y, t[1]]), [cx, cy] = proj([t[0], GROUND_Y + crown, t[1]])
+      out.push(<g key={`t${i}`}>{!topDown && <ellipse className="g-tree-shadow" cx={gx + 1.4} cy={gy + 0.3} rx={3.2} ry={1.7} />}<circle className="g-tree" cx={cx} cy={cy} r={3} /><circle className="g-tree-hi" cx={cx - 0.8} cy={cy - 0.9} r={1.5} /></g>)
+    })
+    return <g className="ground">{out}</g>
+  }, [site, building, yaw, topDown, centre]) // eslint-disable-line
+  // Door sills: a strip 0.28 m wide on the floor across each door span. One path per floor.
+  const sills = useMemo(() => {
+    let d = ''
+    for (const dr of lvl.doors ?? []) {
+      const dx = dr.b[0] - dr.a[0], dz = dr.b[1] - dr.a[1], len = Math.hypot(dx, dz) || 1, nx = (-dz / len) * 0.14, nz = (dx / len) * 0.14
+      d += 'M' + [[dr.a[0] + nx, dr.a[1] + nz], [dr.b[0] + nx, dr.b[1] + nz], [dr.b[0] - nx, dr.b[1] - nz], [dr.a[0] - nx, dr.a[1] - nz]].map(q => pt([q[0], 0.015, q[1]])).join('L') + 'Z'
+    }
+    return d ? <path className="m-sill" d={d} /> : null
+  }, [lvl, centre, yaw, topDown]) // eslint-disable-line
+  // Windows: glass over the wall top and, in 3D, over the wall face towards the camera. Two paths per floor, drawn
+  // after the walls so that the wall tops do not cover them.
+  const glass = useMemo(() => {
+    let top = '', side = ''
+    for (const wn of lvl.windows ?? []) {
+      const dx = wn.b[0] - wn.a[0], dz = wn.b[1] - wn.a[1], len = Math.hypot(dx, dz) || 1
+      const t = wn.thickness / 2 + 0.04, nx = (-dz / len) * t, nz = (dx / len) * t
+      const c: Vec2[] = [[wn.a[0] + nx, wn.a[1] + nz], [wn.b[0] + nx, wn.b[1] + nz], [wn.b[0] - nx, wn.b[1] - nz], [wn.a[0] - nx, wn.a[1] - nz]]
+      top += 'M' + c.map(q => pt([q[0], WALL_H + 0.01, q[1]])).join('L') + 'Z'
+      if (topDown) continue
+      for (const i of [0, 2]) {
+        const a = c[i], b = c[i + 1]
+        if (dot([i === 0 ? nx : -nx, 0, i === 0 ? nz : -nz], fwd) >= 0) continue // face away from the camera
+        side += 'M' + [pt([a[0], WALL_H * 0.3, a[1]]), pt([b[0], WALL_H * 0.3, b[1]]), pt([b[0], WALL_H * 0.92, b[1]]), pt([a[0], WALL_H * 0.92, a[1]])].join('L') + 'Z'
+      }
+    }
+    return <>{side && <path className="m-glass side" d={side} />}{top && <path className="m-glass" d={top} />}</>
+  }, [lvl, centre, yaw, topDown]) // eslint-disable-line
   // ---- rooms coloured by type: the backend sends each room's outline as a floor polygon, and each room has a place ----
   const rooms = useMemo(() => {
     const polys = lvl.floors
@@ -262,6 +394,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     const box = polys.map(f => { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const [x, z] of f) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z) } return [x0, x1, z0, z1] })
     const which = (x: number, z: number) => { for (let i = 0; i < polys.length; i++) { const b = box[i]; if (x >= b[0] && x <= b[1] && z >= b[2] && z <= b[3] && inPoly(x, z, polys[i])) return i } return -1 }
     const cls: string[] = polys.map(() => 'r-room')
+    const tint: (string | undefined)[] = polys.map(() => undefined) // per room: link bridge colour, if any
     const icons: { id: string; icon: string }[] = []
     for (const p of building.pois) {
       const n = node.get(p.node)
@@ -270,9 +403,16 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       if (i >= 0 && cls[i] === 'r-room') cls[i] = c
       if (ICON_OF[c]) icons.push({ id: p.node, icon: ICON_OF[c] })
     }
-    return { cls, which, icons }
-  }, [building, floor, lvl, node])
-  const roomShapes = useMemo(() => rooms && lvl.floors.map((f, i) => <polygon key={`rm-${i}`} className={`m-room ${rooms.cls[i]}`} points={f.map(p => pt([p[0], 0.01, p[1]])).join(' ')} />),
+    // Link bridges: the room that contains the bridge's place node takes the bridge colour.
+    for (const p of building.pois) {
+      const colour = bridgeTint.byPlace.get(p.id), n = node.get(p.node)
+      if (!colour || !n || n.level !== floor) continue
+      const i = which(n.pos[0], n.pos[1])
+      if (i >= 0) tint[i] = colour
+    }
+    return { cls, tint, which, icons }
+  }, [building, floor, lvl, node, bridgeTint])
+  const roomShapes = useMemo(() => rooms && lvl.floors.map((f, i) => <polygon key={`rm-${i}`} className={`m-room ${rooms.cls[i]}`} style={rooms.tint[i] ? { fill: `color-mix(in srgb, ${rooms.tint[i]} 34%, #fff)` } : undefined} points={f.map(p => pt([p[0], 0.01, p[1]])).join(' ')} />),
     [rooms, lvl, centre, yaw, topDown]) // eslint-disable-line
   // ---- 3D campus: blocks far to near, each floor a slab with walls, window bands and a roof ----
   const massShapes = useMemo(() => {
@@ -291,16 +431,22 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         const d = dot([(p[0] + q[0]) / 2, 0, (p[1] + q[1]) / 2], fwd)
         const pts = [pt([p[0], y0, p[1]]), pt([q[0], y0, q[1]]), pt([q[0], y1, q[1]]), pt([p[0], y1, p[1]])].join(' ')
         const win = len >= 3 && L.h >= 2.5 ? (() => { const ux = dx / len, uz = dz / len, a = 0.6, b = len - 0.6, wy0 = y0 + 1.1, wy1 = y1 - 0.7
-          return <polygon className="m-win" points={[pt([p[0] + ux * a, wy0, p[1] + uz * a]), pt([p[0] + ux * b, wy0, p[1] + uz * b]), pt([p[0] + ux * b, wy1, p[1] + uz * b]), pt([p[0] + ux * a, wy1, p[1] + uz * a])].join(' ')} /> })() : null
+          // glass band with a vertical fin every 3 m
+          let fins = ''
+          for (let s2 = a + 1.5; s2 < b - 0.5; s2 += 3) fins += `M${pt([p[0] + ux * s2, wy0, p[1] + uz * s2])}L${pt([p[0] + ux * s2, wy1, p[1] + uz * s2])}`
+          return <><polygon className="m-win" points={[pt([p[0] + ux * a, wy0, p[1] + uz * a]), pt([p[0] + ux * b, wy0, p[1] + uz * b]), pt([p[0] + ux * b, wy1, p[1] + uz * b]), pt([p[0] + ux * a, wy1, p[1] + uz * a])].join(' ')} />{fins && <path className="m-fin" d={fins} />}</> })() : null
         faces.push({ d, el: <g key={`${ri}-${i}`}><polygon className={`m-face ${shade}`} points={pts} />{win}</g> })
       }))
       faces.sort((a, b) => b.d - a.d)
       const roof = L.rings.map(r => 'M' + r.map(p => pt([p[0], y1, p[1]])).join('L') + 'Z').join('')
       const state = L.level === floor ? ' cur' : L.level > floor ? ' above' : ''
-      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass${state}`}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
+      // Colour family: link bridges (br), west blocks (w), east blocks (e). A bridge with a known colour passes it
+      // to the stylesheet as --bc.
+      const fam = /^BR/i.test(m.name) ? 'br' : /^W/i.test(m.name) ? 'w' : 'e', bc = bridgeTint.byBlock.get(m.name)
+      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${state}`} style={bc ? { '--bc': bc } as React.CSSProperties : undefined}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
     }
     return out
-  }, [massMode, mass, yaw, centre, floor]) // eslint-disable-line
+  }, [massMode, mass, yaw, centre, floor, bridgeTint]) // eslint-disable-line
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
   const pinRoom = pinNode && rooms ? rooms.which(node.get(pinNode.node)!.pos[0], node.get(pinNode.node)!.pos[1]) : -1
   const entrances = useMemo(() => floorNodes.filter(n => /\bentrance\b/i.test(names?.get(n.id) ?? n.label)), [floorNodes, names])
@@ -348,6 +494,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // ---- labels: never overlapping; block names when far, room names when close ----
   type Lab = { x: number; y: number; text: string; cls: string; size: number }
   const labels: Lab[] = []
+  const marks: { x: number; y: number; icon: string; kind: string }[] = [] // landmark signs to draw: position, icon and kind
   {
     const taken: [number, number, number, number][] = [] // boxes in px around the centre
     const free = (cx: number, cy: number, w: number, h: number) => {
@@ -372,6 +519,15 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     // entrances always get a label (people orient by them)
     // (only once zoomed in to a block; far out the block names come first and the diamonds mark the entrances)
     if (pxPerM >= ICONS_FROM) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
+    // Landmarks: an icon with its name below. Skipped when off screen or when the icon would overlap a label
+    // already placed.
+    for (const m of site?.landmarks ?? []) {
+      const [sx, sy] = proj([m.pos[0], GROUND_Y, m.pos[1]]), X = (sx - view[0]) / k, Y = (sy - view[1]) / k
+      if (Math.abs(X) > size_w2 + 20 || Math.abs(Y) > size_h2 + 20 || !free(X, Y, 24, 24)) continue
+      taken.push([X - 12, Y - 12, X + 12, Y + 12])
+      marks.push({ x: sx, y: sy, icon: LANDMARK_ICON[m.kind] ?? 'wf-i-park', kind: m.kind })
+      tryAdd(sx, sy + 22 * k, m.name, 'm-label lm', 10.5)
+    }
     if (pxPerM >= ROOM_LABELS_FROM) {
       const named = floorNodes.filter(n => nameOf(n.id) && !entrances.includes(n))
       // nearest to the middle of the view first, so the labels you're looking at win
@@ -490,7 +646,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   }
 
   return (
-    <div className={`mapview${topDown ? ' flat' : ''}`} ref={ref}>
+    <div className={`mapview${topDown ? ' flat' : ''}${site ? ' has-site' : ''}`} ref={ref}>
       <svg ref={svgRef} className={[onPick ? 'pickable' : '', rooms ? 'has-rooms' : '', pxPerM < 2 ? 'far' : '', massMode ? 'mass' : ''].filter(Boolean).join(' ') || undefined} viewBox={`${view[0] - vw / 2} ${view[1] - vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onContextMenu={e => e.preventDefault()} onDoubleClick={e => { const [px, py] = fromCentre(e.clientX, e.clientY); zoomAt(0.6, px, py) }} role="img" aria-label={`${lvl.name} map`}>
         <defs>
@@ -498,9 +654,15 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           <symbol id="wf-i-lift" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="9" width="16" height="12.5" rx="1.5" /><path d="M12 9v12.5" /><path d="M9 1.8 6.6 5h4.8zM15 5.4l2.4-3.2h-4.8z" fill="#fff" strokeWidth="1.2" /></g></symbol>
           <symbol id="wf-i-stair" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19h5v-5h5V9h6" /></g></symbol>
           <symbol id="wf-i-food" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 21V3c-2.5 1.5-3.5 4-3.5 7.5H17" /></g></symbol>
+          <symbol id="wf-i-mrt" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="3" width="12" height="14" rx="3" /><path d="M6 10.5h12M9.5 14h.01M14.5 14h.01M9 21l1.5-4M15 21l-1.5-4" /></g></symbol>
+          <symbol id="wf-i-bus" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="13" rx="2.5" /><path d="M4 11h16M8 14.2h.01M16 14.2h.01M8 17v2.5M16 17v2.5" /></g></symbol>
+          <symbol id="wf-i-shop" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1 12H7zM9 8V6a3 3 0 0 1 6 0v2" /></g></symbol>
+          <symbol id="wf-i-park" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21v-6.5M12 14.5c-3.6 0-5.5-2.4-5.5-5.4S8.6 3 12 3s5.5 3.1 5.5 6.1-1.9 5.4-5.5 5.4z" /></g></symbol>
         </defs>
+        {ground}
         {under}
         {!massMode && roomShapes}
+        {!massMode && sills}
         {massShapes}
         {pinRoom >= 0 ? <polygon className="m-room r-dest" points={lvl.floors[pinRoom].map(p => pt([p[0], 0.02, p[1]])).join(' ')} strokeWidth={2 * k} />
           : pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
@@ -508,6 +670,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           return ri >= 0 ? <polygon key={`vr-${v.node}`} className={`m-vt-room ${v.kind}${v.active ? ' on' : ''}`} points={lvl.floors[ri].map(p => pt([p[0], 0.03, p[1]])).join(' ')} strokeWidth={2.5 * k} />
             : <g key={`vr-${v.node}`}>{zone(v.node, 2.4, `m-vt-room ${v.kind}${v.active ? ' on' : ''}`)}</g> })}
         {wallShapes}
+        {glass}
         {done.map((ids, i) => onFloor(ids).map((r, j) => <polyline key={`d-${i}-${j}`} className="m-done" points={r} strokeWidth={6 * k} />))}
         {lines.map((ids, i) => onFloor(ids).map((r, j) => <g key={`r-${i}-${j}`}>
           <polyline className="m-route-casing" points={r} strokeWidth={9 * k} />
@@ -515,6 +678,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         </g>))}
         {rooms && pxPerM >= ICONS_FROM && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
+        {marks.map((m, i) => { const r = 10 * k; return <g key={`lm-${i}`} className={`m-lm ${m.kind}`}><circle cx={m.x} cy={m.y} r={r} strokeWidth={1.6 * k} /><use href={`#${m.icon}`} x={m.x - r * 0.62} y={m.y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {labels.map((l, i) => <text key={`l-${i}`} x={l.x} y={l.y} fontSize={l.size * k} className={l.cls}>{l.text}</text>)}
         {vts.map(v => vtMarker(v))}
         {hereNode && (() => { const [x, y] = hereAt(hereNode); return <g><circle cx={x} cy={y} r={15 * k} className="m-here-halo" /><circle cx={x} cy={y} r={8 * k} className="m-here" strokeWidth={2.5 * k} /></g> })()}

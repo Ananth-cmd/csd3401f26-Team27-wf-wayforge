@@ -27,19 +27,10 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 # ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
-if(ANDROID)
-    # Android has no desktop windowing, so the GLFW viewer makes no sense there.
-    set(WF_BUILD_VIEWER_DEFAULT OFF)
-    set(WF_BUILD_TESTS_DEFAULT  OFF)
-else()
-    set(WF_BUILD_VIEWER_DEFAULT OFF)   # turn on with -DWF_BUILD_VIEWER=ON once GLFW is wanted
-    set(WF_BUILD_TESTS_DEFAULT  ON)
-endif()
-option(WF_BUILD_VIEWER "Build the optional GLFW debug viewer"            ${WF_BUILD_VIEWER_DEFAULT})
-option(WF_BUILD_TESTS  "Build the per-library console test apps (CTest)" ${WF_BUILD_TESTS_DEFAULT})
+option(WF_BUILD_TESTS  "Build the per-library console test apps (CTest)" ON)
 option(WF_BUILD_CLI    "Build the headless wf_cli converter"             ON)
 
-message(STATUS "Wayforge: viewer=${WF_BUILD_VIEWER} tests=${WF_BUILD_TESTS} cli=${WF_BUILD_CLI} android=${ANDROID}")
+message(STATUS "Wayforge: tests=${WF_BUILD_TESTS} cli=${WF_BUILD_CLI}")
 
 # ---------------------------------------------------------------------------
 # Third-party (FetchContent, pinned tags - see cmake/ImportDependencies.cmake)

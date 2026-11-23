@@ -1,15 +1,50 @@
-// Real 3D route view (three.js / WebGL), loaded only when a route is shown.
-// - whole route: the floors the route uses, pulled apart so you can see between them, the route as a glowing line,
-//   lift / stair shafts joining the floors; drag to orbit; "Walk me through" flies along the whole route
-// - one stage (navigation mode): that floor solid with the floors above and below see-through; the camera walks the
-//   stage at eye level (like Street View) or from just behind you ("Follow")
-// Built from the same building data as the 2D map (rooms coloured by type, walls, doors as gaps). Nothing is changed.
+/*!
+ * \file Route3D.tsx
+ * \brief Real 3D view of a route (three.js / WebGL), loaded only when a route is shown
+ *
+ * Whole route: the floors the route uses, pulled apart so you can see between
+ * them, the route as a glowing line and lift / stair shafts joining the floors;
+ * drag to orbit, "Walk me through" flies along the whole route. One stage
+ * (navigation mode): that floor solid with the floors above and below
+ * see-through; the camera walks the stage at eye level or follows from just
+ * behind. Built from the same building data as the 2D map (rooms coloured by
+ * type, walls, doors as gaps). Falls back to the 2D map if WebGL fails.
+ * Floors and walls are textured (tiles, panels; exterior walls terracotta),
+ * windows are glass panes and each doorway has a frame, a head and an open
+ * leaf. The surroundings (ground, water, roads, neighbouring buildings, trees
+ * and landmark names) are placed under the lowest level shown. Room and
+ * landmark names that overlap on screen are hidden.
+ *
+ * Links: used by App.tsx (lazy loaded); stages from legs.ts; route line shape
+ * from routeline.ts; trees from surroundings.ts.
+ *
+ * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ *
+ * Contribution: Kannan Shrinivasan, Ananthan Elangovan
+ *   Kannan Shrinivasan
+ *   - Floor, wall and shaft geometry from the building data
+ *   - Route line, orbit camera and the walk-through / follow cameras
+ *   - Stage view with see-through floors above and below
+ *   Ananthan Elangovan
+ *   - Floor and wall textures, outside wall and link bridge colours
+ *   - Window glass, door frames, heads and leaves
+ *   - Surroundings under the floors (ground, water, roads, buildings, trees, landmarks)
+ *   - Screen-space declutter of room and landmark names
+ *
+ * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
+ *
+ * \date 2026-11-07
+ * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Building, Vec2 } from './types'
 import type { Leg } from './legs'
 import { drawnRoute } from './routeline'
+import { treesOf } from './surroundings'
 
 type Props = {
   building: Building
@@ -25,7 +60,13 @@ type Props = {
 const WALL_H = 2.7
 const EYE = 1.6
 const SPREAD = 2.6 // whole-route view: floors pulled apart this much
-const ROOM: Record<string, number> = { room: 0xffffff, corr: 0xe9ece9, lobby: 0xf1ece0, toilet: 0xcfeae5, lift: 0xd2e1f3, stair: 0xf5e0c2, food: 0xf6e8c4, lib: 0xe1ead2, lab: 0xdde7f0, office: 0xe8e4f2, store: 0xe4e7e5 }
+const DOOR_H = 2.1 // door height, metres; the wall continues above it
+const LANDMARK_REACH = 120 // landmark names are shown up to this far from the route, metres
+const LANDMARK_GAP = 40 // minimum distance between two landmarks that both get a name, metres
+const LANDMARK_MAX = 6 // most landmark names shown at once
+const LANDMARK_CHARS = 24 // longest landmark name shown; longer names end in an ellipsis
+const AREA: Record<string, number> = { water: 0xa8d2e8, grass: 0xd2e5bf, park: 0xc4ddaf, trees: 0xb7d5a3, plaza: 0xefe8d9 } // ground colour per area kind, as on the map
+const ROOM: Record<string, number> = { room: 0xfbf7ef, corr: 0xe9ece9, lobby: 0xf1ece0, toilet: 0xcfeae5, lift: 0xd2e1f3, stair: 0xf5e0c2, food: 0xf6e8c4, lib: 0xe1ead2, lab: 0xdde7f0, office: 0xe8e4f2, store: 0xe4e7e5 }
 const roomType = (category: string, name: string) => {
   const n = name.toLowerCase(), c = category.toLowerCase()
   if (/\b(wc|toilet|restroom|washroom)/.test(n) || c === 'toilet') return 'toilet'
@@ -49,8 +90,71 @@ const inPoly = (x: number, z: number, poly: Vec2[]) => {
   return inside
 }
 
-// one floor as two meshes (coloured room floors + walls), cached per building and floor
-type FloorMesh = { floor: THREE.BufferGeometry; walls: THREE.BufferGeometry }
+// Floor tile and wall panel textures, drawn once on a 128 px canvas and repeated. Both are near white, so the vertex
+// colour of each room and wall stays visible through them.
+let texCache: { floor: THREE.Texture; wall: THREE.Texture } | null = null
+function textures() {
+  if (texCache) return texCache
+  const make = (draw: (g: CanvasRenderingContext2D, n: number) => void) => {
+    const c = document.createElement('canvas'), n = 128
+    c.width = c.height = n
+    const g = c.getContext('2d')!
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, n, n)
+    let seed = 7
+    for (let i = 0; i < 90; i++) { // 90 faint specks from a fixed-seed generator: the texture is identical on every load
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      const x = seed % n, y = Math.floor(seed / n) % n
+      g.fillStyle = `rgba(60, 60, 50, ${0.02 + (seed % 5) * 0.006})`; g.fillRect(x, y, 5, 5)
+    }
+    draw(g, n)
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4
+    return t
+  }
+  texCache = {
+    // one tile with a joint line on its border
+    floor: make((g, n) => { g.strokeStyle = 'rgba(70, 80, 75, 0.2)'; g.lineWidth = 2; g.strokeRect(1, 1, n - 2, n - 2) }),
+    // four vertical panels separated by joint lines, with a skirting line at the bottom
+    wall: make((g, n) => { g.fillStyle = 'rgba(40, 30, 20, 0.13)'; for (let x = 0; x < n; x += n / 4) g.fillRect(x, 0, 2, n); g.fillStyle = 'rgba(40, 30, 20, 0.1)'; g.fillRect(0, n - 5, n, 5) }),
+  }
+  return texCache
+}
+
+// Builder for one mesh of upright boxes (walls, glass panes, door parts): position, normal, colour and uv per vertex.
+function boxes() {
+  const pos: number[] = [], nor: number[] = [], col: number[] = [], uv: number[] = []
+  const quad = (v: number[][], n: number[], k: THREE.Color, u: number[][]) => {
+    for (const i of [0, 1, 2, 0, 2, 3]) { pos.push(v[i][0], v[i][1], v[i][2]); nor.push(n[0], n[1], n[2]); col.push(k.r, k.g, k.b); uv.push(u[i][0], u[i][1]) }
+  }
+  // Adds a box along a-b (scene x / z, metres) with half thickness t, from height y0 to y1. side and top are the
+  // vertex colours of the vertical faces and of the top face.
+  const add = (ax: number, az: number, bx: number, bz: number, t: number, y0: number, y1: number, side: THREE.Color, top: THREE.Color) => {
+    const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz)
+    if (len < 0.02 || y1 <= y0) return
+    const nx = (-dz / len) * t, nz = (dx / len) * t
+    const q = [[ax + nx, az + nz], [bx + nx, bz + nz], [bx - nx, bz - nz], [ax - nx, az - nz]]
+    const v = (i: number, y: number) => [q[i][0], y, q[i][1]]
+    const U = len / 2.4, T = (2 * t) / 2.4, V0 = y0 / WALL_H, V1 = y1 / WALL_H // uv: the wall texture spans 2.4 m horizontally and WALL_H vertically
+    const long = [[0, V0], [U, V0], [U, V1], [0, V1]], end = [[0, V0], [T, V0], [T, V1], [0, V1]], flat = [[0.5, 0.5], [0.5, 0.5], [0.5, 0.5], [0.5, 0.5]]
+    quad([v(0, y0), v(1, y0), v(1, y1), v(0, y1)], [nx / t, 0, nz / t], side, long)
+    quad([v(2, y0), v(3, y0), v(3, y1), v(2, y1)], [-nx / t, 0, -nz / t], side, long)
+    quad([v(1, y0), v(2, y0), v(2, y1), v(1, y1)], [dx / len, 0, dz / len], side, end)
+    quad([v(3, y0), v(0, y0), v(0, y1), v(3, y1)], [-dx / len, 0, -dz / len], side, end)
+    quad([v(0, y1), v(1, y1), v(2, y1), v(3, y1)], [0, 1, 0], top, flat)
+  }
+  const geometry = () => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3))
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3))
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+    return g
+  }
+  return { add, geometry }
+}
+
+// One floor as four geometries (coloured room floors, walls, window glass, doors), cached per building and floor.
+type FloorMesh = { floor: THREE.BufferGeometry; walls: THREE.BufferGeometry; glass: THREE.BufferGeometry; doors: THREE.BufferGeometry }
 const floorCache = new WeakMap<Building, Map<number, FloorMesh>>()
 function floorMesh(b: Building, li: number): FloorMesh {
   let m = floorCache.get(b)
@@ -59,53 +163,57 @@ function floorMesh(b: Building, li: number): FloorMesh {
   if (hit) return hit
   const lvl = b.levels[li]
   // room colours from the places (each room has one), as in the 2D map
+  // link bridges take the colour given in the surroundings
   const polys = lvl.floors
   const box = polys.map(f => { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const [x, z] of f) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z) } return [x0, x1, z0, z1] })
   const type: string[] = polys.map(() => (polys.length > 1 ? 'room' : 'corr'))
+  const tint: (string | undefined)[] = polys.map(() => undefined)
   if (polys.length > 1) {
     const nodeAt = new Map(b.nodes.filter(n => n.level === li).map(n => [n.id, n.pos]))
+    const bridge = new Map((b.surroundings?.bridges ?? []).map(x => [x.room, x.colour]))
     for (const p of b.pois) {
       const pos = nodeAt.get(p.node)
       if (!pos) continue
-      for (let i = 0; i < polys.length; i++) { const q = box[i]; if (type[i] === 'room' && pos[0] >= q[0] && pos[0] <= q[1] && pos[1] >= q[2] && pos[1] <= q[3] && inPoly(pos[0], pos[1], polys[i])) { type[i] = roomType(p.category ?? '', p.name ?? ''); break } }
+      for (let i = 0; i < polys.length; i++) { const q = box[i]; if ((type[i] === 'room' || bridge.has(p.id)) && pos[0] >= q[0] && pos[0] <= q[1] && pos[1] >= q[2] && pos[1] <= q[3] && inPoly(pos[0], pos[1], polys[i])) { if (type[i] === 'room') type[i] = roomType(p.category ?? '', p.name ?? ''); tint[i] ??= bridge.get(p.id); break } }
     }
   }
-  const fp: number[] = [], fc: number[] = [], col = new THREE.Color()
+  const fp: number[] = [], fc: number[] = [], fu: number[] = [], col = new THREE.Color(), white = new THREE.Color(0xffffff)
   polys.forEach((f, i) => {
     const contour = f.map(([x, z]) => new THREE.Vector2(x, -z))
     let tris: number[][]
     try { tris = THREE.ShapeUtils.triangulateShape(contour, []) } catch { return }
-    col.setHex(ROOM[type[i]] ?? 0xffffff)
-    for (const t of tris) for (const k of t) { fp.push(contour[k].x, 0, contour[k].y); fc.push(col.r, col.g, col.b) }
+    if (tint[i]) col.set(tint[i]!).lerp(white, 0.55); else col.setHex(ROOM[type[i]] ?? 0xffffff)
+    for (const t of tris) for (const k of t) { fp.push(contour[k].x, 0, contour[k].y); fc.push(col.r, col.g, col.b); fu.push(contour[k].x / 1.2, contour[k].y / 1.2) } // uv: one tile per 1.2 m
   })
   const floor = new THREE.BufferGeometry()
   floor.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3))
   floor.setAttribute('color', new THREE.Float32BufferAttribute(fc, 3))
+  floor.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2))
   floor.computeVertexNormals()
-  // walls as boxes (sides light, tops darker so the plan reads from above)
-  const wp: number[] = [], wn: number[] = [], wc: number[] = []
-  const side = new THREE.Color(0xf6f6f2), top = new THREE.Color(0x8aa39a)
-  const quad = (a: number[], b2: number[], c: number[], d: number[], n: number[], k: THREE.Color) => {
-    for (const v of [a, b2, c, a, c, d]) { wp.push(v[0], v[1], v[2]); wn.push(n[0], n[1], n[2]); wc.push(k.r, k.g, k.b) }
+  // walls as boxes (sides light, tops darker so the plan reads from above); exterior walls use the terracotta pair
+  const W = boxes(), G = boxes(), D = boxes()
+  const side = new THREE.Color(0xf4f1ea), top = new THREE.Color(0x8aa39a), sideOut = new THREE.Color(0xc48f70), topOut = new THREE.Color(0x8d5e46)
+  for (const w of lvl.walls) W.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, WALL_H, w.exterior ? sideOut : side, w.exterior ? topOut : top)
+  // Windows: a glass pane from sill to head, 0.03 m proud of both wall faces.
+  const pane = new THREE.Color(0xffffff)
+  for (const wn of lvl.windows ?? []) G.add(wn.a[0], -wn.a[1], wn.b[0], -wn.b[1], Math.max(0.12, wn.thickness) / 2 + 0.03, wn.sill, Math.min(WALL_H - 0.12, wn.sill + wn.height), pane, pane)
+  // Doors: the wall continues above DOOR_H, a frame post stands at each end of the span, and each leaf is opened by
+  // 72 degrees. A span wider than 1.5 m gets two leaves.
+  const frame = new THREE.Color(0x6b4a2b), leaf = new THREE.Color(0xb07a45), open = (72 * Math.PI) / 180
+  for (const d of lvl.doors ?? []) {
+    const ax = d.a[0], az = -d.a[1], bx = d.b[0], bz = -d.b[1], dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz)
+    if (len < 0.5) continue
+    const ux = dx / len, uz = dz / len
+    W.add(ax, az, bx, bz, 0.09, DOOR_H, WALL_H, side, top)
+    D.add(ax - ux * 0.04, az - uz * 0.04, ax + ux * 0.05, az + uz * 0.05, 0.13, 0, DOOR_H, frame, frame)
+    D.add(bx - ux * 0.05, bz - uz * 0.05, bx + ux * 0.04, bz + uz * 0.04, 0.13, 0, DOOR_H, frame, frame)
+    const leaves: [number, number, number, number][] = len > 1.5 ? [[ax, az, 1, len / 2], [bx, bz, -1, len / 2]] : [[ax, az, 1, len]]
+    for (const [hx, hz, dir, w] of leaves) {
+      const lx = ux * dir * Math.cos(open) - uz * Math.sin(open), lz = uz * dir * Math.cos(open) + ux * Math.sin(open)
+      D.add(hx, hz, hx + lx * (w - 0.04), hz + lz * (w - 0.04), 0.025, 0, DOOR_H - 0.05, leaf, leaf)
+    }
   }
-  for (const w of lvl.walls) {
-    const ax = w.a[0], az = -w.a[1], bx = w.b[0], bz = -w.b[1], dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz)
-    if (len < 0.05) continue
-    const t = Math.max(0.12, w.thickness) / 2, nx = (-dz / len) * t, nz = (dx / len) * t
-    const p = [[ax + nx, az + nz], [bx + nx, bz + nz], [bx - nx, bz - nz], [ax - nx, az - nz]]
-    const v = (i: number, y: number) => [p[i][0], y, p[i][1]]
-    const N = [nx / t, 0, nz / t], S = [-nx / t, 0, -nz / t], E = [dx / len, 0, dz / len], Wd = [-dx / len, 0, -dz / len]
-    quad(v(0, 0), v(1, 0), v(1, WALL_H), v(0, WALL_H), N, side)
-    quad(v(2, 0), v(3, 0), v(3, WALL_H), v(2, WALL_H), S, side)
-    quad(v(1, 0), v(2, 0), v(2, WALL_H), v(1, WALL_H), E, side)
-    quad(v(3, 0), v(0, 0), v(0, WALL_H), v(3, WALL_H), Wd, side)
-    quad(v(0, WALL_H), v(1, WALL_H), v(2, WALL_H), v(3, WALL_H), [0, 1, 0], top)
-  }
-  const walls = new THREE.BufferGeometry()
-  walls.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3))
-  walls.setAttribute('normal', new THREE.Float32BufferAttribute(wn, 3))
-  walls.setAttribute('color', new THREE.Float32BufferAttribute(wc, 3))
-  const out = { floor, walls }
+  const out = { floor, walls: W.geometry(), glass: G.geometry(), doors: D.geometry() }
   m.set(li, out)
   return out
 }
@@ -155,9 +263,10 @@ function badge(kind: 'lift' | 'stairs', text: string) {
 
 export default function Route3D({ building, legs, stage, start, dest, names, captions, onFail }: Props) {
   const host = useRef<HTMLDivElement>(null)
-  const api = useRef<{ play: () => void; view: (v: 'eye' | 'follow' | 'orbit') => void } | null>(null)
+  const api = useRef<{ play: () => void; pause: (p: boolean) => void; view: (v: 'eye' | 'follow' | 'orbit') => void } | null>(null)
   const [mode, setMode] = useState<'eye' | 'follow' | 'orbit'>('orbit')
   const [playing, setPlaying] = useState(false)
+  const [paused, setPaused] = useState(false) // walk-through stopped part way (Resume carries on from there)
   const [caption, setCaption] = useState('')
   const failRef = useRef(onFail)
   failRef.current = onFail // eslint-disable-line react-hooks/refs -- latest callback
@@ -172,7 +281,7 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     renderer.outputColorSpace = THREE.SRGBColorSpace
     el.appendChild(renderer.domElement)
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xe8eeeb)
+    scene.background = new THREE.Color(0xdcebf2)
     scene.add(new THREE.HemisphereLight(0xffffff, 0xc9d3ce, 2.6))
     const sun = new THREE.DirectionalLight(0xfff8ee, 1.1); sun.position.set(-40, 80, 30); scene.add(sun)
     const camera = new THREE.PerspectiveCamera(stage === undefined ? 45 : 70, 1, 0.1, 3000)
@@ -191,10 +300,13 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     const mats: THREE.Material[] = [], geos: THREE.BufferGeometry[] = [] // freed when the view closes (floors stay cached)
     const mat = <T extends THREE.Material>(m: T) => { mats.push(m); return m }
     const geo = <T extends THREE.BufferGeometry>(g: T) => { geos.push(g); return g }
-    const solidFloor = mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }))
-    const solidWall = mat(new THREE.MeshLambertMaterial({ vertexColors: true }))
+    const tex = textures()
+    const solidFloor = mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map: tex.floor }))
+    const solidWall = mat(new THREE.MeshLambertMaterial({ vertexColors: true, map: tex.wall }))
     const ghostFloor = mat(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.22, depthWrite: false }))
     const ghostWall = mat(new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.12, depthWrite: false }))
+    const glassMat = mat(new THREE.MeshLambertMaterial({ color: 0x9fd4ee, emissive: 0x4a90b8, emissiveIntensity: 0.35, transparent: true, opacity: 0.82 }))
+    const doorMat = mat(new THREE.MeshLambertMaterial({ vertexColors: true }))
     const topSolid = Math.max(...[...shown].filter(([, v]) => v).map(([k]) => k))
     const above: THREE.Object3D[] = []
     for (const [li, solid] of shown) {
@@ -202,6 +314,64 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       const f = new THREE.Mesh(g.floor, solid ? solidFloor : ghostFloor); f.position.y = y; scene.add(f)
       const w = new THREE.Mesh(g.walls, solid ? solidWall : ghostWall); w.position.y = y; scene.add(w)
       if (li > topSolid) above.push(f, w)
+      if (!solid) continue // ghost levels show the floor and the walls only
+      const d = new THREE.Mesh(g.doors, doorMat); d.position.y = y; scene.add(d)
+      const gl = new THREE.Mesh(g.glass, glassMat); gl.position.y = y; gl.renderOrder = 2; scene.add(gl)
+      if (li > topSolid) above.push(d, gl)
+    }
+
+    // Surroundings, placed 0.6 m below the lowest level shown: ground and areas, roads, neighbouring buildings
+    // and trees.
+    const site = building.surroundings
+    if (site) {
+      const y0 = Math.min(...[...shown.keys()].map(elev)) - 0.6
+      const gp: number[] = [], gc: number[] = [], tone = new THREE.Color()
+      const flat = (poly: Vec2[], hex: number, y: number) => {
+        const contour = poly.map(([x, z]) => new THREE.Vector2(x, -z))
+        let tris: number[][]
+        try { tris = THREE.ShapeUtils.triangulateShape(contour, []) } catch { return }
+        tone.setHex(hex)
+        for (const t of tris) for (const k of t) { gp.push(contour[k].x, y, contour[k].y); gc.push(tone.r, tone.g, tone.b) }
+      }
+      const [bx0, bz0, bx1, bz1] = site.bounds
+      flat([[bx0, bz0], [bx1, bz0], [bx1, bz1], [bx0, bz1]], 0xe6eadf, y0 - 0.2)
+      site.areas.forEach((a, i) => flat(a.polygon, AREA[a.kind] ?? AREA.grass, y0 - 0.16 + i * 0.004))
+      for (const r of site.roads) { // roads and paths as flat strips; an octagon at each vertex closes the gap between two strips
+        const hex = r.kind === 'road' ? 0xf7f7f3 : r.kind === 'cycle' ? 0xe6dcc3 : 0xf3ecdb, y = y0 - (r.kind === 'road' ? 0.06 : 0.03), h = r.width / 2
+        for (let i = 1; i < r.points.length; i++) {
+          const a = r.points[i - 1], c = r.points[i], dx = c[0] - a[0], dz = c[1] - a[1], len = Math.hypot(dx, dz)
+          if (len < 0.05) continue
+          const nx = (-dz / len) * h, nz = (dx / len) * h
+          flat([[a[0] + nx, a[1] + nz], [c[0] + nx, c[1] + nz], [c[0] - nx, c[1] - nz], [a[0] - nx, a[1] - nz]], hex, y)
+          flat(Array.from({ length: 8 }, (_, j) => [c[0] + Math.cos((j * Math.PI) / 4) * h, c[1] + Math.sin((j * Math.PI) / 4) * h] as Vec2), hex, y)
+        }
+      }
+      const ground = geo(new THREE.BufferGeometry())
+      ground.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3))
+      ground.setAttribute('color', new THREE.Float32BufferAttribute(gc, 3))
+      scene.add(new THREE.Mesh(ground, mat(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }))))
+      // Neighbouring buildings: grey prisms, height capped at 14 m to keep the levels shown in view.
+      const N = boxes(), grey = new THREE.Color(0xd2d6cf), roofTone = new THREE.Color(0xe6e9e3), rp: number[] = [], rc: number[] = []
+      for (const nb of site.buildings) {
+        const h = Math.min(14, nb.levels * 3.2)
+        nb.polygon.forEach((a, i) => { const c = nb.polygon[(i + 1) % nb.polygon.length]; N.add(a[0], -a[1], c[0], -c[1], 0.15, 0, h, grey, roofTone) })
+        const contour = nb.polygon.map(([x, z]) => new THREE.Vector2(x, -z))
+        try { for (const t of THREE.ShapeUtils.triangulateShape(contour, [])) for (const k of t) { rp.push(contour[k].x, h, contour[k].y); rc.push(roofTone.r, roofTone.g, roofTone.b) } } catch { /* outline cannot be triangulated: no roof */ }
+      }
+      const nbWalls = new THREE.Mesh(geo(N.geometry()), doorMat); nbWalls.position.y = y0; scene.add(nbWalls)
+      const roofs = geo(new THREE.BufferGeometry())
+      roofs.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3))
+      roofs.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3))
+      const roofMesh = new THREE.Mesh(roofs, mat(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }))); roofMesh.position.y = y0; scene.add(roofMesh)
+      // trees: one trunk and one crown instance per tree position
+      const trees = treesOf(building)
+      if (trees.length) {
+        const crowns = new THREE.InstancedMesh(geo(new THREE.SphereGeometry(2.7, 10, 7)), mat(new THREE.MeshLambertMaterial({ color: 0x6aa364 })), trees.length)
+        const trunks = new THREE.InstancedMesh(geo(new THREE.CylinderGeometry(0.28, 0.4, 2.6, 6)), mat(new THREE.MeshLambertMaterial({ color: 0x8a6b4a })), trees.length)
+        const tm = new THREE.Matrix4()
+        trees.forEach(([x, z], i) => { crowns.setMatrixAt(i, tm.makeTranslation(x, y0 + 4.4, -z)); trunks.setMatrixAt(i, tm.makeTranslation(x, y0 + 1.3, -z)) })
+        scene.add(crowns, trunks)
+      }
     }
 
     // the route: one line through every stage (lifts / stairs go straight up between the floors)
@@ -232,6 +402,24 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     const path = new THREE.CurvePath<THREE.Vector3>()
     for (let i = 1; i < pts.length; i++) path.add(new THREE.LineCurve3(pts[i - 1], pts[i]))
     const bb = new THREE.Box3().setFromPoints(pts), centre = bb.getCenter(new THREE.Vector3()), size = bb.getSize(new THREE.Vector3())
+    // Landmark names near the route: within LANDMARK_REACH of the route's bounding box, nearest first, at most
+    // LANDMARK_MAX, and none within LANDMARK_GAP of one already taken. Long names are cut to LANDMARK_CHARS.
+    const landmarkLabels: THREE.Sprite[] = []
+    if (site) {
+      const gy = Math.min(...[...shown.keys()].map(elev)) + 6
+      const near = site.landmarks.map(lm => {
+        const dx = Math.max(bb.min.x - lm.pos[0], 0, lm.pos[0] - bb.max.x), dz = Math.max(bb.min.z + lm.pos[1], 0, -lm.pos[1] - bb.max.z)
+        return { lm, d: Math.hypot(dx, dz) }
+      }).filter(x => x.d <= LANDMARK_REACH).sort((p, q) => p.d - q.d)
+      const taken: Vec2[] = []
+      for (const { lm } of near) {
+        if (taken.length >= LANDMARK_MAX || taken.some(q => Math.hypot(q[0] - lm.pos[0], q[1] - lm.pos[1]) < LANDMARK_GAP)) continue
+        taken.push(lm.pos)
+        const name = lm.name.length > LANDMARK_CHARS ? lm.name.slice(0, LANDMARK_CHARS - 1).trimEnd() + '\u2026' : lm.name
+        const t = label(name, 'rgba(255,255,255,0.86)', '#52635d', false, 30)
+        t.scale.multiplyScalar(0.8); t.position.set(lm.pos[0], gy, -lm.pos[1]); scene.add(t); landmarkLabels.push(t)
+      }
+    }
     const tubeR = 0.2, K = liftStage ? 2.5 : Math.max(1, Math.min(5, size.length() / 90)) // overview: everything K times bigger
     const routeMat = mat(new THREE.MeshLambertMaterial({ color: 0x0b7a6b, emissive: 0x0b7a6b, emissiveIntensity: 0.55 }))
     const thin = new THREE.Mesh(geo(new THREE.TubeGeometry(path, Math.min(2000, pts.length * 6), tubeR, 10, false)), routeMat)
@@ -329,7 +517,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       controls.update()
     }
     let view: 'eye' | 'follow' | 'orbit' = 'orbit'
-    let s = 0, speed = 0, flying = false, arrowK = 1
+    let s = 0, speed = 0, flying = false, held = false, arrowK = 1
+    const hold = (p: boolean) => { held = p && flying; setPaused(held); if (!held) speed = 0 } // resume eases back up to speed
     const look = new THREE.Vector3(), want = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3()
     const place = (snap: boolean) => {
       const p = at(s, tmp)
@@ -358,20 +547,47 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       you.visible = v !== 'eye' // at eye level you are the camera
       for (const o of above) o.visible = v !== 'follow' // the floor above would block the view from behind you
       if (v === 'orbit') { s = 0; const p0 = at(0, tmp); you.position.set(p0.x, p0.y - 0.35, p0.z) }
-      if (v === 'orbit') { flying = false; setPlaying(false); setCaption(''); camera.fov = 45; camera.updateProjectionMatrix(); orbitHome() }
+      if (v === 'orbit') { flying = false; hold(false); setPlaying(false); setCaption(''); camera.fov = 45; camera.updateProjectionMatrix(); orbitHome() }
       else { camera.fov = v === 'eye' ? 72 : 60; camera.updateProjectionMatrix(); place(true) }
     }
     const play = () => {
       if (view === 'orbit') setView('follow')
-      s = 0; flying = true; setPlaying(true); place(true)
+      s = 0; flying = true; hold(false); setPlaying(true); place(true)
     }
-    api.current = { play, view: setView }
+    api.current = { play, pause: hold, view: setView }
     const walkStage = !whole && legs[stage!].kind === 'walk'
     if (!walkStage) setView('orbit'); else { setView('follow'); setTimeout(() => { if (api.current) play() }, 700) }
 
     // size
     const resize = () => { const w = el.clientWidth || 300, h = el.clientHeight || 200; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix() }
     const ro = new ResizeObserver(resize); ro.observe(el); resize()
+
+    // Label declutter in screen space. Route signs (you, destination, level, lift and stair signs) are always drawn.
+    // A room or landmark name is hidden while its rectangle overlaps a route sign or a name placed before it;
+    // room names are placed before landmark names.
+    const signs: THREE.Sprite[] = []
+    scene.traverse(o => { if (o instanceof THREE.Sprite && o.renderOrder >= 10) signs.push(o) })
+    const at3 = new THREE.Vector3(), size3 = new THREE.Vector3()
+    // rectangle of a fixed-size sprite in normalised device coordinates [x0, y0, x1, y1]; null when outside the depth range
+    const rectOf = (sp: THREE.Sprite): number[] | null => {
+      sp.getWorldPosition(at3).project(camera)
+      if (at3.z < -1 || at3.z > 1) return null
+      sp.getWorldScale(size3)
+      const w = size3.x * camera.projectionMatrix.elements[0], h = size3.y * camera.projectionMatrix.elements[5]
+      const x0 = at3.x - sp.center.x * w, y0 = at3.y - sp.center.y * h
+      return [x0, y0, x0 + w, y0 + h]
+    }
+    const declutter = () => {
+      const used: number[][] = []
+      for (const sp of signs) { if (!sp.visible || sp.parent?.visible === false) continue; const r = rectOf(sp); if (r) used.push(r) }
+      const place = (sp: THREE.Sprite) => {
+        const r = rectOf(sp)
+        sp.visible = !!r && !used.some(q => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])
+        if (sp.visible) used.push(r!)
+      }
+      for (const sp of roomLabels) if (sp.visible) place(sp) // room names already hidden by distance stay hidden
+      for (const sp of landmarkLabels) place(sp)
+    }
 
     // loop
     let raf = 0, last = performance.now(), phase = 0, shownCap = '', frame = 0
@@ -392,7 +608,9 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       const pz = ((now / 1000) % 1.6) / 1.6
       for (const r of rings) { r.scale.setScalar(1 + pz * 0.9); (r.material as THREE.MeshBasicMaterial).opacity = 0.65 * (1 - pz) }
       if (++frame % 10 === 0) for (const t of roomLabels) t.visible = view === 'orbit' || t.position.distanceTo(camera.position) < 28
-      if (flying) {
+      if (frame % 10 === 0) declutter()
+      if (flying && held) place(false) // paused: stay put (Eye level / Follow still switch)
+      else if (flying) {
         at(s, tmp); at(Math.min(total, s + 1), tmp2)
         const vertical = Math.abs(tmp2.y - tmp.y) > 0.5
         const target = vertical ? 4 : view === 'eye' ? 4.2 : 7
@@ -419,7 +637,10 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     <div className="r3d" ref={host}>
       {caption && <div className="r3d-cap" aria-live="polite">{caption}</div>}
       <div className="r3d-bar" role="group" aria-label="3D view">
-        <button className="r3d-play" onClick={() => api.current?.play()} aria-pressed={playing}>{playing ? 'Walking…' : stage === undefined ? '▶ Walk me through' : '▶ Replay'}</button>
+        {playing
+          ? <button className="r3d-play" onClick={() => api.current?.pause(!paused)} aria-pressed={!paused} aria-label={paused ? 'Resume walk-through' : 'Pause walk-through'}>{paused ? '▶ Resume' : '❚❚ Pause'}</button>
+          : <button className="r3d-play" onClick={() => api.current?.play()}>{stage === undefined ? '▶ Walk me through' : '▶ Replay'}</button>}
+        {playing && paused && <button className="r3d-restart" onClick={() => api.current?.play()} aria-label="Start the walk-through again">↺ Restart</button>}
         <div className="r3d-seg">
           <button className={mode === 'eye' ? 'on' : ''} aria-pressed={mode === 'eye'} onClick={() => api.current?.view('eye')}>Eye level</button>
           <button className={mode === 'follow' ? 'on' : ''} aria-pressed={mode === 'follow'} onClick={() => api.current?.view('follow')}>Follow</button>

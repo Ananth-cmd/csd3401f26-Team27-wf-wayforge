@@ -1,10 +1,24 @@
-/**
- * Strict parser for Wayforge inter-floor links.
- * Supports explicit qualified endpoints, not guessed links.
- * Until the real multi-floor .wfb is available, all supported shapes are provisional.
+/*!
+ * \file wfbLinks.ts
+ * \brief Parses and validates inter-floor stairs and lift links in .wfb.
+ *
+ * Normalizes explicitly specified link endpoints and movement types, checks
+ * accessibility and route costs, and looks up valid connections. Unknown link
+ * formats are rejected rather than silently converted. Supported formats are
+ * provisional until tested against a complete multi-floor Studio .wfb.
+ *
+ * Links: navigatorAdapter.ts; navigatorBuildingAdapter.ts
+ *
+ * \author Kervin Ong Guan Cheng
+ * Contribution: Wayforge backend support and integration
+ * AI declaration: ChatGPT assisted with refining documentation comments.
+ * \date 2026-11-07
  */
+
 export type WfbLinkKind = 'stairs' | 'lift';
+// Full node reference: floor, node, and a stable "L1:n1" string ID.
 export type Endpoint = { level: string; node: string; id: string };
+// Normalized representation used by both building and route adapters.
 export type ParsedWfbLink = {
     from: Endpoint;
     to: Endpoint;
@@ -14,6 +28,10 @@ export type ParsedWfbLink = {
     cost?: number;
 };
 
+/**
+ * Explicitly report unrecognized or inconsistent .wfb link data.
+ * Callers can distinguish unsupported input from ordinary system failures.
+ */
 export class UnsupportedWfbError extends Error {
     constructor(message: string) {
         super(message);
@@ -28,6 +46,10 @@ function rec(v: unknown): v is Rec {
 function nonempty(v: unknown): v is string {
     return typeof v === 'string' && v.trim().length > 0;
 }
+/**
+ * Accept a qualified "L1:n1" string or an object with floor/node fields.
+ * Return null when the endpoint cannot be identified without guessing.
+ */
 function endpoint(v: unknown): Endpoint | null {
     let level: unknown;
     let node: unknown;
@@ -42,6 +64,7 @@ function endpoint(v: unknown): Endpoint | null {
     if (!nonempty(level) || !nonempty(node)) return null;
     return { level, node, id: `${level}:${node}` };
 }
+// Normalize alternative spellings to Navigator's stairs/lift types.
 function parseKind(v: unknown): WfbLinkKind | null {
     if (typeof v !== 'string') return null;
     const k = v.toLowerCase();
@@ -50,12 +73,18 @@ function parseKind(v: unknown): WfbLinkKind | null {
     return null;
 }
 
+/**
+ * Parse and validate all inter-floor links in a published building.
+ * Reject same-floor links, unsupported types, contradictory accessibility
+ * flags, and invalid route costs.
+ */
 export function parseWfbLinks(raw: unknown): ParsedWfbLink[] {
     if (raw === undefined || raw === null) return [];
     if (!Array.isArray(raw)) throw new UnsupportedWfbError('The .wfb links field is not an array');
 
     return raw.map((value, i): ParsedWfbLink => {
         if (!rec(value)) throw new UnsupportedWfbError(`Unsupported .wfb link at index ${i}`);
+        // Different known schemas may name the two endpoints differently.
         const a = value.a ?? value.from ?? value.src ?? value.start ?? (
             value.fromLevel !== undefined ? {level: value.fromLevel, node: value.fromNode} : undefined
         );
@@ -75,6 +104,7 @@ export function parseWfbLinks(raw: unknown): ParsedWfbLink[] {
         if (kind === 'stairs' && value.stepFree === true) {
             throw new UnsupportedWfbError(`Conflicting stepFree=true on stair link ${i}`);
         }
+        // A cost is optional, but if present it must be finite and nonnegative.
         const rawCost = value.cost ?? value.weight;
         if (rawCost !== undefined && (typeof rawCost !== 'number' || !Number.isFinite(rawCost) || rawCost < 0)) {
             throw new UnsupportedWfbError(`Invalid cost in .wfb links[${i}]`);
@@ -88,6 +118,10 @@ export function parseWfbLinks(raw: unknown): ParsedWfbLink[] {
     });
 }
 
+/**
+ * Find an allowed connection between two full node IDs.
+ * Reverse movement is accepted only when the link is bidirectional.
+ */
 export function findConnection(
     links: ParsedWfbLink[],
     start: string,

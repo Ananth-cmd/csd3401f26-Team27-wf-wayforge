@@ -3,7 +3,9 @@
 
 export type Vec2 = [number, number]
 
-export type Wall = { a: Vec2; b: Vec2; thickness: number }
+export type Wall = { a: Vec2; b: Vec2; thickness: number; exterior?: boolean } // exterior: true when the wall has a room on one side only
+export type Door = { a: Vec2; b: Vec2 } // door opening span in its wall: start and end points
+export type Window = { a: Vec2; b: Vec2; sill: number; height: number; thickness: number } // window span on a wall; sill and height in metres above the floor
 
 export type Level = {
   index: number
@@ -12,6 +14,8 @@ export type Level = {
   height: number
   floors: Vec2[][] // floor slab outlines
   walls: Wall[]
+  doors?: Door[]
+  windows?: Window[]
 }
 
 export type NodeKind = 'room' | 'turn' | 'stairs' | 'lift'
@@ -36,6 +40,18 @@ export type Building = {
   edges: Edge[] // same-floor
   links: Edge[] // between floors (stairs, lift)
   pois: Poi[]
+  surroundings?: Site
+}
+
+// Surroundings of the building (the .wfb "site" object) in level coordinates, metres. Used for drawing only, not for routing.
+export type Site = {
+  source: string
+  bounds: [number, number, number, number] // x0, z0, x1, z1
+  areas: { kind: string; name: string; polygon: Vec2[] }[] // kind: water, park, grass, trees or plaza
+  roads: { kind: string; name: string; width: number; points: Vec2[] }[] // kind: road, path or cycle; width in metres
+  buildings: { name: string; kind: string; levels: number; polygon: Vec2[] }[] // neighbouring buildings; levels is the storey count
+  landmarks: { name: string; kind: string; pos: Vec2 }[] // kind: mrt, bus, food, shop or park
+  bridges: { room: string; colour: string }[] // room: place id of a link bridge; colour: "#rrggbb"
 }
 
 // Same shape as the prototype's Route (BuildingDefinition.cs)

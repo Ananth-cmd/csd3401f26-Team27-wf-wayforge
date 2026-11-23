@@ -51,29 +51,10 @@ macro(import_stb)
     endif()
 endmacro()
 
-# glfw  (GRAPHICS - Y)  only for the optional desktop viewer
-macro(import_glfw)
-    if(NOT TARGET glfw)
-        message(STATUS "Importing GLFW...")
-        FetchContent_Declare(glfw
-            GIT_REPOSITORY https://github.com/glfw/glfw.git
-            GIT_TAG        3.4
-            GIT_SHALLOW    TRUE)
-        set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
-        set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(glfw)
-    endif()
-endmacro()
-
 macro(importDependencies)
     message(STATUS "Starting to import dependencies...")
     import_json()
     import_pugixml()
     import_stb()
-    if(WF_BUILD_VIEWER)
-        import_glfw()
-    endif()
     message(STATUS "All dependencies have been imported successfully.")
 endmacro()
