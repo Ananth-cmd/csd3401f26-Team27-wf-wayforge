@@ -829,3 +829,13 @@ html, body { overflow-x: hidden; }
 .sx-desk .sx-r3d .r3d-bar { left: 16px; right: 80px; bottom: 16px; }
 .sx-desk .r3d-cap { top: 16px; }
 .sx-desk.spanned .sx-top, .sx-desk.spanned .sx-bottom, .sx-desk.spanned .sx-modal { width: var(--col); }
+
+/* Toilets / Stairs / Lifts button pressed: those places lit up on the map */
+.m-hi { pointer-events: none; }
+.m-hi-dot { stroke: #fff; }
+.m-hi.toilet .m-hi-dot { fill: #2f8f83; } .m-hi.toilet .m-hi-halo { fill: rgba(47, 143, 131, 0.28); }
+.m-hi.lift .m-hi-dot { fill: #3c6fb0; } .m-hi.lift .m-hi-halo { fill: rgba(60, 111, 176, 0.28); }
+.m-hi.stairs .m-hi-dot { fill: #c9852f; } .m-hi.stairs .m-hi-halo { fill: rgba(201, 133, 47, 0.3); }
+.m-hi-halo { transform-box: fill-box; transform-origin: center; animation: m-hi-pulse 1.6s ease-in-out infinite; }
+@keyframes m-hi-pulse { 0%, 100% { transform: scale(0.8); opacity: 1; } 50% { transform: scale(1.12); opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) { .m-hi-halo { animation: none; } }

@@ -131,6 +131,7 @@ export default function App() {
   const [no3d, setNo3d] = useState(false) // this device can't do WebGL: always the map
   const [near, setNear] = useState<Near | null>(null) // closest toilet / stairs / lift
   const [nearKind, setNearKind] = useState<Kind | null>(null) // chip picked before the start was known
+  const [hiKind, setHiKind] = useState<Kind | null>(null) // Toilets / Stairs / Lifts chip pressed: those icons are highlighted on the map
   const [asking, setAsking] = useState(false) // "End this route?"
   const [confirmed, setConfirmed] = useState(false) // "Starting point confirmed" under the map
   const [turnsOpen, setTurnsOpen] = useState(false)
@@ -405,6 +406,16 @@ export default function App() {
     }
     return best
   }
+  // every toilet / stairs / lift on the map (node ids), for the highlight
+  const nodesOfKind = (kind: Kind): string[] => kind === 'toilet' ? P.visible.filter(p => p.kind === 'toilet').map(p => p.node) : b.nodes.filter(n => n.kind === kind).map(n => n.id)
+  // pressing a chip lights up that kind of place on the map; pressing it again turns it off. If there are none on this
+  // level the map moves to the closest level that has some.
+  const toggleHi = (kind: Kind) => {
+    if (hiKind === kind) { setHiKind(null); return }
+    setHiKind(kind)
+    const levels = nodesOfKind(kind).map(id => node(id).level)
+    if (levels.length && !levels.includes(floor)) setFloor(levels.reduce((best, l) => (Math.abs(l - floor) < Math.abs(best - floor) ? l : best)))
+  }
   const showNearby = (kind: Kind, from: Place | null = start) => {
     if (!from) { setNearKind(kind); openPicker('where'); return }
     const n = nearest(kind, from)
@@ -459,13 +470,15 @@ export default function App() {
   let sheet: ReactNode = null // the card / sheet at the bottom (phones) or in the column (desktop)
   let tall = false // picker sheets: most of the screen on phones
   let bar: 'search' | 'campus' | 'dest' = 'campus'
-  const chips = (on?: Kind) => <div className="sx-chips" role="group" aria-label="Nearby">{(['toilet', 'stairs', 'lift'] as Kind[]).map(k => <button key={k} className={on === k ? 'on' : ''} aria-pressed={on === k} onClick={() => (on === k ? home() : showNearby(k))}>{KIND_NAME[k]}</button>)}</div>
+  const chips = (on?: Kind) => <div className="sx-chips" role="group" aria-label="Nearby">{(['toilet', 'stairs', 'lift'] as Kind[]).map(k => <button key={k} className={on === k ? 'on' : ''} aria-pressed={on === k} onClick={() => toggleHi(k)}>{KIND_NAME[k]}</button>)}</div>
 
   switch (screen) {
     case 'explore': {
-      bar = 'search'; top = chips()
+      bar = 'search'; top = chips(hiKind ?? undefined)
+      if (hiKind) { const ids = nodesOfKind(hiKind); map = { ...browseMap, highlight: { kind: hiKind, nodes: ids } } }
+      const hiHere = hiKind ? nodesOfKind(hiKind).filter(id => node(id).level === floor).length : 0
       sheet = <>
-        <p className="sx-note">{confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : 'Set a start to find the nearest places'}</p>
+        <p className="sx-note">{hiKind ? `${hiHere} ${KIND_NAME[hiKind].toLowerCase()} on ${L(floor)}${hiHere ? '' : ' (none here)'}` : confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : 'Set a start to find the nearest places'}</p>
         <button className="sx-card sx-loc" onClick={() => openPicker('where')}>
           <span className="lbl">Current location</span>
           <span className="val"><i className="dot" />{start ? `${start.title} · ${L(start.level)}` : 'Set your starting point'}</span>
