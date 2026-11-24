@@ -217,6 +217,14 @@ async function saveBuilding(id, req) {
   // walls or doors may have moved, so rebuild the walking paths. tags and stair links are kept
   let warning = null;
   try { await runCli(["graph", draft, "-o", draft], 60000); } catch (e) { warning = "saved, but the paths couldn't be rebuilt: " + e.message; }
+  // wf_cli only writes back the building fields it knows, so put back the Studio's own ones
+  // (like blockColours, the block colours for the Navigator) if it dropped them
+  const rebuilt = readJson(draft);
+  const dropped = Object.keys(doc.building).filter((k) => !(k in rebuilt.building));
+  if (dropped.length) {
+    for (const k of dropped) rebuilt.building[k] = doc.building[k];
+    writeJson(draft, rebuilt);
+  }
   const meta = readJson(path.join(dir, "meta.json"));
   meta.updatedAt = new Date().toISOString();
   writeJson(path.join(dir, "meta.json"), meta);

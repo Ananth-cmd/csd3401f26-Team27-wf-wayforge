@@ -395,3 +395,6 @@ input.bad { border-color: var(--signal); background: #fdf1ef; }
 .block-chip { display: inline-block; margin: 0 6px 6px 0; padding: 2px 8px; border-radius: 999px; background: var(--on-bg); color: var(--on-ink); font-weight: 600; }
 .block-chip em { font-style: normal; font-weight: 400; color: var(--graphite); }
 .block-chip.none { background: #fdf1ef; color: var(--signal); }
+.block-colours { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.block-colour { display: flex; align-items: center; gap: 8px; flex-direction: row; }
+.block-colour input[type=color] { width: 32px; height: 26px; padding: 0; border: 1px solid var(--rule); border-radius: 6px; background: none; cursor: pointer; }
