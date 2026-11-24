@@ -32,9 +32,12 @@ ssh %SERVER% "mkdir -p ~/wayforge && rm -rf ~/wayforge/studio-web/dist ~/wayforg
 
 echo.
 echo Done. Studio: https://wayforgestudio.duckdns.org   Navigator: https://navigation.duckdns.org
+rem keep the window open so you can read what happened (double clicking it would close it straight away)
+pause
 exit /b 0
 
 :fail
 echo.
 echo Something failed, scroll up for the error.
+pause
 exit /b 1

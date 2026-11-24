@@ -28,8 +28,12 @@
     <div id="loading-text">Loading viewer...</div>
   </div>
 
-  <script src="viewer-build.js"></script>
-  <script src="wayforge-viewer.js"></script>
+  <script>
+    // loaded fresh every time: viewer-build.js says which build files to use, and an old cached copy
+    // after a rebuild made the browser run the previous build (or mix old and new files and crash)
+    var fresh = "?t=" + Date.now();
+    document.write('<script src="viewer-build.js' + fresh + '"><\/script><script src="wayforge-viewer.js' + fresh + '"><\/script>');
+  </script>
   <script>
     (async function () {
       var fill = document.getElementById("loading-fill");
@@ -58,7 +62,7 @@
         if (params.get("view") === "2d") viewer.setView("2d");
         if (params.get("building")) viewer.loadBuildingUrl(params.get("building"));
       } catch (err) {
-        text.textContent = "The viewer could not start: " + err.message;
+        text.textContent = "The viewer could not start: " + ((err && err.message) || String(err)); // Unity often rejects with plain text, not an Error
         console.error(err);
       }
     })();

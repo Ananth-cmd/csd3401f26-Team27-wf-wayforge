@@ -478,7 +478,11 @@ html, body { overflow-x: hidden; }
 .m-mass.cur .m-win { fill: #4f8d80; }
 /* link bridges keep their own colour on the current floor; the roof keeps the current-floor outline */
 .m-mass.fam-br .m-face.a { fill: var(--bc, #b8e0d2); } .m-mass.fam-br .m-face.b { fill: color-mix(in srgb, var(--bc, #9fcfbf) 78%, #000); }
-.m-mass.fam-br .m-roof { fill: color-mix(in srgb, var(--bc, #cfeee3) 62%, #fff); } .m-mass.fam-br .m-fin { stroke: rgba(255, 255, 255, 0.75); } .m-mass.fam-br .m-win { fill: #7fa9bd; }
+.m-mass.fam-br .m-roof { fill: color-mix(in srgb, var(--bc, #cfeee3) 62%, #fff); }
+/* a block coloured in the Studio (tint): its colour on every floor, a lighter shade on the floor you're looking at */
+.m-mass.tint .m-face.a { fill: var(--bc); } .m-mass.tint .m-face.b { fill: color-mix(in srgb, var(--bc) 78%, #000); }
+.m-mass.tint .m-face { stroke: color-mix(in srgb, var(--bc) 65%, #000); } .m-mass.tint .m-roof { fill: color-mix(in srgb, var(--bc) 62%, #fff); stroke: color-mix(in srgb, var(--bc) 70%, #000); }
+.m-mass.tint.cur .m-face.a { fill: color-mix(in srgb, var(--bc) 55%, #fff); } .m-mass.tint.cur .m-face.b { fill: color-mix(in srgb, var(--bc) 75%, #fff); } .m-mass.fam-br .m-fin { stroke: rgba(255, 255, 255, 0.75); } .m-mass.fam-br .m-win { fill: #7fa9bd; }
 /* ---- floor plan: room floors, exterior walls (x) in terracotta, window glass, door leaves and sills ---- */
 .r-room { fill: #fbf8f1; }
 .r-corr { fill: #ece9e1; }

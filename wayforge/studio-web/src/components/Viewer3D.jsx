@@ -25,7 +25,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-const VIEWER_URL = import.meta.env.BASE_URL + "viewer/index.html";
+// "?t=" so the browser never reuses an old viewer page after the viewer is rebuilt
+const VIEWER_URL = import.meta.env.BASE_URL + "viewer/index.html?t=" + Date.now();
 
 export default function Viewer3D({ wfbText, levelId, onRoomClicked, highlight }) {
   const frameRef = useRef(null);

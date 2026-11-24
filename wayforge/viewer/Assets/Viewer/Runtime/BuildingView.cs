@@ -80,6 +80,8 @@ namespace Wayforge.Viewer
             public GameObject labels;
             public readonly Dictionary<RoomData, RangeInt> floorVerts = new Dictionary<RoomData, RangeInt>();   // room's vertices in the floor mesh
             public readonly List<Color> floorColours = new List<Color>();
+            public readonly List<MeshFilter> tinted = new List<MeshFilter>();     // outside walls / roofs of coloured blocks
+            public readonly List<GameObject> tintedRoofs = new List<GameObject>();
         }
 
         class Label
@@ -98,6 +100,7 @@ namespace Wayforge.Viewer
         int _screenHeight;
         readonly Dictionary<RoomData, Color> _baseColour = new Dictionary<RoomData, Color>();
         readonly List<Object> _owned = new List<Object>();   // meshes and materials made here, freed in Clear()
+        readonly Dictionary<string, Material> _blockMats = new Dictionary<string, Material>();   // tinted copies, per block
         GameObject _root, _connectors, _ground;
         Font _font;
         Material _labelMat;
@@ -174,7 +177,7 @@ namespace Wayforge.Viewer
             foreach (var o in _owned) if (o != null) MeshUtil.Kill(o);
             _owned.Clear();
             _root = null; _connectors = null; _ground = null;
-            _levels.Clear(); _labels.Clear(); _baseColour.Clear();
+            _levels.Clear(); _labels.Clear(); _baseColour.Clear(); _blockMats.Clear();
             _labelsDirty = true;
             Building = null; Highlighted = null;
         }
@@ -299,6 +302,9 @@ namespace Wayforge.Viewer
                 var glass = new MeshBuilder();
                 var frames = new MeshBuilder();
                 var doors = new MeshBuilder();
+                // outside walls and roofs of blocks that have a colour go here instead, one mesh per block
+                var blockOuter = new Dictionary<string, MeshBuilder>();
+                var blockRoof = new Dictionary<string, MeshBuilder>();
 
                 foreach (var w in level.walls)
                 {
@@ -307,7 +313,7 @@ namespace Wayforge.Viewer
                     Vector2 dir = w.Direction, n = new Vector2(-dir.y, dir.x);
                     float ext = w.thickness * 0.5f;                       // overlap at the ends to close corners
                     Vector2 At(float s) => w.a + dir * s;
-                    var mb = IsExterior(level, w) ? outer : inner;
+                    var mb = IsExterior(level, w) ? OuterFor(level, w, outer, blockOuter) : inner;
 
                     var openings = level.openings.FindAll(o => o.wall == w.id);
                     openings.Sort((p, q) => p.offset.CompareTo(q.offset));
@@ -361,7 +367,7 @@ namespace Wayforge.Viewer
                 var roof = new MeshBuilder();
                 float roofTop = topFloor ? floorY + lv.storey + 0.1f : floorY + lv.storey - SlabThickness;
                 foreach (var r in level.rooms)
-                    if (r.polygon.Length >= 3) roof.AddSlab(r.polygon, MeshUtil.Triangulate(r.polygon), roofTop - 0.2f, roofTop);
+                    if (r.polygon.Length >= 3) PartFor(BuildingData.BlockOf(r.code), roof, blockRoof).AddSlab(r.polygon, MeshUtil.Triangulate(r.polygon), roofTop - 0.2f, roofTop);
 
                 SetMesh(lv.walls, inner, "Walls " + level.id);
                 SetMesh(lv.exterior, outer, "Exterior walls " + level.id);
@@ -369,8 +375,68 @@ namespace Wayforge.Viewer
                 SetMesh(lv.frames, frames, "Frames " + level.id);
                 SetMesh(lv.doors, doors, "Doors " + level.id);
                 SetMesh(lv.roof, roof, "Roof " + level.id);
+
+                // the coloured blocks' own meshes, made again every time (the walls change with the cut-away)
+                foreach (var mf in lv.tinted) { _owned.Remove(mf.sharedMesh); MeshUtil.Kill(mf.sharedMesh); MeshUtil.Kill(mf.gameObject); }
+                lv.tinted.Clear(); lv.tintedRoofs.Clear();
+                Material wallBase = exteriorWallMaterial != null ? exteriorWallMaterial : wallMaterial;
+                Material roofBase = roofMaterial != null ? roofMaterial : wallMaterial;
+                foreach (var kv in blockOuter) lv.tinted.Add(Tinted(lv, kv.Value, "Exterior walls", kv.Key, wallBase, 0f));
+                foreach (var kv in blockRoof)
+                {
+                    var mf = Tinted(lv, kv.Value, "Roof", kv.Key, roofBase, 0.35f);   // roofs a bit lighter, like the Navigator
+                    lv.tinted.Add(mf); lv.tintedRoofs.Add(mf.gameObject);
+                }
             }
             UpdateRoofs();
+            if (Building.blockColours.Count > 0)
+            {
+                int walls = 0, roofs = 0;
+                foreach (var lv in _levels) { roofs += lv.tintedRoofs.Count; walls += lv.tinted.Count - lv.tintedRoofs.Count; }
+                Debug.Log($"[Wayforge] block colours {string.Join(", ", Building.blockColours.Keys)}: coloured {walls} wall parts and {roofs} roof parts");
+            }
+        }
+
+        // The mesh a piece goes into: its block's own one if the block has a colour, else the normal one.
+        MeshBuilder PartFor(string block, MeshBuilder normal, Dictionary<string, MeshBuilder> byBlock)
+        {
+            if (block == null || !Building.blockColours.ContainsKey(block)) return normal;
+            if (!byBlock.TryGetValue(block, out var mb)) byBlock[block] = mb = new MeshBuilder();
+            return mb;
+        }
+
+        // An outside wall belongs to the block of the room just inside it (probed 0.7 m past each face).
+        MeshBuilder OuterFor(LevelData level, WallData w, MeshBuilder normal, Dictionary<string, MeshBuilder> byBlock)
+        {
+            if (Building.blockColours.Count == 0) return normal;
+            Vector2 d = w.Direction;
+            Vector2 n = new Vector2(-d.y, d.x) * (w.thickness * 0.5f + 0.7f);
+            foreach (float t in new[] { 0.5f, 0.25f, 0.75f })
+            {
+                Vector2 p = Vector2.Lerp(w.a, w.b, t);
+                foreach (var r in level.rooms)
+                {
+                    if (r.polygon.Length < 3) continue;
+                    if (!MeshUtil.Contains(r.polygon, p + n) && !MeshUtil.Contains(r.polygon, p - n)) continue;
+                    string block = BuildingData.BlockOf(r.code);
+                    if (block != null) return PartFor(block, normal, byBlock);
+                }
+            }
+            return normal;
+        }
+
+        // A block's walls or roof as their own object, in a copy of the normal material tinted with the block colour.
+        MeshFilter Tinted(LevelView lv, MeshBuilder mb, string what, string block, Material baseMat, float lighten)
+        {
+            string key = what + "|" + block;
+            if (!_blockMats.TryGetValue(key, out var mat))
+            {
+                mat = new Material(baseMat) { color = Color.Lerp(Building.blockColours[block], Color.white, lighten) };
+                _blockMats[key] = mat; _owned.Add(mat);
+            }
+            var mf = AddPart(lv.root.transform, what + " " + block, mat, true);
+            SetMesh(mf, mb, what + " " + block + " " + lv.data.id);
+            return mf;
         }
 
         // Ground slab under the whole building, 30 m past its edges.
@@ -392,7 +458,11 @@ namespace Wayforge.Viewer
         void UpdateRoofs()
         {
             bool show = RoofVisible && VisibleLevel == null && !Cutaway && FloorSpacing < 0.01f;
-            foreach (var lv in _levels) lv.roof.gameObject.SetActive(show);
+            foreach (var lv in _levels)
+            {
+                lv.roof.gameObject.SetActive(show);
+                foreach (var g in lv.tintedRoofs) g.SetActive(show);
+            }
         }
 
         public void SetRoof(bool on)
@@ -483,14 +553,14 @@ namespace Wayforge.Viewer
             return true;
         }
 
-        public void SetCutaway(bool on)
+        public void ApplyCutaway(bool on)
         {
             if (Cutaway == on) return;
             Cutaway = on;
             if (Building != null) BuildWalls();
         }
 
-        public void SetFloorSpacing(float metres)
+        public void ApplyFloorSpacing(float metres)
         {
             FloorSpacing = Mathf.Clamp(metres, 0f, 20f);
             ApplyLayout();

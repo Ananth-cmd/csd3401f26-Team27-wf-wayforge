@@ -156,6 +156,15 @@ export function BuildingPanel({ doc, onChange, current, onPick }) {
     }, true);
   };
 
+  // each block's colour in the Navigator's 3D campus, kept as building.blockColours { E2: "#rrggbb" }.
+  // a block with no colour keeps the Navigator's own one
+  const colours = b.blockColours || {};
+  const setColour = (block, colour) => onChange((d) => {
+    const c = { ...(d.building.blockColours || {}) };
+    if (colour) c[block] = colour; else delete c[block];
+    if (Object.keys(c).length) d.building.blockColours = c; else delete d.building.blockColours;
+  });
+
   // set every floor to the same floor-to-floor height
   const spaceAll = (h) => onChange((d) => {
     const order = [...d.levels].sort((x, y) => (x.elevation ?? 0) - (y.elevation ?? 0));
@@ -183,6 +192,24 @@ export function BuildingPanel({ doc, onChange, current, onPick }) {
         {blockList.map(([k, n]) => <span key={k} className={"block-chip" + (k === "none" ? " none" : "")}>{k === "none" ? "No block" : k} <em>{n}</em></span>)}
       </p>
       <BlockSetter count={rooms.length} onApply={setBlockAll} label="Set for all rooms" />
+
+      {blockList.some(([k]) => k !== "none") && (
+        <>
+          <h4>Colours</h4>
+          <p className="muted small">The colour each block is drawn in on the Navigator's 3D campus.</p>
+          <div className="block-colours">
+            {blockList.filter(([k]) => k !== "none").map(([k]) => (
+              <label key={k} className="block-colour">
+                <input type="color" value={colours[k] || "#dddddd"} onChange={(e) => setColour(k, e.target.value)} />
+                <b>{k}</b>
+                {colours[k]
+                  ? <button type="button" className="link small" onClick={(e) => { e.preventDefault(); setColour(k, ""); }}>Reset</button>
+                  : <span className="muted small">Default</span>}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
 
       <h3>Levels</h3>
       <table className="mini levels-table">
