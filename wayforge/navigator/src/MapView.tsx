@@ -110,6 +110,7 @@ export type MapProps = {
   names?: Map<string, string> // node id -> name to show (only these get room labels; corridors etc. stay unlabelled)
   onPick?: (node: string) => void // tap on a named point
   vertical?: Vertical[] // lifts / stairs the route uses (marked on their floor; active = the one you're heading for)
+  highlight?: { kind: 'toilet' | 'stairs' | 'lift'; nodes: string[] } // Toilets / Stairs / Lifts button pressed: these places are lit up on the map at any zoom
 }
 export type Vertical = { node: string; kind: 'lift' | 'stairs'; up: boolean; label: string; active?: boolean }
 
@@ -118,7 +119,7 @@ const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
 const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
-function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, pad, vertical = [] }: MapProps) {
+function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, pad, vertical = [], highlight }: MapProps) {
   const pickRef = useRef(onPick)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
@@ -216,7 +217,59 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     return { t, zoom, yaw: defYaw }
   }
   const [cam, setCam] = useState<{ t: V3; zoom: number; yaw: number }>(framed)
+  const { t: target, zoom, yaw } = cam
+  const { right, fwdH, fwd, up } = basis(yaw)
+
+  // Zoom-out stops at the borders of the map, and the view cannot be moved off it. The borders are measured from
+  // what is actually drawn - the floor outlines, and the campus around them (ground, water, roads, neighbouring
+  // buildings, trees and landmarks) when the backend sent surroundings - and not from the site's declared bounds,
+  // which cover more ground than the drawing and left dead space around the map. Measured on screen at the current
+  // rotation, so the limit still holds after you turn the map.
+  const contentBox = useMemo(() => {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    const add = (x: number, y: number, z: number) => {
+      const r: V3 = [x - centre[0], y, z - centre[2]], a = dot(r, right), b = -dot(r, up)
+      if (a < x0) x0 = a
+      if (a > x1) x1 = a
+      if (b < y0) y0 = b
+      if (b > y1) y1 = b
+    }
+    const high = topDown ? 0 : Math.max(WALL_H, massTop)
+    for (const f of lvl.floors) for (const p of f) { add(p[0], -SLAB_T, p[1]); add(p[0], high, p[1]) }
+    if (site) {
+      for (const a of site.areas) for (const p of a.polygon) add(p[0], GROUND_Y, p[1])
+      for (const r of site.roads) for (const p of r.points) add(p[0], GROUND_Y, p[1])
+      for (const bd of site.buildings) { const h = topDown ? 0 : Math.min(16, bd.levels * 3.2); for (const p of bd.polygon) { add(p[0], GROUND_Y, p[1]); add(p[0], GROUND_Y + h, p[1]) } }
+      for (const t of treesOf(building)) add(t[0], GROUND_Y + (topDown ? 0 : 3.4), t[1])
+      for (const m of site.landmarks) add(m.pos[0], GROUND_Y, m.pos[1])
+    }
+    return Number.isFinite(x0) ? { x0, x1, y0, y1 } : { x0: -1, x1: 1, y0: -1, y1: 1 }
+  }, [lvl, site, building, massTop, topDown, centre, yaw]) // eslint-disable-line
+  // the part of the map you can actually see: the panels cover the rest
+  const visW = Math.max(120, size.w - (pad?.l ?? 0)), visH = Math.max(120, size.h - (pad?.t ?? 0) - (pad?.b ?? 0))
+  const zoomFit = useMemo(() => {
+    // the map still covers the view: zooming out stops when its borders reach the edges, so there is never a band of
+    // empty background around it. The campus is far wider than it is deep, so at that point the far ends of it are
+    // off screen and you pan to them.
+    const cw = contentBox.x1 - contentBox.x0, ch = contentBox.y1 - contentBox.y0
+    return Math.max(0.02, (Math.min(cw / visW, ch / visH) * size.h) / baseVh)
+  }, [contentBox, visW, visH, size.h, baseVh])
+  // Keep the visible part of the map inside those borders. When the map is smaller than the view in one direction
+  // it is centred in it instead, so zooming right out never leaves the map off to one side.
+  const clampView = (t: V3, z: number): V3 => {
+    const vh = baseVh * z, vw = vh * aspect, kk = vh / size.h, sp = Math.sin(pitch)
+    const w = vw - (pad?.l ?? 0) * kk, h = vh - ((pad?.t ?? 0) + (pad?.b ?? 0)) * kk
+    const ox = ((pad?.l ?? 0) * kk) / 2, oy = (((pad?.t ?? 0) - (pad?.b ?? 0)) * kk) / 2
+    const rt: V3 = [t[0] - centre[0], 0, t[2] - centre[2]]
+    let vx = dot(rt, right) + ox, vy = -dot(rt, up) + oy
+    vx = w >= contentBox.x1 - contentBox.x0 ? (contentBox.x0 + contentBox.x1) / 2 : Math.min(contentBox.x1 - w / 2, Math.max(contentBox.x0 + w / 2, vx))
+    vy = h >= contentBox.y1 - contentBox.y0 ? (contentBox.y0 + contentBox.y1) / 2 : Math.min(contentBox.y1 - h / 2, Math.max(contentBox.y0 + h / 2, vy))
+    const a = vx - ox, b = -(vy - oy) / sp
+    return [centre[0] + right[0] * a + fwdH[0] * b, 0, centre[2] + right[2] * a + fwdH[2] * b]
+  }
   const reset = () => setCam(framed())
+  // the borders moved (window resized, a panel opened, 3D <-> 2D, map turned): pull the view back inside them
+  useEffect(() => { setCam(c => { const z = Math.min(c.zoom, zoomFit), t = clampView(c.t, z); return z === c.zoom && t[0] === c.t[0] && t[2] === c.t[2] ? c : { ...c, zoom: z, t } }) }, [zoomFit, contentBox]) // eslint-disable-line
   // changing level keeps the view: same spot, same scale, same rotation (the levels share one plan), so you stay on
   // the building you were looking at. it still reframes when the new level has something to show (a route stretch,
   // a picked place) or nothing near where you were looking (that block has no such level)
@@ -227,14 +280,12 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     if (s.vh > 0 && s.floor !== floor && s.building === building && s.topDown === topDown && !focusKey) {
       const half = Math.max(10, (s.vh * aspect) / 2) // metres either side of where you were looking
       const near = lvl.floors.some(f => f.some(p => Math.abs(p[0] - cam.t[0]) < half && Math.abs(p[1] - cam.t[2]) < half))
-      if (near) { setCam(c => ({ ...c, zoom: Math.min(2.5, Math.max(0.02, s.vh / baseVh)) })); return }
+      if (near) { setCam(c => { const z = Math.min(zoomFit, Math.max(0.02, s.vh / baseVh)); return { ...c, zoom: z, t: clampView(c.t, z) } }); return }
     }
     reset()
   }, [centre, floor, topDown, focusKey, size.ready]) // eslint-disable-line
-  const { t: target, zoom, yaw } = cam
   useEffect(() => { seen.current.vh = baseVh * zoom }, [baseVh, zoom]) // the scale you were at, for the next level change
 
-  const { right, fwdH, fwd, up } = basis(yaw)
   const projAt = (p: V3, t: V3): Vec2 => { const r: V3 = [p[0] - t[0], p[1] - t[1], p[2] - t[2]]; return [dot(r, right), -dot(r, up)] }
   const proj = (p: V3) => projAt(p, centre) // fixed around the floor centre
   const view = projAt(target, centre) // where the camera looks, in the same units (moves the viewBox only)
@@ -517,6 +568,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     // keep the toilet / lift / stairs / food icons clear
     const iconAt = new Set<string>()
     if (rooms && pxPerM >= ICONS_FROM) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 10, Y - 10, X + 10, Y + 10]) }
+    if (highlight) for (const id of highlight.nodes) if (node.get(id)?.level === floor) { const [x, y] = at(id, 0.1 + lift(id)), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 15, Y - 15, X + 15, Y + 15]) }
     const nameOf = (id: string) => names ? names.get(id) : node.get(id)!.kind !== 'turn' ? node.get(id)!.label : undefined
     // entrances always get a label (people orient by them)
     // (only once zoomed in to a block; far out the block names come first and the diamonds mark the entrances)
@@ -549,20 +601,20 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // ---- gestures ----
   const svgRef = useRef<SVGSVGElement>(null)
   const sinp = Math.sin(pitch)
-  const live = useRef({ k, sinp, right, fwdH })
+  const live = useRef({ k, sinp, right, fwdH, zoomFit, clampView })
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
-  live.current = { k, sinp, right, fwdH }
-  const clampZoom = (z: number) => Math.min(2.5, Math.max(0.02, z))
+  live.current = { k, sinp, right, fwdH, zoomFit, clampView }
+  const clampZoom = (z: number) => Math.min(live.current.zoomFit, Math.max(0.02, z))
   const panBy = (dx: number, dy: number) => setCam(c => {
     const { k, sinp, right, fwdH } = live.current
     const a = -dx * k, b = (dy * k) / sinp
-    return { ...c, t: [c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b] }
+    return { ...c, t: live.current.clampView([c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b], c.zoom) }
   })
   const zoomAt = (factor: number, px = 0, py = 0) => setCam(c => {
     const { k, sinp, right, fwdH } = live.current
     const z = clampZoom(c.zoom * factor), r = z / c.zoom
     const a = px * k * (1 - r), b = (py * k * (r - 1)) / sinp
-    return { yaw: c.yaw, zoom: z, t: [c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b] }
+    return { yaw: c.yaw, zoom: z, t: live.current.clampView([c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b], z) }
   })
   const fromCentre = (x: number, y: number) => {
     const r = svgRef.current!.getBoundingClientRect()
@@ -606,7 +658,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         const reach = Math.max(m.box[1] - m.box[0], m.box[3] - m.box[2]) / 2 / k + 20
         if (d < reach * reach && d < hd) { hd = d; hit = m }
       }
-      if (hit) { const span = Math.max(hit.box[1] - hit.box[0], hit.box[3] - hit.box[2]) * 1.25; setCam(c => ({ ...c, t: [hit!.centre[0], 0, hit!.centre[1]], zoom: Math.min(MASS_ZOOM * 0.8, Math.max(0.02, span / aspect / baseVh)) })) }
+      if (hit) { const span = Math.max(hit.box[1] - hit.box[0], hit.box[3] - hit.box[2]) * 1.25; setCam(c => ({ ...c, t: [hit!.centre[0], 0, hit!.centre[1]], zoom: Math.min(MASS_ZOOM * 0.8, zoomFit, Math.max(0.02, span / aspect / baseVh)) })) }
       return
     }
     if (!pickRef.current) return
@@ -679,6 +731,8 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           <polyline className="m-route" points={r} strokeWidth={6 * k} />
         </g>))}
         {rooms && pxPerM >= ICONS_FROM && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
+        {highlight && highlight.nodes.filter(id => node.get(id)?.level === floor).map(id => { const [x, y] = at(id, 0.12 + lift(id)), r = 13 * k, icon = highlight.kind === 'toilet' ? 'wf-i-toilet' : highlight.kind === 'lift' ? 'wf-i-lift' : 'wf-i-stair'
+          return <g key={`hi-${id}`} className={`m-hi ${highlight.kind}`}><circle className="m-hi-halo" cx={x} cy={y} r={r * 1.9} /><circle className="m-hi-dot" cx={x} cy={y} r={r} strokeWidth={2 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
         {marks.map((m, i) => { const r = 10 * k; return <g key={`lm-${i}`} className={`m-lm ${m.kind}`}><circle cx={m.x} cy={m.y} r={r} strokeWidth={1.6 * k} /><use href={`#${m.icon}`} x={m.x - r * 0.62} y={m.y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {labels.map((l, i) => <text key={`l-${i}`} x={l.x} y={l.y} fontSize={l.size * k} className={l.cls}>{l.text}</text>)}
@@ -718,6 +772,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
 const same = (a: MapProps, b: MapProps) =>
   a.pad?.l === b.pad?.l && a.pad?.t === b.pad?.t && a.pad?.b === b.pad?.b &&
   a.building === b.building && a.floor === b.floor && !!a.topDown === !!b.topDown && !!a.onTopDown === !!b.onTopDown &&
+  a.highlight?.kind === b.highlight?.kind && (a.highlight?.nodes ?? []).join('|') === (b.highlight?.nodes ?? []).join('|') &&
   a.here === b.here && a.pin?.node === b.pin?.node && a.pin?.label === b.pin?.label && a.names === b.names && !!a.onPick === !!b.onPick &&
   (a.focus ?? []).join('|') === (b.focus ?? []).join('|') &&
   (a.lines ?? []).map(l => l.join(',')).join('|') === (b.lines ?? []).map(l => l.join(',')).join('|') &&
