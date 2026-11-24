@@ -9,16 +9,14 @@
  * see-through; the camera walks the stage at eye level or follows from just
  * behind. Built from the same building data as the 2D map (rooms coloured by
  * type, walls, doors as gaps). Falls back to the 2D map if WebGL fails.
- * Floors and walls are textured (tiles, panels), exterior walls take the
- * finish of their block, windows are glass panes and each doorway has a
- * frame, a head and an open leaf. The surroundings (ground, water, roads,
- * neighbouring buildings, trees and landmark names) are placed under the
- * lowest level shown. Room and landmark names that overlap on screen are
- * hidden.
+ * Floors and walls are textured (tiles, panels; exterior walls terracotta),
+ * windows are glass panes and each doorway has a frame, a head and an open
+ * leaf. The surroundings (ground, water, roads, neighbouring buildings, trees
+ * and landmark names) are placed under the lowest level shown. Room and
+ * landmark names that overlap on screen are hidden.
  *
  * Links: used by App.tsx (lazy loaded); stages from legs.ts; route line shape
- * from routeline.ts; trees from surroundings.ts; exterior wall colours from
- * facades.ts.
+ * from routeline.ts; trees from surroundings.ts.
  *
  * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
  * \author Ananthan Elangovan (ananthan.e@digipen.edu)
@@ -30,7 +28,6 @@
  *   - Stage view with see-through floors above and below
  *   Ananthan Elangovan
  *   - Floor and wall textures, outside wall and link bridge colours
- *   - Exterior walls in the finish of their block
  *   - Window glass, door frames, heads and leaves
  *   - Surroundings under the floors (ground, water, roads, buildings, trees, landmarks)
  *   - Screen-space declutter of room and landmark names
@@ -48,7 +45,6 @@ import type { Building, Vec2 } from './types'
 import type { Leg } from './legs'
 import { drawnRoute } from './routeline'
 import { treesOf } from './surroundings'
-import { wallFacades } from './facades'
 
 type Props = {
   building: Building
@@ -194,16 +190,10 @@ function floorMesh(b: Building, li: number): FloorMesh {
   floor.setAttribute('color', new THREE.Float32BufferAttribute(fc, 3))
   floor.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2))
   floor.computeVertexNormals()
-  // walls as boxes (sides light, tops darker so the plan reads from above)
+  // walls as boxes (sides light, tops darker so the plan reads from above); exterior walls use the terracotta pair
   const W = boxes(), G = boxes(), D = boxes()
   const side = new THREE.Color(0xf4f1ea), top = new THREE.Color(0x8aa39a), sideOut = new THREE.Color(0xc48f70), topOut = new THREE.Color(0x8d5e46)
-  // exterior walls take the finish of their block (facades.ts); colours are shared between walls of the same finish
-  const finish = wallFacades(b, li), tone = new Map<string, THREE.Color>()
-  const colour = (hex: string | undefined, fallback: THREE.Color) => { if (!hex) return fallback; let c = tone.get(hex); if (!c) { c = new THREE.Color(hex); tone.set(hex, c) } return c }
-  for (const [i, w] of lvl.walls.entries()) {
-    const f = w.exterior ? finish[i] : undefined
-    W.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, WALL_H, w.exterior ? colour(f?.[0], sideOut) : side, w.exterior ? colour(f?.[1], topOut) : top)
-  }
+  for (const w of lvl.walls) W.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, WALL_H, w.exterior ? sideOut : side, w.exterior ? topOut : top)
   // Windows: a glass pane from sill to head, 0.03 m proud of both wall faces.
   const pane = new THREE.Color(0xffffff)
   for (const wn of lvl.windows ?? []) G.add(wn.a[0], -wn.a[1], wn.b[0], -wn.b[1], Math.max(0.12, wn.thickness) / 2 + 0.03, wn.sill, Math.min(WALL_H - 0.12, wn.sill + wn.height), pane, pane)

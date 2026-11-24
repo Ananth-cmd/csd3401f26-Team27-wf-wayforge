@@ -12,17 +12,11 @@
  * surroundings supplied by the backend (Building.surroundings): water, parks,
  * roads and paths, neighbouring buildings, trees and landmark signs. On the
  * floor plan, exterior walls have their own colour, windows are drawn as
- * glass and each doorway has a sill and a door leaf. Where WebGL is available
- * the campus view is a rendered 3D scene (Campus3D.tsx) behind the SVG, which
- * then draws only the labels, markers and routes; the scene follows this
- * map's camera. Otherwise the SVG draws the campus itself, each block in its
- * exterior finish (facades.ts) with a façade texture on every wall
- * (facadePatterns.tsx).
+ * glass and each doorway has a sill and a door leaf.
  *
  * Links: used by App.tsx; block outlines from massing.ts (worker in
  * massing.worker.ts); route line shape from routeline.ts; trees from
- * surroundings.ts; block finishes from facades.ts; façade textures from
- * facadePatterns.tsx; rendered campus from Campus3D.tsx.
+ * surroundings.ts.
  *
  * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
  * \author Ananthan Elangovan (ananthan.e@digipen.edu)
@@ -33,9 +27,7 @@
  *     centre, so pan and zoom only move the SVG viewBox; slabs, zones and walls
  *     are rebuilt only when the floor or the rotation changes); surroundings
  *     (ground, water, roads, trees, neighbouring buildings, landmarks); block
- *     and bridge colours; outside walls, windows and doors on the floor plan;
- *     per-block exterior finishes in the 3D campus view; rendered 3D campus
- *     behind the map
+ *     and bridge colours; outside walls, windows and doors on the floor plan
  *
  * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
  *
@@ -43,19 +35,12 @@
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
  */
 
-import { Suspense, lazy, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Building, Vec2 } from './types'
 import { buildMassing, massInput } from './massing'
 import type { MassBlock } from './massing'
 import { drawnRoute } from './routeline'
 import { treesOf } from './surroundings'
-import { facadeOf, wallFacades } from './facades'
-import FacadePatterns from './facadePatterns'
-import type { default as Campus3DComponent } from './Campus3D'
-// three.js is loaded with the campus view; if loading fails, the SVG campus drawing is used
-const Campus3D = lazy(() => import('./Campus3D').catch(() => ({ default: Campus3DUnavailable })))
-function Campus3DUnavailable({ onFail }: React.ComponentProps<typeof Campus3DComponent>) { useEffect(() => onFail(), [onFail]); return <></> }
-import type { Facade } from './facades'
 
 const WALL_H = 1.2 // low walls: reads like a floor plan, and nearer walls hide less of the rooms behind them
 const SLAB_T = 0.45
@@ -187,8 +172,6 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // 3D campus buildings (only when the backend sent room outlines; otherwise the floor plan as before)
   const hasRooms = building.levels.some(l => l.floors.length > 1)
   const [mass, setMass] = useState<MassBlock[] | null>(null)
-  // rendered campus state: 'ready' after its first frame, 'failed' when WebGL or the module is unavailable (SVG drawing used)
-  const [campus3d, setCampus3d] = useState<'off' | 'ready' | 'failed'>('off')
   useEffect(() => {
     let live = true
     setMass(null) // eslint-disable-line react-hooks/set-state-in-effect -- a new building: drop the old outlines
@@ -334,12 +317,11 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // whole walls are used (as fast as before); the pieces come back when you let go.
   const [turning, setTurning] = useState(false)
   const walls = useMemo(() => {
-    const out: { depth: number; x?: [string, string]; polys: { pts: V3[]; shade: number; cls?: string }[] }[] = []
+    const out: { depth: number; x: boolean; polys: { pts: V3[]; shade: number; cls?: string }[] }[] = []
     let total = 0
     for (const wl of lvl.walls) total += Math.hypot(wl.b[0] - wl.a[0], wl.b[1] - wl.a[1])
     const piece = topDown || turning ? Infinity : Math.max(PIECE_M, total / MAX_PIECES)
-    const finish = wallFacades(building, floor) // exterior wall colours [side, top] per wall, from its block
-    for (const [wi, wl] of lvl.walls.entries()) {
+    for (const wl of lvl.walls) {
       const dx = wl.b[0] - wl.a[0], dz = wl.b[1] - wl.a[1], len = Math.hypot(dx, dz) || 1
       const ux = dx / len, uz = dz / len, t = wl.thickness / 2, nx = -uz * t, nz = ux * t
       const n = Math.max(1, Math.ceil(len / piece))
@@ -358,7 +340,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           polys.push({ pts: [[p[0], 0, p[1]], [q[0], 0, q[1]], [q[0], WALL_H, q[1]], [p[0], WALL_H, p[1]]], shade: dot([mx, 0, mz], right) < 0 ? 1 : 2 })
         }
         polys.push({ pts: c.map(p => [p[0], WALL_H, p[1]] as V3), shade: n > 1 ? 3 : 0 }) // 3 = top of a cut piece (no outline, so no seams)
-        out.push({ depth: dot([mid[0], 0, mid[1]], fwd), x: wl.exterior ? finish[wi] ?? ['', ''] : undefined, polys })
+        out.push({ depth: dot([mid[0], 0, mid[1]], fwd), x: !!wl.exterior, polys })
       }
     }
     // Doors: one leaf per doorway, hinged at the start of the span and opened by DOOR_OPEN. A span wider than
@@ -371,11 +353,11 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       for (const [h, dir, w] of leaves) {
         const ex = h[0] + (ux * dir * ca - uz * sa) * w, ez = h[1] + (uz * dir * ca + ux * sa) * w
         const pts: V3[] = topDown ? [[h[0], 0.05, h[1]], [ex, 0.05, ez]] : [[h[0], 0, h[1]], [ex, 0, ez], [ex, WALL_H * 0.95, ez], [h[0], WALL_H * 0.95, h[1]]]
-        out.push({ depth: dot([(h[0] + ex) / 2, 0, (h[1] + ez) / 2], fwd) - 0.2, polys: [{ pts, shade: 0, cls: 'm-door' }] })
+        out.push({ depth: dot([(h[0] + ex) / 2, 0, (h[1] + ez) / 2], fwd) - 0.2, x: false, polys: [{ pts, shade: 0, cls: 'm-door' }] })
       }
     }
     return out.sort((a, b) => b.depth - a.depth)
-  }, [lvl, topDown, yaw, turning, building, floor]) // eslint-disable-line
+  }, [lvl, topDown, yaw, turning]) // eslint-disable-line
 
   const zone = (id: string, half: number, cls: string) => {
     const n = node.get(id)!, [x, z] = n.pos
@@ -390,9 +372,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     {floorNodes.filter(n => n.kind === 'stairs').map(n => zone(n.id, 2.2, 'm-zone stairs'))}
     {floorNodes.filter(n => n.kind === 'lift').map(n => zone(n.id, 2.2, 'm-zone lift'))}
   </>, [slab, floorNodes]) // eslint-disable-line
-  // exterior walls pass their block colours to the stylesheet as --xs (side) and --xt (top)
-  const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={p.cls ?? `m-wall s${p.shade}${w.x ? ' x' : ''}`}
-    style={!p.cls && w.x && w.x[0] ? { '--xs': w.x[0], '--xt': w.x[1] } as React.CSSProperties : undefined} points={p.pts.map(pt).join(' ')} />)),
+  const wallShapes = useMemo(() => walls.map((w, i) => w.polys.map((p, j) => <polygon key={`${i}-${j}`} className={p.cls ?? `m-wall s${p.shade}${w.x ? ' x' : ''}`} points={p.pts.map(pt).join(' ')} />)),
     [walls, centre]) // eslint-disable-line
   // ---- surroundings: areas (water, green, plaza), roads and paths, neighbouring buildings, trees ----
   const ground = useMemo(() => {
@@ -491,7 +471,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     const out: React.ReactElement[] = []
     const blocks = [...mass].sort((a, b) => dot([b.centre[0], 0, b.centre[1]], fwd) - dot([a.centre[0], 0, a.centre[1]], fwd))
     for (const m of blocks) for (const L of m.levels) {
-      const y0 = L.elev, y1 = L.elev + L.h - 0.15, fc = facadeOf(m.name)
+      const y0 = L.elev, y1 = L.elev + L.h - 0.15
       const faces: { d: number; el: React.ReactElement }[] = []
       L.rings.forEach((r, ri) => r.forEach((p, i) => {
         const q = r[(i + 1) % r.length], dx = q[0] - p[0], dz = q[1] - p[1], len = Math.hypot(dx, dz)
@@ -501,60 +481,23 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         const shade = dot([nx, 0, nz], right) < 0 ? 'a' : 'b'
         const d = dot([(p[0] + q[0]) / 2, 0, (p[1] + q[1]) / 2], fwd)
         const pts = [pt([p[0], y0, p[1]]), pt([q[0], y0, q[1]]), pt([q[0], y1, q[1]]), pt([p[0], y1, p[1]])].join(' ')
-        const detail = faceDetail(fc, p, dx / len, dz / len, len, y0, y1)
-        // with a finish the wall polygon is drawn over the texture: outline, plus shading on walls facing away from the light
-        faces.push({ d, el: fc ? <g key={`${ri}-${i}`}>{detail}<polygon className={`m-face ${shade}`} points={pts} /></g>
-          : <g key={`${ri}-${i}`}><polygon className={`m-face ${shade}`} points={pts} />{detail}</g> })
+        const win = len >= 3 && L.h >= 2.5 ? (() => { const ux = dx / len, uz = dz / len, a = 0.6, b = len - 0.6, wy0 = y0 + 1.1, wy1 = y1 - 0.7
+          // glass band with a vertical fin every 3 m
+          let fins = ''
+          for (let s2 = a + 1.5; s2 < b - 0.5; s2 += 3) fins += `M${pt([p[0] + ux * s2, wy0, p[1] + uz * s2])}L${pt([p[0] + ux * s2, wy1, p[1] + uz * s2])}`
+          return <><polygon className="m-win" points={[pt([p[0] + ux * a, wy0, p[1] + uz * a]), pt([p[0] + ux * b, wy0, p[1] + uz * b]), pt([p[0] + ux * b, wy1, p[1] + uz * b]), pt([p[0] + ux * a, wy1, p[1] + uz * a])].join(' ')} />{fins && <path className="m-fin" d={fins} />}</> })() : null
+        faces.push({ d, el: <g key={`${ri}-${i}`}><polygon className={`m-face ${shade}`} points={pts} />{win}</g> })
       }))
       faces.sort((a, b) => b.d - a.d)
       const roof = L.rings.map(r => 'M' + r.map(p => pt([p[0], y1, p[1]])).join('L') + 'Z').join('')
       const state = L.level === floor ? ' cur' : L.level > floor ? ' above' : ''
-      const top = L === m.levels[m.levels.length - 1] // the roof of the top level carries the solar panels
-      // Colour family: link bridges (br), west blocks (w), east blocks (e). A block with a finish passes its colours
-      // to the stylesheet as CSS variables (--fe, --fr, --frim, --frw); a bridge with a known colour passes it as --bc.
+      // Colour family: link bridges (br), west blocks (w), east blocks (e). A bridge with a known colour passes it
+      // to the stylesheet as --bc.
       const fam = /^BR/i.test(m.name) ? 'br' : /^W/i.test(m.name) ? 'w' : 'e', bc = bridgeTint.byBlock.get(m.name)
-      const style = (bc ? { '--bc': bc } : fc ? { '--fe': fc.edge, '--fr': fc.roof, '--frim': fc.rim, '--frw': fc.rimWidth } : undefined) as React.CSSProperties | undefined
-      // SIT sign: on the top level, near the top right of the widest face towards the camera
-      let sign: React.ReactElement | null = null
-      if (fc?.sign && top) {
-        let best: [Vec2, Vec2] | null = null, bl = 8
-        for (const r of L.rings) r.forEach((p, i) => {
-          const q = r[(i + 1) % r.length], len = Math.hypot(q[0] - p[0], q[1] - p[1])
-          if (len > bl && dot([(q[1] - p[1]) / len, 0, -(q[0] - p[0]) / len], fwd) < 0) { bl = len; best = [p, q] }
-        })
-        if (best) {
-          const [p, q] = best as [Vec2, Vec2], t = 1 - 5 / bl, [sx, sy] = proj([p[0] + (q[0] - p[0]) * t, y1 - 2, p[1] + (q[1] - p[1]) * t])
-          sign = <g className="m-sign" transform={`translate(${sx} ${sy})`}><rect x={-3.5} y={-1.5} width={7} height={3} rx={0.4} /><text y={0.85} fontSize={2.4}>SIT</text></g>
-        }
-      }
-      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${fc ? ` fc fc-${fc.key}` : ''}${state}`} style={style}>{faces.map(f => f.el)}<path className={`m-roof${top ? ' top' : ''}`} d={roof} fillRule="evenodd" />{sign}</g>)
+      out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${state}`} style={bc ? { '--bc': bc } as React.CSSProperties : undefined}>{faces.map(f => f.el)}<path className="m-roof" d={roof} fillRule="evenodd" /></g>)
     }
     return out
   }, [massMode, mass, yaw, centre, floor, bridgeTint]) // eslint-disable-line
-  // One wall of a block in the 3D campus view, from corner p along (ux, uz) for len metres, between heights y0 and
-  // y1. A block with a finish gets its texture (facadePatterns.tsx), drawn in wall coordinates through a matrix that
-  // maps metres along the wall and height to the screen, so windows stay on the wall and line up floor by floor; then
-  // the green end wall, curtain wall frame or edge stripe of the finish. Blocks without a finish (link bridges) get a
-  // glass band with a vertical fin every 3 m.
-  function faceDetail(fc: Facade | undefined, p: Vec2, ux: number, uz: number, len: number, y0: number, y1: number) {
-    if (!fc) {
-      if (len < 3 || y1 - y0 < 2.5) return null
-      const at = (s: number, y: number) => pt([p[0] + ux * s, y, p[1] + uz * s])
-      const a = 0.6, b = len - 0.6, wy0 = y0 + 1.1, wy1 = y1 - 0.7
-      let fins = ''
-      for (let s2 = a + 1.5; s2 < b - 0.5; s2 += 3) fins += `M${at(s2, wy0)}L${at(s2, wy1)}`
-      return <><polygon className="m-win" points={[at(a, wy0), at(b, wy0), at(b, wy1), at(a, wy1)].join(' ')} />{fins && <path className="m-fin" d={fins} />}</>
-    }
-    const u: V3 = [ux, 0, uz], [e, f] = proj([p[0], 0, p[1]]), h = y1 - y0
-    const m = `matrix(${dot(u, right).toFixed(5)} ${(-dot(u, up)).toFixed(5)} ${right[1].toFixed(5)} ${(-up[1]).toFixed(5)} ${e.toFixed(3)} ${f.toFixed(3)})`
-    const w = Math.min(2.2, len * 0.12)
-    return <g transform={m}>
-      <rect x={0} y={y0} width={len} height={h} fill={`url(#wf-fc-${fc.key})`} />
-      {fc.greenEnds && len >= 6 && len <= 32 && <rect x={len * 0.15} y={y0} width={len * 0.7} height={h} fill="url(#wf-fc-green)" />}
-      {fc.frame && len >= 6 && <><rect x={0} y={y0} width={w} height={h} fill={fc.frame} /><rect x={len - w} y={y0} width={w} height={h} fill={fc.frame} /></>}
-      {fc.edgeStripe && len >= 4 && <rect x={len - 1.4} y={y0} width={0.8} height={h} fill={fc.edgeStripe} />}
-    </g>
-  }
   const pinNode = pin && node.get(pin.node)?.level === floor ? pin : null
   const pinRoom = pinNode && rooms ? rooms.which(node.get(pinNode.node)!.pos[0], node.get(pinNode.node)!.pos[1]) : -1
   const entrances = useMemo(() => floorNodes.filter(n => /\bentrance\b/i.test(names?.get(n.id) ?? n.label)), [floorNodes, names])
@@ -756,14 +699,9 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
 
   return (
     <div className={`mapview${topDown ? ' flat' : ''}${site ? ' has-site' : ''}`} ref={ref}>
-      {mass && campus3d !== 'failed' && <Suspense fallback={null}>
-        <Campus3D building={building} mass={mass} floor={floor} visible={massMode} width={size.w} height={size.h}
-          view={{ centre, right, up, fwd, at: view, vw, vh }} onReady={() => setCampus3d('ready')} onFail={() => setCampus3d('failed')} />
-      </Suspense>}
       <svg ref={svgRef} className={[onPick ? 'pickable' : '', rooms ? 'has-rooms' : '', pxPerM < 2 ? 'far' : '', massMode ? 'mass' : ''].filter(Boolean).join(' ') || undefined} viewBox={`${view[0] - vw / 2} ${view[1] - vh / 2} ${vw} ${vh}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onContextMenu={e => e.preventDefault()} onDoubleClick={e => { const [px, py] = fromCentre(e.clientX, e.clientY); zoomAt(0.6, px, py) }} role="img" aria-label={`${lvl.name} map`}>
         <defs>
-          <FacadePatterns />
           <symbol id="wf-i-toilet" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="5" r="1.6" /><circle cx="16" cy="5" r="1.6" /><path d="M8 9v11M16 9l-3 7h6zM16 16v4" /></g></symbol>
           <symbol id="wf-i-lift" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="9" width="16" height="12.5" rx="1.5" /><path d="M12 9v12.5" /><path d="M9 1.8 6.6 5h4.8zM15 5.4l2.4-3.2h-4.8z" fill="#fff" strokeWidth="1.2" /></g></symbol>
           <symbol id="wf-i-stair" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19h5v-5h5V9h6" /></g></symbol>
@@ -773,11 +711,11 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           <symbol id="wf-i-shop" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1 12H7zM9 8V6a3 3 0 0 1 6 0v2" /></g></symbol>
           <symbol id="wf-i-park" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21v-6.5M12 14.5c-3.6 0-5.5-2.4-5.5-5.4S8.6 3 12 3s5.5 3.1 5.5 6.1-1.9 5.4-5.5 5.4z" /></g></symbol>
         </defs>
-        {!(massMode && campus3d === 'ready') && ground}
+        {ground}
         {under}
         {!massMode && roomShapes}
         {!massMode && sills}
-        {!(massMode && campus3d === 'ready') && massShapes}
+        {massShapes}
         {pinRoom >= 0 ? <polygon className="m-room r-dest" points={lvl.floors[pinRoom].map(p => pt([p[0], 0.02, p[1]])).join(' ')} strokeWidth={2 * k} />
           : pinNode && node.get(pinNode.node)!.kind === 'room' && zone(pinNode.node, 2.6, 'm-zone dest')}
         {vts.map(v => { const ri = rooms ? rooms.which(node.get(v.node)!.pos[0], node.get(v.node)!.pos[1]) : -1
