@@ -389,6 +389,12 @@ namespace Wayforge.Viewer
                 }
             }
             UpdateRoofs();
+            if (Building.blockColours.Count > 0)
+            {
+                int walls = 0, roofs = 0;
+                foreach (var lv in _levels) { roofs += lv.tintedRoofs.Count; walls += lv.tinted.Count - lv.tintedRoofs.Count; }
+                Debug.Log($"[Wayforge] block colours {string.Join(", ", Building.blockColours.Keys)}: coloured {walls} wall parts and {roofs} roof parts");
+            }
         }
 
         // The mesh a piece goes into: its block's own one if the block has a colour, else the normal one.
@@ -547,14 +553,14 @@ namespace Wayforge.Viewer
             return true;
         }
 
-        public void SetCutaway(bool on)
+        public void ApplyCutaway(bool on)
         {
             if (Cutaway == on) return;
             Cutaway = on;
             if (Building != null) BuildWalls();
         }
 
-        public void SetFloorSpacing(float metres)
+        public void ApplyFloorSpacing(float metres)
         {
             FloorSpacing = Mathf.Clamp(metres, 0f, 20f);
             ApplyLayout();

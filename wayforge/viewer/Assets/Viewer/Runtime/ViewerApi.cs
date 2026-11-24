@@ -119,12 +119,12 @@ namespace Wayforge.Viewer
         [Preserve] public void SetFloorSpacing(string metres)
         {
             if (!float.TryParse(metres, NumberStyles.Float, CultureInfo.InvariantCulture, out float m)) { Error("SetFloorSpacing", $"not a number: '{metres}'"); return; }
-            building.SetFloorSpacing(m);
+            building.ApplyFloorSpacing(m);
             RedrawRoute();
             if (building.Building != null) cameraRig.Frame(building.WorldBounds());
         }
 
-        [Preserve] public void SetCutaway(string on) => building.SetCutaway(IsTrue(on));
+        [Preserve] public void SetCutaway(string on) => building.ApplyCutaway(IsTrue(on));
 
         [Preserve] public void ShowLabels(string on) => building.SetLabelsVisible(IsTrue(on));
 

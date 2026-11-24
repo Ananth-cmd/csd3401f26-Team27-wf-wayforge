@@ -170,6 +170,7 @@ namespace Wayforge.Viewer
             if (colours != null)
                 foreach (var kv in colours)
                     if (kv.Value is string hex && ColorUtility.TryParseHtmlString(hex, out var c)) b.blockColours[kv.Key] = c;
+                    else Debug.LogWarning($"[Wayforge] block colour for {kv.Key} isn't a colour: {kv.Value}");
 
             foreach (var lo in levels)
             {

@@ -55,7 +55,10 @@
 
     if (!global.WAYFORGE_VIEWER_BUILD) await loadScript(base + "/viewer-build.js");
     var build = global.WAYFORGE_VIEWER_BUILD;
-    if (typeof global.createUnityInstance !== "function") await loadScript(base + "/" + build.loaderUrl);
+    // Unity keeps its files in the browser's storage by address, so each build gets its own "?v=" and an
+    // old copy is never reused after a rebuild
+    var v = build.buildId ? "?v=" + build.buildId : "";
+    if (typeof global.createUnityInstance !== "function") await loadScript(base + "/" + build.loaderUrl + v);
 
     // Events from WayforgeBridge.jslib arrive here.
     var listeners = {};
@@ -68,9 +71,9 @@
     };
 
     var instance = await global.createUnityInstance(canvas, {
-      dataUrl: base + "/" + build.dataUrl,
-      frameworkUrl: base + "/" + build.frameworkUrl,
-      codeUrl: base + "/" + build.codeUrl,
+      dataUrl: base + "/" + build.dataUrl + v,
+      frameworkUrl: base + "/" + build.frameworkUrl + v,
+      codeUrl: base + "/" + build.codeUrl + v,
       streamingAssetsUrl: base + "/StreamingAssets",
       companyName: build.companyName,
       productName: build.productName,
