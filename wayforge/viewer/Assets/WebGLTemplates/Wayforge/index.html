@@ -58,7 +58,7 @@
         if (params.get("view") === "2d") viewer.setView("2d");
         if (params.get("building")) viewer.loadBuildingUrl(params.get("building"));
       } catch (err) {
-        text.textContent = "The viewer could not start: " + err.message;
+        text.textContent = "The viewer could not start: " + ((err && err.message) || String(err)); // Unity often rejects with plain text, not an Error
         console.error(err);
       }
     })();

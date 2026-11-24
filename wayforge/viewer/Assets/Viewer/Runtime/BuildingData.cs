@@ -92,10 +92,22 @@ namespace Wayforge.Viewer
     {
         public string name = "";
         public float latitude, longitude, heading;
+        // Block colours set in the Studio (building.blockColours, e.g. "E2": "#3b82f6"): the outside walls and
+        // roof of that block are drawn in it. Empty = the normal materials.
+        public readonly Dictionary<string, Color> blockColours = new Dictionary<string, Color>();
         public readonly List<LevelData> levels = new List<LevelData>();
         public readonly List<LinkData> links = new List<LinkData>();
 
         public LevelData FindLevel(string levelId) => levels.Find(l => l.id == levelId);
+
+        // Block of a room code, the same rule as the Studio and the Navigator: "E2-01-05" -> "E2". Null if none.
+        static readonly System.Text.RegularExpressions.Regex BlockPrefix = new System.Text.RegularExpressions.Regex(@"^([A-Za-z]{1,2}\d{1,2})[-_]");
+        public static string BlockOf(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return null;
+            var m = BlockPrefix.Match(code);
+            return m.Success ? m.Groups[1].Value : null;
+        }
 
         // Room by id, code or "LEVEL:ROOMID" (same rules as wf_cli). Null if not found.
         public RoomData FindRoom(string reference)
@@ -154,6 +166,10 @@ namespace Wayforge.Viewer
             b.latitude = Json.Num(info, "latitude");
             b.longitude = Json.Num(info, "longitude");
             b.heading = Json.Num(info, "heading");
+            var colours = Json.Obj(info, "blockColours");
+            if (colours != null)
+                foreach (var kv in colours)
+                    if (kv.Value is string hex && ColorUtility.TryParseHtmlString(hex, out var c)) b.blockColours[kv.Key] = c;
 
             foreach (var lo in levels)
             {
