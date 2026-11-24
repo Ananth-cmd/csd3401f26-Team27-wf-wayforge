@@ -6,8 +6,11 @@
  * wf_read, then checks: line of sight through doors but not walls, graph
  * building with no isolated nodes, A* between the two rooms, bad references
  * rejected, and on a second level linked by stairs and a lift: step-free
- * routing and egress to an exit. Last, two separate blocks on one level must
- * not be joined through their walls by the fallback edges.
+ * routing and egress to an exit. Last, two separate blocks on one level: the
+ * fallback edges must not join them through their walls; with outer doors a
+ * route goes outside between them through no wall, and follows a footpath when
+ * the site has one; with no outer doors one last-resort link still makes the
+ * second block reachable.
  *
  * Prints each failed CHECK with its file and line and returns 1, so CTest
  * (and the CI desktop job) fails if anything breaks.
@@ -27,6 +30,7 @@
 #include "wf_graph/wf_graph.hpp"   // Everything under test.
 #include "wf_read/wf_read.hpp"     // read::interpret: turns line segments into walls, doors and rooms.
 #include <iostream>                // Printing results and failures.
+#include <cmath>                   // std::abs for positions.
 
 // Counts failed checks; CHECK keeps going after a failure so one run shows every problem.
 static int g_failures = 0;
@@ -217,6 +221,31 @@ int main() {
                     if (i > 0) CHECK(lineOfSight(campus.levels[0], route->steps[i - 1].pos, route->steps[i].pos));
                 }
                 CHECK(exitsPassed == 2);                          // out of one block, into the other
+            }
+        }
+    }
+
+    // --- the same two blocks with a footpath in the site, 3 m below both doors (y = -3). Walking off
+    //     it costs offPathFactor (2) times more, so the route steps out to the path, follows it and
+    //     comes back in (about 2 + 12 + 2.5 m, cost ~21) rather than the 12 m straight line between
+    //     the doors (cost 24).
+    {
+        IdGenerator ids5;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids5, true));
+        campus.site = R"({"roads":[{"kind":"path","name":"Test Walk","points":[[-5,-3],[30,-3]]}]})";
+        prepareNavigation(campus);
+        auto [w, e] = westAndEast(campus);
+        CHECK(w && e);
+        if (w && e) {
+            auto route = findRoute(campus, *w, *e);
+            CHECK(route.ok());
+            if (route) {
+                bool onPath = false;
+                for (const auto& s : route->steps) if (std::abs(s.pos.y + 3.f) < 0.01f) onPath = true;
+                CHECK(onPath);                                    // walked along the footpath
+                for (size_t i = 1; i < route->steps.size(); ++i)
+                    CHECK(lineOfSight(campus.levels[0], route->steps[i - 1].pos, route->steps[i].pos));
             }
         }
     }

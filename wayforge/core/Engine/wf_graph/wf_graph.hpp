@@ -56,6 +56,10 @@ struct GraphParams {
     float outdoorClearance   = 1.5f;  // outdoor waypoints sit this far outside the corners of each block's outline
     float exitStep           = 1.f;   // outdoor paths start this far straight out of each exit door
     float outdoorCostFactor  = 1.f;   // outdoor edge cost = length x this (above 1 favours indoor routes and bridges)
+    float offPathFactor      = 2.f;   // when the site has walkways: walking outside off them costs length x this
+    float roadFactor         = 1.2f;  // walking along a road costs length x this (footpaths and cycle paths: x1)
+    float walkwayReach       = 30.f;  // exit steps and block corners join walkways within this many metres
+    float walkwayJoin        = 3.f;   // a walkway's end this close to another walkway joins it there
     float cutOffReach        = 12.f;  // joinCutOffBlocks: longest link allowed for a block with no way in
 };
 
@@ -86,8 +90,11 @@ NavStats prepareNavigation(Building& building, const GraphParams& p = {});
 // Lets routes go outside between blocks. Each exit door gets a node exitStep metres straight out of
 // it, and each corner of every block's outline (convex hull of its rooms) a waypoint
 // outdoorClearance metres outside it. Every two of these that can see each other are joined: the
-// straight line crosses no wall, no room and no water (the site's "water" areas, when the file has
-// them). Needs markExitDoors() first. Returns the edges added.
+// straight line crosses no wall, no room, no water and no neighbouring building (the site's "water"
+// areas and "buildings", when the file has a site). When the site has walkways ("roads": footpaths,
+// cycle paths, roads) they become paths too, each of those points joins the walkways within
+// walkwayReach, and walking off them costs offPathFactor times more, so routes keep to the
+// walkways. Needs markExitDoors() first. Returns the edges added.
 int linkOutdoors(Building& building, Level& ground, IdGenerator& ids, const GraphParams& p = {});
 // A block on the ground floor that still can't be reached from the rest of the building (no exit
 // door drawn, no bridge) gets one edge to the nearest door or corridor of another part, through the
