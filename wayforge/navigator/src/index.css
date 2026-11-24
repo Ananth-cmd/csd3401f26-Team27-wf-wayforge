@@ -443,6 +443,10 @@ html, body { overflow-x: hidden; }
 .m-mass.cur .m-win { fill: #4f8d80; }
 /* the floor plan underneath is hidden while the campus shows as buildings */
 .mass .m-wall, .mass .m-slab, .mass .m-slab-side, .mass .m-zone, .mass .m-room { display: none; }
+/* ---- rendered campus (Campus3D.tsx): a canvas under the map's SVG, which stays on top for labels and input ---- */
+.campus3d { position: absolute; inset: 0; pointer-events: none; }
+.campus3d canvas { display: block; width: 100%; height: 100%; }
+.mapview > svg { position: relative; }
 /* ---- surroundings: water, green areas, roads, neighbouring buildings, trees, landmark signs ---- */
 .mapview.has-site { background: #e6eadf; }
 .ground { pointer-events: none; }
@@ -464,27 +468,39 @@ html, body { overflow-x: hidden; }
 .m-lm circle { stroke: #fff; fill: #3d8b4f; }
 .m-lm.mrt circle { fill: #c2283a; } .m-lm.bus circle { fill: #2b6cb0; } .m-lm.food circle { fill: #e07b2e; } .m-lm.shop circle { fill: #7a5cc2; }
 .m-label.lm { fill: #2f3f3a; font-weight: 700; paint-order: stroke; stroke: rgba(255, 255, 255, 0.9); stroke-width: 0.3; }
-/* ---- campus blocks: west blocks (fam-w) in sand and timber, east blocks (fam-e) in pale stone and terracotta, link bridges (fam-br) in the colour passed as --bc ---- */
+/* ---- campus blocks drawn by the SVG (no WebGL): a block with a finish (fc, facades.ts) has its walls textured
+   (facadePatterns.tsx) and takes its colours from --fe (outline), --fr (roof), --frim (roof edge) and --frw (roof edge
+   width). Link bridges (fam-br) use the colour passed as --bc. ---- */
 .m-fin { fill: none; stroke-width: 0.4; stroke-linecap: butt; }
 .m-win { fill: #7fa9bd; opacity: 0.92; }
 .m-roof { fill: #dde6d4; }
 .fam-w .m-face.a { fill: #eadfca; } .fam-w .m-face.b { fill: #d3c5a9; } .fam-w .m-face { stroke: #b8a98b; } .fam-w .m-fin { stroke: #a8744a; }
 .fam-e .m-face.a { fill: #eeeae3; } .fam-e .m-face.b { fill: #d5cfc4; } .fam-e .m-face { stroke: #b9b2a5; } .fam-e .m-fin { stroke: #c2664a; }
+/* the wall polygon lies over the façade texture: transparent on lit walls, a light shade on walls turned away */
+.fc .m-face.a { fill: transparent; } .fc .m-face.b { fill: rgba(20, 24, 28, 0.16); } .fc .m-face { stroke: var(--fe); stroke-width: 0.1; }
+.fc .m-roof { fill: var(--fr); stroke: var(--frim); stroke-width: calc(var(--frw) * 1px); stroke-linejoin: round; }
+.fc .m-roof.top { fill: url(#wf-pv); }
+.m-sign rect { fill: #d71920; } .m-sign text { fill: #fff; font-family: Manrope, system-ui, sans-serif; font-weight: 800; text-anchor: middle; }
+.m-mass.cur .m-sign { display: none; }
 .fam-br .m-face.a { fill: var(--bc, #d7dbd5); } .fam-br .m-face.b { fill: color-mix(in srgb, var(--bc, #c3c9c2) 78%, #000); }
 .fam-br .m-face { stroke: none; } .fam-br .m-fin { stroke: rgba(255, 255, 255, 0.75); }
 .fam-br .m-roof { fill: color-mix(in srgb, var(--bc, #eef0ec) 62%, #fff); stroke: color-mix(in srgb, var(--bc, #b3bab2) 80%, #000); }
 .m-mass.cur .m-face.a { fill: #b8e0d2; } .m-mass.cur .m-face.b { fill: #9fcfbf; } .m-mass.cur .m-fin { stroke: #2f7d6d; }
 .m-mass.cur .m-roof { fill: #cfeee3; stroke: #0b7a6b; stroke-width: 0.35; }
 .m-mass.cur .m-win { fill: #4f8d80; }
+/* a block with a finish keeps it on the current floor; the floor is marked by a teal outline instead */
+.m-mass.fc.cur .m-face.a { fill: transparent; } .m-mass.fc.cur .m-face.b { fill: rgba(20, 24, 28, 0.16); } .m-mass.fc.cur .m-face { stroke: #0b7a6b; stroke-width: 0.3; }
+.m-mass.fc.cur .m-roof { fill: var(--fr); }
 /* link bridges keep their own colour on the current floor; the roof keeps the current-floor outline */
 .m-mass.fam-br .m-face.a { fill: var(--bc, #b8e0d2); } .m-mass.fam-br .m-face.b { fill: color-mix(in srgb, var(--bc, #9fcfbf) 78%, #000); }
 .m-mass.fam-br .m-roof { fill: color-mix(in srgb, var(--bc, #cfeee3) 62%, #fff); } .m-mass.fam-br .m-fin { stroke: rgba(255, 255, 255, 0.75); } .m-mass.fam-br .m-win { fill: #7fa9bd; }
 /* ---- floor plan: room floors, exterior walls (x) in terracotta, window glass, door leaves and sills ---- */
 .r-room { fill: #fbf8f1; }
 .r-corr { fill: #ece9e1; }
-.m-wall.x.s0, .m-wall.x.s3 { fill: #9a6a51; } .m-wall.x.s1 { fill: #b5876b; } .m-wall.x.s2 { fill: #c9a288; }
-.flat .m-wall.x.s0 { fill: #8d5e46; }
-.far .m-wall.x.s0, .far .m-wall.x.s3 { fill: #b08a76; } .far .m-wall.x.s1 { fill: #c19f8c; } .far .m-wall.x.s2 { fill: #d0b5a5; }
+/* exterior walls take their block colours from --xs (side) and --xt (top); the fallbacks are for walls without a block */
+.m-wall.x.s0, .m-wall.x.s3 { fill: var(--xt, #9a6a51); } .m-wall.x.s1 { fill: var(--xs, #b5876b); } .m-wall.x.s2 { fill: color-mix(in srgb, var(--xs, #b5876b) 80%, #fff); }
+.flat .m-wall.x.s0 { fill: var(--xt, #8d5e46); }
+.far .m-wall.x.s0, .far .m-wall.x.s3 { fill: color-mix(in srgb, var(--xt, #9a6a51) 75%, #fff); } .far .m-wall.x.s1 { fill: color-mix(in srgb, var(--xs, #b5876b) 75%, #fff); } .far .m-wall.x.s2 { fill: color-mix(in srgb, var(--xs, #b5876b) 60%, #fff); }
 .m-glass { fill: #7fc8ea; stroke: none; } .m-glass.side { fill: #b5dff3; opacity: 0.92; }
 .m-door { fill: #a8733f; stroke: #7b5129; stroke-width: 0.07; stroke-linejoin: round; stroke-linecap: round; }
 .m-sill { fill: #d9bc8f; }
