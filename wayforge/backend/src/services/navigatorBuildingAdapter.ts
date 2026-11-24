@@ -1,11 +1,31 @@
-// Convert a published Wayforge .wfb into the Building shape in navigator/src/types.ts.
-// This first version supports the verified single-floor demo and safe same-floor edges.
-// Do not invent stair/lift connections or floor slab outlines that aren't in the .wfb.
+/*!
+ * \file navigatorBuildingAdapter.ts
+ * \brief Converts published .wfb building geometry into Navigator data.
+ *
+ * Validates floor, wall, room, node, edge, and inter-floor link data and maps
+ * them to Navigator's Building type. Includes door openings, room-based floor
+ * surfaces, points of interest, and navigation edges. Actual multi-floor input
+ * still needs validation against a real building published by Studio.
+ * Also exports data used for drawing only, not for routing: the span of each
+ * door and window, an exterior flag per wall, and the file's "site" object
+ * (ground, water, roads, neighbouring buildings and landmarks).
+ *
+ * Links: wfbLinks.ts; server.ts; navigator/src/types.ts
+ *
+ * \author Kervin Ong Guan Cheng
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
+ * Contribution: Kervin Ong Guan Cheng, Ananthan Elangovan
+ *   - Kervin: Wayforge backend support and integration
+ *   - Ananthan: door and window positions, outside walls, surroundings ("site")
+ * AI declaration: ChatGPT assisted with refining documentation comments.
+ * \date 2026-11-07
+ */
 
 export type Vec2 = [number, number];
 export type NavigatorEdgeKind = "walk" | "stairs" | "lift";
 export type NavigatorNodeKind = "room" | "turn" | "stairs" | "lift";
 
+// Mirrors the fields Shri's Navigator expects for geometry and navigation.
 export type NavigatorBuilding = {
     format: string;
     version: number;
@@ -21,12 +41,26 @@ export type NavigatorBuilding = {
         elevation: number;
         height: number;
         floors: Vec2[][];
-        walls: { a: Vec2; b: Vec2; thickness: number }[];
+        walls: { a: Vec2; b: Vec2; thickness: number; exterior: boolean }[];
+        doors: { a: Vec2; b: Vec2 }[];                                   // door opening span in its wall: start and end points, metres
+        windows: { a: Vec2; b: Vec2; sill: number; height: number; thickness: number }[];
     }[];
     nodes: { id: string; label: string; level: number; pos: Vec2; kind: NavigatorNodeKind }[];
     edges: { from: string; to: string; kind: NavigatorEdgeKind; bidirectional: boolean; blocked: boolean; extraCost: number }[];
     links: { from: string; to: string; kind: NavigatorEdgeKind; bidirectional: boolean; blocked: boolean; extraCost: number }[];
     pois: { id: string; name: string; code: string; node: string; category: string; description: string; startingPoint: boolean }[];
+    surroundings?: NavigatorSite;
+};
+
+// Surroundings of the building in level coordinates (metres). Used for drawing only, not for routing.
+export type NavigatorSite = {
+    source: string;
+    bounds: [number, number, number, number];
+    areas: { kind: string; name: string; polygon: Vec2[] }[];           // kind: water, park, grass, trees or plaza
+    roads: { kind: string; name: string; width: number; points: Vec2[] }[];   // kind: road, path or cycle; width in metres
+    buildings: { name: string; kind: string; levels: number; polygon: Vec2[] }[];
+    landmarks: { name: string; kind: string; pos: Vec2 }[];             // kind: mrt, bus, food, shop or park
+    bridges: { room: string; colour: string }[];                         // room: place id of a link bridge ("L5:BR1_r"); colour: "#rrggbb"
 };
 
 import { parseWfbLinks, UnsupportedWfbError } from "./wfbLinks";
@@ -34,6 +68,7 @@ export { UnsupportedWfbError } from "./wfbLinks";
 
 type Rec = Record<string, unknown>;
 const object = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
+// Validation helpers reject missing or malformed .wfb fields early.
 function requireObject(v: unknown, description: string): Rec {
     if (!object(v)) throw new Error(`Invalid .wfb: ${description} must be an object`);
     return v;
@@ -46,9 +81,11 @@ function requireString(v: unknown, description: string): string {
     if (typeof v !== "string" || !v) throw new Error(`Invalid .wfb: ${description} must be a nonempty string`);
     return v;
 }
+// Use a safe fallback only for optional numeric metadata.
 function number(v: unknown, fallback: number): number {
     return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
+// A geometry coordinate must be exactly two finite numbers.
 function vec2(v: unknown, description: string): Vec2 {
     if (!Array.isArray(v) || v.length !== 2 || !v.every(x => typeof x === "number" && Number.isFinite(x))) {
         throw new Error(`Invalid .wfb: ${description} must be [x, y]`);
@@ -59,6 +96,10 @@ function isVec2(v: unknown): v is Vec2 {
     return Array.isArray(v) && v.length === 2 && v.every(x => typeof x === "number" && Number.isFinite(x));
 }
 // Ray casting: is point p inside the room outline?
+/**
+ * Ray-casting point-in-polygon test.
+ * Used to identify anchors placed inside a room's polygon.
+ */
 function insidePolygon(p: Vec2, poly: Vec2[]): boolean {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -67,6 +108,8 @@ function insidePolygon(p: Vec2, poly: Vec2[]): boolean {
     }
     return inside;
 }
+// Translate engine node types into the smaller set supported by Navigator.
+// A door node is represented as a generic turn/path node.
 function mapNodeKind(kind: unknown): NavigatorNodeKind {
     if (kind === "room") return "room";
     if (kind === "stairs" || kind === "stair") return "stairs";
@@ -77,6 +120,10 @@ function mapNodeKind(kind: unknown): NavigatorNodeKind {
 
 // returns a quick "does this line go through a wall" test for one level.
 // walls are put into 5 m grid squares first so each line only checks the walls near it
+/**
+ * Build a spatial grid of wall segments and return a line-crossing checker.
+ * Limits path checks to nearby walls instead of scanning every wall each time.
+ */
 function wallChecker(walls: { a: Vec2; b: Vec2 }[]): (p: Vec2, q: Vec2) => boolean {
     const CELL = 5;
     const grid = new Map<string, { a: Vec2; b: Vec2 }[]>();
@@ -109,6 +156,36 @@ function wallChecker(walls: { a: Vec2; b: Vec2 }[]): (p: Vec2, q: Vec2) => boole
     };
 }
 
+/**
+ * Parse the optional "site" object of a .wfb into a NavigatorSite.
+ * Returns undefined when the object or its bounds are missing. A malformed
+ * entry is skipped, so one bad entry does not reject the building.
+ */
+function parseSite(v: unknown): NavigatorSite | undefined {
+    if (!object(v)) return undefined;
+    const list = (x: unknown) => (Array.isArray(x) ? x.filter(object) : []);
+    const points = (x: unknown) => (Array.isArray(x) ? x.filter(isVec2) : []);
+    const text = (x: unknown) => (typeof x === "string" ? x : "");
+    const b = Array.isArray(v.bounds) && v.bounds.length === 4 && v.bounds.every(n => typeof n === "number" && Number.isFinite(n))
+        ? v.bounds as [number, number, number, number] : undefined;
+    if (!b) return undefined;
+    return {
+        source: text(v.source),
+        bounds: b,
+        areas: list(v.areas).map(a => ({ kind: text(a.kind), name: text(a.name), polygon: points(a.polygon) })).filter(a => a.polygon.length >= 3),
+        roads: list(v.roads).map(r => ({ kind: text(r.kind), name: text(r.name), width: number(r.width, 3), points: points(r.points) })).filter(r => r.points.length >= 2),
+        buildings: list(v.buildings).map(x => ({ name: text(x.name), kind: text(x.kind), levels: number(x.levels, 3), polygon: points(x.polygon) })).filter(x => x.polygon.length >= 3),
+        landmarks: list(v.landmarks).filter(m => isVec2(m.pos) && text(m.name)).map(m => ({ name: text(m.name), kind: text(m.kind), pos: m.pos as Vec2 })),
+        bridges: list(v.bridges).filter(x => text(x.room) && /^#[0-9a-fA-F]{6}$/.test(text(x.colour)))
+            .map(x => ({ room: `${text(x.level)}:${text(x.room)}`, colour: text(x.colour) }))
+    };
+}
+
+/**
+ * Convert one published Wayforge document into a Navigator Building.
+ * Validates inputs, sorts levels by elevation, and builds floor geometry,
+ * nodes, edges, points of interest and cross-floor links.
+ */
 export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
     const doc = requireObject(input, "document");
     const meta = requireObject(doc.building, "building");
@@ -118,6 +195,7 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
         const level = requireObject(value, `levels[${i}]`);
         return { level, id: requireString(level.id, `levels[${i}].id`), elevation: number(level.elevation, 0) };
     });
+    // Navigator uses numeric level indices, so keep floors in elevation order.
     parsed.sort((a, b) => a.elevation - b.elevation);
 
     const gaps = parsed.slice(1).map((l, i) => l.elevation - parsed[i].elevation).filter(n => n > 0);
@@ -134,7 +212,10 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
         units: "m",
         levels: [], nodes: [], edges: [], links: [], pois: []
     };
+    const site = parseSite(doc.site);
+    if (site) result.surroundings = site;
 
+    // Convert each .wfb level, keeping a map from original node IDs to positions.
     for (const [index, { level, id: levelId, elevation }] of parsed.entries()) {
         const rooms = requireArray(level.rooms ?? [], `${levelId}.rooms`).map((r, i) => requireObject(r, `${levelId}.rooms[${i}]`));
         const rawNodes = requireArray(level.nodes ?? [], `${levelId}.nodes`);
@@ -159,15 +240,38 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
         // doors live in level.openings, not in the walls, so cut a gap in each wall where a door is
         // (Navigator draws every wall piece as solid, a gap is how it shows a door). windows stay as wall
         const doorsOnWall = new Map<string, { offset: number; width: number }[]>();
+        const windowsOnWall = new Map<string, { offset: number; width: number; sill: number; height: number }[]>();
         for (const value of Array.isArray(level.openings) ? level.openings : []) {
-            if (!object(value) || (value.type !== "door" && value.type !== "opening")) continue;
-            if (typeof value.wall !== "string") continue;
+            if (!object(value) || typeof value.wall !== "string") continue;
+            if (value.type === "window") {
+                const list = windowsOnWall.get(value.wall) ?? [];
+                list.push({ offset: number(value.offset, 0), width: number(value.width, 0), sill: number(value.sill, 0.9), height: number(value.height, 1.2) });
+                windowsOnWall.set(value.wall, list);
+                continue;
+            }
+            if (value.type !== "door" && value.type !== "opening") continue;
             const list = doorsOnWall.get(value.wall) ?? [];
             list.push({ offset: number(value.offset, 0), width: number(value.width, 0) });
             doorsOnWall.set(value.wall, list);
         }
 
-        const walls: { a: Vec2; b: Vec2; thickness: number }[] = [];
+        // Exterior wall test: one point 0.35 m off each face of the wall is tested against the room
+        // outlines. The wall is exterior when exactly one of the two points lies inside a room.
+        const outlines = rooms.map(r => (Array.isArray(r.polygon) ? r.polygon.filter(isVec2) : [])).filter(p => p.length >= 3);
+        const boxes = outlines.map(p => [Math.min(...p.map(q => q[0])), Math.min(...p.map(q => q[1])), Math.max(...p.map(q => q[0])), Math.max(...p.map(q => q[1]))]);
+        const inRoom = (p: Vec2) => outlines.some((poly, i) => p[0] >= boxes[i][0] && p[0] <= boxes[i][2] && p[1] >= boxes[i][1] && p[1] <= boxes[i][3] && insidePolygon(p, poly));
+        const facesOutside = (a: Vec2, b: Vec2, thickness: number) => {
+            const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            if (len < 0.05) return false;
+            const reach = thickness / 2 + 0.35, nx = (-(b[1] - a[1]) / len) * reach, ny = ((b[0] - a[0]) / len) * reach;
+            const mid: Vec2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+            return inRoom([mid[0] + nx, mid[1] + ny]) !== inRoom([mid[0] - nx, mid[1] - ny]);
+        };
+
+        // Split each wall around door openings so Navigator shows visible gaps.
+        const walls: NavigatorBuilding["levels"][number]["walls"] = [];
+        const doorGaps: NavigatorBuilding["levels"][number]["doors"] = [];
+        const windowPanes: NavigatorBuilding["levels"][number]["windows"] = [];
         for (const [i, value] of requireArray(level.walls ?? [], `${levelId}.walls`).entries()) {
             const wall = requireObject(value, `${levelId}.walls[${i}]`);
             const a = vec2(wall.a, `${levelId}.walls[${i}].a`);
@@ -180,32 +284,41 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             const at = (d: number): Vec2 => len ? [a[0] + (b[0] - a[0]) * d / len, a[1] + (b[1] - a[1]) * d / len] : a;
 
             // walk from a to b, adding a wall piece before each door and skipping over the door itself
+            const exterior = facesOutside(a, b, thickness);
             let from = 0;
             for (const door of [...doors].sort((x, y) => x.offset - y.offset)) {
                 const start = Math.min(Math.max(door.offset, 0), len);
                 const end = Math.min(Math.max(door.offset + door.width, 0), len);
-                if (start - from > 0.05) walls.push({ a: at(from), b: at(start), thickness });
+                if (start - from > 0.05) walls.push({ a: at(from), b: at(start), thickness, exterior });
+                if (end - start > 0.3) doorGaps.push({ a: at(start), b: at(end) });
                 from = Math.max(from, end);
             }
-            if (len - from > 0.05 || (!doors.length)) walls.push({ a: from ? at(from) : a, b, thickness });
+            if (len - from > 0.05 || (!doors.length)) walls.push({ a: from ? at(from) : a, b, thickness, exterior });
+
+            // Windows do not split the wall. Each is exported as a span with its sill and height, and the
+            // Navigator draws glass over that part of the wall.
+            for (const w of (typeof wall.id === "string" ? windowsOnWall.get(wall.id) : undefined) ?? []) {
+                const start = Math.min(Math.max(w.offset, 0), len), end = Math.min(Math.max(w.offset + w.width, 0), len);
+                if (end - start > 0.3) windowPanes.push({ a: at(start), b: at(end), sill: w.sill, height: w.height, thickness });
+            }
         }
 
-        // The demo .wfb has rooms, but no guaranteed full-floor slab outlines.
-        // Never misrepresent each room polygon as a complete floor slab.
-        // Studio's .wfb has no slab outline, so use every room's own outline as a piece of floor
-        // (corridors are rooms too, so together they cover the walkable floor). Navigator needs at
-        // least one floor shape to centre and fit the map, it draws nothing without it.
+        // Use explicit floor-slab polygons when provided by the .wfb. Otherwise,
+        // approximate visible floor surfaces using each room's polygon, including
+        // corridors if they are represented as rooms. These polygons are not a
+        // verified outline of the entire building.
         const floors = Array.isArray(level.floors) && level.floors.length
             ? level.floors.map((polygon, i) => requireArray(polygon, `${levelId}.floors[${i}]`)
                 .map((p, j) => vec2(p, `${levelId}.floors[${i}][${j}]`)))
             : rooms.map(r => (Array.isArray(r.polygon) ? r.polygon.filter(isVec2) : [])).filter(p => p.length >= 3);
         result.levels.push({
             index, name: typeof level.name === "string" ? level.name : levelId,
-            elevation, height: number(level.ceilingHeight, 3), floors, walls
+            elevation, height: number(level.ceilingHeight, 3), floors, walls, doors: doorGaps, windows: windowPanes
         });
 
         // paths that cut straight through a solid wall (bad links in the path data, the route would
         // be drawn through the wall). they get checked below once all the paths are in
+        // Check navigation paths that may cross walls before exporting edges.
         const levelEdges: NavigatorBuilding["edges"] = [];
         const throughWall = new Set<NavigatorBuilding["edges"][number]>();
         const hitsWall = wallChecker(walls);
@@ -269,6 +382,7 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
 
         // Starting points come from the level's anchors (Studio saves one per room ticked as
         // "Starting point", id "a-<room id>"). An anchor that just sits inside a room counts too.
+        // Match each room to its graph node and any matching start-point anchor.
         const anchors = (Array.isArray(level.anchors) ? level.anchors : []).filter(object);
         for (const room of rooms) {
             const id = requireString(room.id, `${levelId}.room.id`);
@@ -296,6 +410,7 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
     }
 
     // Every inter-floor link must point to a real node. Never silently invent endpoints.
+    // Validate inter-floor link endpoints before exporting stairs or lifts.
     const positions = new Map(result.nodes.map(n => [n.id, n]));
     for (const link of rawLinks) {
         const start = positions.get(link.from.id);
@@ -316,5 +431,6 @@ export function toNavigatorBuilding(input: unknown): NavigatorBuilding {
             extraCost: Math.max(0, (link.cost ?? approximateBaseCost) - approximateBaseCost)
         });
     }
+    // Return only the geometry and navigation structures supported by Navigator.
     return result;
 }

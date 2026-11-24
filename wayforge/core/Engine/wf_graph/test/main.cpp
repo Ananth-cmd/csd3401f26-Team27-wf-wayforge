@@ -6,7 +6,8 @@
  * wf_read, then checks: line of sight through doors but not walls, graph
  * building with no isolated nodes, A* between the two rooms, bad references
  * rejected, and on a second level linked by stairs and a lift: step-free
- * routing and egress to an exit.
+ * routing and egress to an exit. Last, two separate blocks on one level must
+ * not be joined through their walls by the fallback edges.
  *
  * Prints each failed CHECK with its file and line and returns 1, so CTest
  * (and the CI desktop job) fails if anything breaks.
@@ -42,6 +43,26 @@ static wf::Level makeLevel(wf::IdGenerator& ids, const std::string& id, float el
         {{5,2},{5,8}},                                                    // wall between the rooms
         {{0,2},{2,2}}, {{2.9f,2},{7,2}}, {{7.9f,2},{10,2}},               // corridor wall with two gaps
     };
+    auto st = read::interpret(segs, level, ids, {});
+    if (!st) std::cerr << st.error() << "\n";
+    return level;
+}
+
+// Two copies of makeLevel's block on one level: the second 12 m along and 0.5 m up, leaving a 2 m
+// gap between them (two separate buildings, like neighbouring campus blocks). outerDoors: each block
+// gets a door to the outside in its bottom wall (x 4..4.9), into its corridor.
+static wf::Level makeTwoBlocks(wf::IdGenerator& ids, bool outerDoors = false) {
+    using namespace wf; using vec::Segment;
+    Level level; level.id = "L1"; level.name = "Level 1";
+    std::vector<Segment> block = {
+        {{0,8},{10,8}}, {{0,0},{0,8}}, {{10,0},{10,8}},
+        {{5,2},{5,8}},
+        {{0,2},{2,2}}, {{2.9f,2},{7,2}}, {{7.9f,2},{10,2}},
+    };
+    if (outerDoors) { block.push_back({{0,0},{4,0}}); block.push_back({{4.9f,0},{10,0}}); }
+    else block.push_back({{0,0},{10,0}});
+    std::vector<Segment> segs = block;
+    for (const Segment& s : block) segs.push_back({ { s.a.x + 12.f, s.a.y + 0.5f }, { s.b.x + 12.f, s.b.y + 0.5f } });
     auto st = read::interpret(segs, level, ids, {});
     if (!st) std::cerr << st.error() << "\n";
     return level;
@@ -129,6 +150,90 @@ int main() {
     // nearest node helper
     auto nn = nearestNode(b, "L1", {2.45f, 2.f});               // a point in the left door
     CHECK(nn.has_value());
+
+    // --- two separate blocks on one level: fallback edges (for rooms with no door found) must not
+    //     join them through their walls. Each block keeps its own corridor, so no route between them.
+    {
+        IdGenerator ids2;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids2));
+        Level& lv = campus.levels[0];
+        CHECK(lv.rooms.size() == 6);                              // 2 rooms + a corridor per block
+        buildLevelGraph(lv, ids2);
+        // Code the rooms, then pick two in the west block and one in the east block by position.
+        int n = 0;
+        std::string west, west2, east;
+        for (auto& r : lv.rooms) {
+            if (r.kind == RoomKind::Corridor) continue;
+            r.code = "B-01-0" + std::to_string(++n);
+            if (r.centroid.x > 11.f) east = r.code;
+            else if (west.empty()) west = r.code;
+            else west2 = r.code;
+        }
+        auto w = nodeForRoom(campus, west), w2 = nodeForRoom(campus, west2), e = nodeForRoom(campus, east);
+        CHECK(w && w2 && e);
+        if (w && w2 && e) {
+            CHECK(findRoute(campus, *w, *w2).ok());               // inside one block: through the corridor
+            CHECK(!findRoute(campus, *w, *e).ok());               // across the gap: no way through the walls
+        }
+        for (const Edge& edge : lv.edges) {                        // no edge spans the 2 m gap (x 10..12)
+            const Node* a = lv.findNode(edge.a); const Node* b2 = lv.findNode(edge.b);
+            if (a && b2) CHECK((a->pos.x < 11.f) == (b2->pos.x < 11.f));
+        }
+    }
+
+    // Code the non-corridor rooms of a level, then give back one west room and one east room.
+    auto westAndEast = [](Building& bld) {
+        int n = 0;
+        std::string west, east;
+        for (auto& r : bld.levels[0].rooms) {
+            if (r.kind == RoomKind::Corridor) continue;
+            r.code = "C-01-0" + std::to_string(++n);
+            if (r.centroid.x > 11.f) east = r.code; else if (west.empty()) west = r.code;
+        }
+        return std::make_pair(nodeForRoom(bld, west), nodeForRoom(bld, east));
+    };
+
+    // --- two blocks, each with a door to the outside: prepareNavigation adds outdoor paths, so the
+    //     route goes out one exit, round the outside and in the other, never through a wall.
+    {
+        IdGenerator ids3;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids3, true));
+        const NavStats nav = prepareNavigation(campus);
+        std::cout << "outdoor: exits " << nav.exits << " outdoor edges " << nav.outdoorEdges << " cut-off links " << nav.cutOffLinks << "\n";
+        CHECK(nav.exits >= 2);                                    // one outer door per block
+        CHECK(nav.outdoorEdges > 0);
+        CHECK(nav.cutOffLinks == 0);                              // joined outside, no link through walls needed
+        auto [w, e] = westAndEast(campus);
+        CHECK(w && e);
+        if (w && e) {
+            auto route = findRoute(campus, *w, *e);
+            CHECK(route.ok());
+            if (route) {
+                int exitsPassed = 0;
+                for (size_t i = 0; i < route->steps.size(); ++i) {
+                    if (route->steps[i].kind == NodeKind::Exit) ++exitsPassed;
+                    if (i > 0) CHECK(lineOfSight(campus.levels[0], route->steps[i - 1].pos, route->steps[i].pos));
+                }
+                CHECK(exitsPassed == 2);                          // out of one block, into the other
+            }
+        }
+    }
+
+    // --- the same blocks with no outer doors: joinCutOffBlocks gives the second one link, so every
+    //     block can still be reached.
+    {
+        IdGenerator ids4;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids4, false));
+        const NavStats nav = prepareNavigation(campus);
+        CHECK(nav.exits == 0);
+        CHECK(nav.cutOffLinks == 1);
+        auto [w, e] = westAndEast(campus);
+        CHECK(w && e);
+        if (w && e) CHECK(findRoute(campus, *w, *e).ok());
+    }
 
     // Non-zero exit tells CTest the test failed.
     if (g_failures) { std::cerr << g_failures << " failure(s)\n"; return 1; }

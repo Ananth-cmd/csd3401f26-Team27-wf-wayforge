@@ -19,9 +19,11 @@ Example: `studio-web/public/samples/sit-punggol.wfb` (built by `tools/build_sit_
     }
   ],
   "links": [],
-  "source": { "file": "plan.png", "pixelsPerMetre": 50.0, "rectified": false }
+  "source": { "file": "plan.png", "pixelsPerMetre": 50.0, "rectified": false },
+  "site": { }
 }
 ```
+`site` is optional (see "Site" below).
 
 ## Building
 | Field | Meaning |
@@ -94,8 +96,24 @@ Example: `studio-web/public/samples/sit-punggol.wfb` (built by `tools/build_sit_
 | poi | id, kind (e.g. "toilet"), pos, label |
 | anchor (QR point) | id, pos, name, heading |
 
+## Site (optional)
+What is around the building, in the same metres as the levels (x east, y north). It is only drawn
+(by the Navigator), never used for the walking paths. The engine does not read inside it: `wf_cli`
+and the DLL keep it as it is when they load and save a file. The SIT Punggol sample has one, made by
+`tools/sit_surroundings.py` from OpenStreetMap.
+
+| Field | Meaning |
+|---|---|
+| source | where the data came from |
+| bounds | [x0, y0, x1, y1] of the area covered |
+| areas | list of { kind, name, polygon }. kind: water, park, grass, trees, plaza |
+| roads | list of { kind, name, width, bridge, points }. kind: road, path, cycle. width in metres |
+| buildings | neighbouring buildings: { name, kind, levels, polygon } |
+| landmarks | named points to find your way by: { name, kind, pos }. kind: mrt, bus, food, shop, park |
+| bridges | colours of link bridges: { room, level, colour } with the bridge's room id and "#rrggbb" |
+
 ## Rules
 - Ids are short (w12, o3, r5) so the file is easy to read.
 - A door is stored by its wall and offset, not by x/y.
-- Unknown fields are ignored when loading.
+- Unknown fields are ignored when loading (except `site`, which is kept).
 - A missing or broken file gives an error message instead of crashing.

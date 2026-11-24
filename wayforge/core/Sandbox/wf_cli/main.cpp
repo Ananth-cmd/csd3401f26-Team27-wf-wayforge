@@ -294,10 +294,12 @@ int cmdBuild(const Args& a) {
     applyLocation(b, a);
     const auto nav = wf::graph::prepareNavigation(b);
     if (a.has("--json"))
-        std::cout << json{ {"floors", summary}, {"nodes", nav.graph.nodes}, {"edges", nav.graph.edges}, {"exits", nav.exits}, {"links", nav.links} }.dump(2) << "\n";
+        std::cout << json{ {"floors", summary}, {"nodes", nav.graph.nodes}, {"edges", nav.graph.edges}, {"exits", nav.exits}, {"links", nav.links},
+                           {"outdoorEdges", nav.outdoorEdges}, {"cutOffLinks", nav.cutOffLinks} }.dump(2) << "\n";
     else
         std::cout << "navigation: " << nav.graph.nodes << " points, " << nav.graph.edges << " paths, "
-                  << nav.exits << " exits, " << nav.links << " stair/lift links between floors\n";
+                  << nav.exits << " exits, " << nav.links << " stair/lift links between floors, "
+                  << nav.outdoorEdges << " outdoor paths, " << nav.cutOffLinks << " links into cut-off blocks\n";
     return save(b, a.pos[0]);
 }
 
@@ -346,7 +348,8 @@ int cmdGraph(const Args& a) {
     if (!b) return fail(b.error());
     const auto nav = wf::graph::prepareNavigation(*b);
     std::cout << nav.graph.nodes << " points, " << nav.graph.edges << " paths, " << nav.graph.isolatedNodes << " unreachable, "
-              << nav.exits << " exits, " << nav.links << " floor links\n";
+              << nav.exits << " exits, " << nav.links << " floor links, " << nav.outdoorEdges << " outdoor paths, "
+              << nav.cutOffLinks << " links into cut-off blocks\n";
     return save(*b, a.get("-o").value_or(a.pos[0]));
 }
 

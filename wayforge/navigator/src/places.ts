@@ -86,16 +86,19 @@ const typeLabel = (kind: PlaceKind, cat: string, name: string) => {
 const GENERIC = /^(lift lobby|lift|lobby|stairs?|toilet.*|accessible toilet|pantry|corridor|entrance lobby|seminar room|meeting room|study area|lounge)$/i
 
 export function buildPlaces(b: Building, nodeIndex: Map<string, Node>) {
-  // block of every node: from its id / label, else the nearest place with a room code on that floor
+  // block of every node: from its room's id, its own id / label, else the nearest place with a room code on that floor
   const coded = b.pois.map(p => ({ p, n: nodeIndex.get(p.node), bl: blockFrom(p.code) })).filter(x => x.n && x.bl)
   const byLevel = new Map<number, { x: number; z: number; bl: string }[]>()
   for (const c of coded) { const a = byLevel.get(c.n!.level) ?? []; a.push({ x: c.n!.pos[0], z: c.n!.pos[1], bl: c.bl }); byLevel.set(c.n!.level, a) }
+  // block from the room a node belongs to: the place's id is "L4:E3_r636", so its room id says E3
+  const roomBlock = new Map<string, string>()
+  for (const p of b.pois) { const bl = blockFrom(p.id.replace(/^[^:]*:/, ''), true); if (bl) roomBlock.set(p.node, bl) }
   const blockCache = new Map<string, string>()
   const blockOfNode = (id: string): string => {
     const hit = blockCache.get(id)
     if (hit !== undefined) return hit
     const n = nodeIndex.get(id)
-    let bl = blockFrom(id.replace(/^[^:]*:/, ''), true) || (n ? blockFrom(n.label.replace(/^Room\s+/i, '')) : '')
+    let bl = roomBlock.get(id) || blockFrom(id.replace(/^[^:]*:/, ''), true) || (n ? blockFrom(n.label.replace(/^Room\s+/i, '')) : '')
     if (!bl && n) {
       let d = 60 * 60
       for (const c of byLevel.get(n.level) ?? []) { const e = (c.x - n.pos[0]) ** 2 + (c.z - n.pos[1]) ** 2; if (e < d) { d = e; bl = c.bl } }

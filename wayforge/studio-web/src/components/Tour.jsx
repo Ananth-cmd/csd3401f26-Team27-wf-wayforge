@@ -76,7 +76,7 @@ export const EDITOR_TOUR = [
   {
     target: ".side-links .tour-btn", place: "right",
     title: "That's it",
-    text: "Click How to use any time to see this again. The How to use page has the full steps, from uploading floor plans to publishing.",
+    text: "Click How to use any time to see this again, here or in the top bar on the Buildings page.",
   },
 ];
 

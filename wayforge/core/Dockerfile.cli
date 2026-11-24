@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY . /src/core
 RUN cmake -S /src/core -B /src/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-        -DWF_BUILD_TESTS=OFF -DWF_BUILD_VIEWER=OFF \
+        -DWF_BUILD_TESTS=OFF \
         -DCMAKE_EXE_LINKER_FLAGS="-static" \
     && cmake --build /src/build --target wf_cli \
     && strip /src/build/Sandbox/wf_cli/wf_cli \

@@ -7,9 +7,12 @@
  * straight between them without going through a wall. Doors let the walk
  * line through; rooms are only entered and left through their doors, so
  * every route has a door step the app can announce. A stair or lift
- * standing open in a corridor or hall joins that space directly. Rooms left
- * outside the main connected group get a fallback edge to the nearest door
- * or corridor node, with a cost penalty.
+ * standing open in a corridor or hall joins that space directly. Rooms cut
+ * off from every corridor (no door found) get a fallback edge
+ * to the nearest door or corridor node behind the fewest walls, with a cost
+ * penalty; separate blocks are never joined this way. Passing through a room
+ * that is not a corridor, lobby or exit costs extra, so routes keep to the corridors, and
+ * two doors in one wall are not joined along the inside of that wall.
  *
  * Links: wf_api::wf_build_graph -> buildGraph -> buildLevelGraph for every
  * level. The nodes/edges written here are what Route.cpp searches.
@@ -25,6 +28,7 @@
  *   - Corridor nodes along the corridor centre line
  *   - Door-to-room tolerance, edges for open stairs and lifts
  *   - Fallback edges joining disconnected rooms to the main graph
+ *   - Extra cost for passing through rooms, no door-to-door edges inside a wall
  *
  * AI declaration: Claude Opus was used as a support tool for debugging, build infrastructure and the header comments.
  *
@@ -38,7 +42,11 @@
 
 namespace wf::graph {
 
-bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearance) {
+namespace {
+// Number of walls the segment a-b runs into without passing through one of their doors.
+// stopAtFirst: return 1 as soon as one is found (lineOfSight only needs yes / no).
+int blockingWalls(const Level& level, const Vec2& a, const Vec2& b, float clearance, bool stopAtFirst) {
+    int count = 0;
     for (const Wall& w : level.walls) {
         // Thick wall: test against the centreline inflated by half thickness + clearance,
         // approximated by the segment distance test plus the crossing test.
@@ -70,10 +78,19 @@ bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearan
             // widen the door span by 5 cm each side so a line through the very edge of the door still counts
             if (segmentsIntersect(a - ext, b + ext, o0 - d * 0.05f, o1 + d * 0.05f)) { throughOpening = true; break; }
         }
-        // Blocked by this wall and not through one of its doors: no line of sight.
-        if (!throughOpening) return false;
+        // Blocked by this wall and not through one of its doors.
+        if (!throughOpening) { ++count; if (stopAtFirst) return count; }
     }
-    return true;
+    return count;
+}
+} // namespace
+
+bool lineOfSight(const Level& level, const Vec2& a, const Vec2& b, float clearance) {
+    return blockingWalls(level, a, b, clearance, true) == 0;
+}
+
+int wallsCrossed(const Level& level, const Vec2& a, const Vec2& b, float clearance) {
+    return blockingWalls(level, a, b, clearance, false);
 }
 
 namespace {
@@ -98,6 +115,40 @@ namespace {
         if (o.kind == NodeKind::Corridor) return true;
         const Room* host = level.findRoom(o.room);
         return host && host->id != r.room && host->polygon.size() >= 3 && pointInPolygon(r.pos, host->polygon);
+    }
+
+    // Spaces people walk through on the way somewhere else; any other room is only a start or an end.
+    bool openSpace(RoomKind k) { return k == RoomKind::Corridor || k == RoomKind::Lobby || k == RoomKind::Exit; }
+
+    // True when the walk line a-b runs through the inside of a room that is not an open space:
+    // a point a quarter, half or three quarters of the way along lies in that room, over 0.3 m
+    // from its outline (a line along a wall of the room does not count).
+    bool crossesRoom(const Level& level, const Vec2& a, const Vec2& b) {
+        for (const float t : { 0.25f, 0.5f, 0.75f }) {
+            const Vec2 q = a + (b - a) * t;
+            for (const Room& r : level.rooms) {
+                if (openSpace(r.kind) || r.polygon.size() < 3 || !pointInPolygon(q, r.polygon)) continue;
+                float edge = 1e30f;
+                for (size_t k = 0; k < r.polygon.size(); ++k)
+                    edge = std::min(edge, distancePointToSegment(q, r.polygon[k], r.polygon[(k + 1) % r.polygon.size()]));
+                if (edge > 0.3f) return true;
+            }
+        }
+        return false;
+    }
+
+    // True when q lies inside the body of a wall (within half its thickness of the centre line) and
+    // not in one of that wall's door spans. A walk line through q would run inside the wall.
+    bool insideWall(const Level& level, const Vec2& q) {
+        for (const Wall& w : level.walls) {
+            if (distancePointToSegment(q, w.a, w.b) >= w.thickness * 0.5f) continue;
+            const float s = dot(q - w.a, w.direction());       // distance along the wall from end a
+            bool inDoor = false;
+            for (const Opening& o : level.openings)
+                if (o.wall == w.id && o.type != OpeningType::Window && s >= o.offset && s <= o.offset + o.width) { inDoor = true; break; }
+            if (!inDoor) return true;
+        }
+        return false;
     }
 
     // Stairs, lifts and exits get their own node kinds so routing and instructions can spot them.
@@ -187,8 +238,21 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
             if (aInRoom && !roomNodeMayJoin(level, a, b)) continue;
             if (bInRoom && !roomNodeMayJoin(level, b, a)) continue;
             if (!lineOfSight(level, a.pos, b.pos, p.wallClearance)) continue;
+            // Two doors in the same wall line see each other along the wall; that line runs inside the
+            // wall, so the walk goes through the corridor or room nodes in front of the doors instead.
+            if (a.kind == NodeKind::Door && b.kind == NodeKind::Door && insideWall(level, (a.pos + b.pos) * 0.5f)) continue;
             // Edge cost is the walking distance; every edge on one level is step-free (stairs are links).
             Edge e; e.a = a.id; e.b = b.id; e.cost = d; e.stepFree = true;
+            // Passing through a room costs throughRoomPenalty more, so an equally short corridor wins.
+            // Edges at a room node carry half of it each: a trip starting or ending in a room always
+            // pays the same half, a trip passing through the room pays both halves. Stair and lift rooms
+            // count too, so a route doesn't use a stairwell as a shortcut between two of its doors
+            // (taking the stairs or lift pays one half on each floor).
+            auto paysForRoom = [](const Node& n) { return n.kind == NodeKind::Room || n.kind == NodeKind::Stair || n.kind == NodeKind::Lift; };
+            const Room* aRoom = paysForRoom(a) ? level.findRoom(a.room) : nullptr;
+            const Room* bRoom = paysForRoom(b) ? level.findRoom(b.room) : nullptr;
+            if ((aRoom && !openSpace(aRoom->kind)) || (bRoom && !openSpace(bRoom->kind))) e.cost += p.throughRoomPenalty * 0.5f;
+            else if (!aInRoom && !bInRoom && crossesRoom(level, a.pos, b.pos)) e.cost += p.throughRoomPenalty;
             if (a.kind == NodeKind::Door || b.kind == NodeKind::Door) {
                 // record which opening the edge passes through
                 const Node& door = a.kind == NodeKind::Door ? a : b;
@@ -202,9 +266,13 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
             ++degree[i]; ++degree[j];
         }
     }
-    // 5. Fallback edges: each room outside the largest connected group joins the nearest door or
-    //    corridor node of another group within missingDoorReach of its outline, preferring one in
-    //    line of sight. The edge cost includes missingDoorPenalty. Repeated until no group joins.
+    // 5. Fallback edges: a room cut off from every corridor (its group has no corridor node: no door
+    //    was found, or its doors only lead to other cut-off rooms) joins the nearest door or
+    //    corridor node of another group within missingDoorReach of its outline. Candidates score
+    //    their distance plus 100 per wall in the way, so the one behind the fewest walls wins. The
+    //    edge cost includes missingDoorPenalty. Repeated until no group joins.
+    //    Only cut-off rooms get one. On a campus level every block is its own group; joining whole
+    //    blocks here put edges straight through the walls between neighbouring blocks.
     std::vector<size_t> group(N);
     for (size_t i = 0; i < N; ++i) group[i] = i;
     auto root = [&](size_t i) { while (group[i] != i) i = group[i] = group[group[i]]; return i; };
@@ -213,13 +281,12 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
     for (const Edge& e : level.edges) group[root(index[e.a])] = root(index[e.b]);
     for (bool joined = true; joined; ) {
         joined = false;
-        std::vector<size_t> size(N, 0);
-        for (size_t i = 0; i < N; ++i) ++size[root(i)];
-        size_t largest = 0;
-        for (size_t i = 0; i < N; ++i) if (size[root(i)] > size[root(largest)]) largest = i;
+        // Groups that already reach a corridor need no fallback edge.
+        std::vector<char> reachesCorridor(N, 0);
+        for (size_t i = 0; i < N; ++i) if (level.nodes[i].kind == NodeKind::Corridor) reachesCorridor[root(i)] = 1;
         for (size_t i = 0; i < N; ++i) {
             const Node& r = level.nodes[i];
-            if (r.kind == NodeKind::Door || r.kind == NodeKind::Corridor || root(i) == root(largest)) continue;
+            if (r.kind == NodeKind::Door || r.kind == NodeKind::Corridor || reachesCorridor[root(i)]) continue;
             const Room* room = level.findRoom(r.room);
             if (!room || room->polygon.size() < 3) continue;
             size_t best = N;
@@ -231,7 +298,7 @@ GraphStats buildLevelGraph(Level& level, IdGenerator& ids, const GraphParams& p)
                 for (size_t k = 0; k < room->polygon.size(); ++k)
                     edge = std::min(edge, distancePointToSegment(o.pos, room->polygon[k], room->polygon[(k + 1) % room->polygon.size()]));
                 if (edge > p.missingDoorReach) continue;
-                const float score = distance(r.pos, o.pos) + (lineOfSight(level, r.pos, o.pos, p.wallClearance) ? 0.f : 100.f);
+                const float score = distance(r.pos, o.pos) + 100.f * static_cast<float>(blockingWalls(level, r.pos, o.pos, p.wallClearance, false));
                 if (score < bestScore) { bestScore = score; best = j; }
             }
             if (best == N) continue;

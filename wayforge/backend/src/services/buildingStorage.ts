@@ -1,3 +1,18 @@
+/*!
+ * \file buildingStorage.ts
+ * \brief Manages locally saved Wayforge .wfb building files.
+ *
+ * Creates the local storage folder, lists saved building IDs, resolves an ID
+ * to a validated file path, and copies sample files into storage with unique IDs.
+ * This storage is separate from the published buildings hosted by Studio.
+ *
+ * Links: server.ts; scripts/registerSample.ts
+ *
+ * \author Kervin Ong Guan Cheng
+ * Contribution: Wayforge backend support and integration
+ * AI declaration: ChatGPT assisted with refining documentation comments.
+ * \date 2026-11-07
+ */
 
 import { randomUUID } from "crypto";
 import { constants } from "fs";
@@ -5,12 +20,17 @@ import { copyFile, mkdir, readdir, stat } from "fs/promises";
 import path from "path";
 
 // Folder where our backend stores building files.
+// Resolve storage relative to this source folder, not the current terminal folder.
 const storageDir = path.resolve(
     __dirname,
     "../../storage/buildings"
 );
 
 // Get the IDs of all saved buildings.
+/**
+ * List local .wfb filenames without their extensions.
+ * The directory is created the first time it is accessed.
+ */
 export async function listSavedBuildings(): Promise<string[]> {
 
     // Make sure the storage folder exists.
@@ -30,6 +50,11 @@ export async function listSavedBuildings(): Promise<string[]> {
 }
 
 // Find a saved building using its ID.
+/**
+ * Find a local building using a safe ID.
+ * Returns null if the ID is invalid or the file is missing; unexpected I/O
+ * errors are propagated to the API for handling.
+ */
 export async function getSavedBuildingPath(
     id: string
 ): Promise<string | null> {
@@ -63,6 +88,10 @@ export async function getSavedBuildingPath(
 }
 
 // Save a building file and generate a unique ID.
+/**
+ * Register an existing .wfb in local storage under a random UUID.
+ * COPYFILE_EXCL prevents accidentally overwriting an existing building.
+ */
 export async function saveBuildingFile(
     sourcePath: string
 ): Promise<string> {

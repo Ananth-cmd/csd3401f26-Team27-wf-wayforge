@@ -149,6 +149,14 @@ static void testSerialize() {
     j["levels"][0]["walls"][0]["colour"] = "red";
     CHECK(static_cast<bool>(buildingFromJson(j, "plan.wfb")));
 
+    // "site" round trip: absent when not set, and written back identical to the input when present.
+    j = buildingToJson(a);
+    CHECK(!j.contains("site"));
+    j["site"] = { { "source", "test" }, { "bounds", { 0, 0, 10, 10 } },
+                  { "landmarks", json::array({ { { "name", "Gate" }, { "kind", "bus" }, { "pos", { 1.5, 2 } } } }) } };
+    Result<Building> withSite = buildingFromJson(j, "plan.wfb");
+    CHECK(withSite && buildingToJson(*withSite)["site"] == j["site"]);
+
     Result<Building> missing = loadBuilding(dir / "wf_doc_no_such_file.wfb");
     CHECK(!missing && contains(missing.error(), "wf_doc_no_such_file"));
 
