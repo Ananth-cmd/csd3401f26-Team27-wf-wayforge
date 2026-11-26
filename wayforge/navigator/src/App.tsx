@@ -573,11 +573,13 @@ export default function App() {
 
   switch (screen) {
     case 'explore': {
-      bar = 'trip'; top = chips(hiKind ?? undefined)
+      bar = 'trip'
       if (hiKind) { const ids = nodesOfKind(hiKind); map = { ...browseMap, highlight: { kind: hiKind, nodes: ids } } }
       const hiHere = hiKind ? nodesOfKind(hiKind).filter(id => node(id).level === floor).length : 0
-      // the bottom card is gone (handover 1); what is left is the one short line of status
-      sheet = <p className="sx-note">{hiKind ? `${hiHere} ${KIND_NAME[hiKind].toLowerCase()} on ${L(floor)}${hiHere ? '' : ' (none here)'}` : confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : 'Set a start, then choose where to go'}</p>
+      // The status line sits with the trip card it talks about, not adrift at the bottom of the map, and it only
+      // appears when it has something to add: the trip card already asks for a starting point.
+      const note = hiKind ? `${hiHere} ${KIND_NAME[hiKind].toLowerCase()} on ${L(floor)}${hiHere ? '' : ' (none here)'}` : confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : ''
+      top = <>{chips(hiKind ?? undefined)}{note && <p className="sx-note">{note}</p>}</>
     } break
 
     case 'where': case 'find': {
@@ -871,13 +873,17 @@ export default function App() {
     <div className={`sx ${desktop ? 'sx-desk' : 'sx-phone'}${spanned ? ' spanned' : ''}${show3d ? ' is-3d' : ''}`} style={{ '--col': `${colW}px`, '--sx-ctl': `${(desktop ? 16 : cover.t + 12) + 60 + (threeD && !no3d ? 44 : 0)}px`, '--sx-bot': `${desktop ? 16 : cover.b + 12}px`, '--sx-kb': `${desktop ? 0 : kb}px` } as React.CSSProperties} onClickCapture={onClickCapture}>
       <p className="sx-sr" role="status" aria-live="polite">{liveMsg}</p>
       <div className="sx-map">{mapLayer}</div>
-      {!guiding && <div className="sx-brand" aria-hidden style={desktop || tall ? undefined : { bottom: cover.b + 14 }}>
+      {!guiding && desktop && <div className="sx-brand" aria-hidden>
         <img className="sx-brand-mark" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width="34" height="20" />
         <span><b>WayForge</b><small>{b.name}</small></span>
       </div>}
       <div className="sx-top" ref={topRef}>{barEl}{top}</div>
       {side}
       <div className={`sx-bottom${tall ? ' tall' : ''}`} ref={botRef}>
+        {!desktop && !tall && !guiding && screen === 'explore' && <div className="sx-brand in-flow" aria-hidden>
+          <img className="sx-brand-mark" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width="30" height="18" />
+          <span><b>WayForge</b><small>{b.name}</small></span>
+        </div>}
         {tall ? <section className="sx-sheet" aria-label="Picker"><i className="sx-grab" aria-hidden />{sheet}</section> : sheet}
       </div>
       {endSheet}
