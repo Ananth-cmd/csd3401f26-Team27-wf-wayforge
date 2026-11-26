@@ -122,14 +122,17 @@ else
 fi
 
 # the Navigator website: same as navigator/deploy/deploy.bat (Joel's), a new dated folder in
-# /var/www/site2/releases, /var/www/site2/current switched to it, newest 5 kept for undo
+# /var/www/site2/releases, /var/www/site2/current switched to it, newest 5 kept for undo.
+# No sudo here: /var/www/site2 belongs to team27, and the CI deploy (navigator-deploy.sh, no sudo)
+# has to be able to delete these folders later. Root-owned folders made it fail (exit code 123).
 if [ -f "$ROOT/navigator/dist/index.html" ]; then
   R=/var/www/site2/releases/$(date -u +%Y%m%d-%H%M%S)
-  sudo mkdir -p "$R"
-  sudo cp -r "$ROOT/navigator/dist/." "$R/"
-  sudo chmod -R a+rX "$R"
-  sudo ln -sfn "$R" /var/www/site2/current
-  ls -1dt /var/www/site2/releases/* | tail -n +6 | xargs -r sudo rm -rf
+  mkdir -p "$R"
+  cp -r "$ROOT/navigator/dist/." "$R/"
+  chmod -R a+rX "$R"
+  ln -sfn "$R" /var/www/site2/current
+  # newest 5 by name (= upload time), the same way navigator-deploy.sh does it
+  ls -1d /var/www/site2/releases/* | sort -r | tail -n +6 | xargs -r rm -rf
   echo "Navigator live: $R"
 fi
 

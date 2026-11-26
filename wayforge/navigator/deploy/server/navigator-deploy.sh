@@ -35,6 +35,9 @@ mkdir -p "$release"
 tar -xzf "$work/upload.tgz" -C "$release" --no-same-owner --no-same-permissions
 chmod -R a+rX "$release"
 ln -sfn "$release" "$SITE/current"
-# newest 5 by name (= upload time): tar gives each folder the build's date, so don't sort by date
-ls -1d "$SITE"/releases/* | sort -r | tail -n +6 | xargs -r rm -rf
+# newest 5 by name (= upload time): tar gives each folder the build's date, so don't sort by date.
+# The new release is already live here, so an old folder that can't be removed (e.g. one a sudo
+# deploy left owned by root) only gives a warning instead of failing a deploy that worked.
+ls -1d "$SITE"/releases/* | sort -r | tail -n +6 | xargs -r rm -rf \
+  || echo "warning: could not remove every old release, check who owns them: ls -la $SITE/releases" >&2
 echo "live: $release"
