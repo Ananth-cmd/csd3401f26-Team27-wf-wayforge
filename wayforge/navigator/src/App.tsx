@@ -181,6 +181,7 @@ export default function App() {
 
   // ---------- navigation mode: keep the screen on and buzz once at the start (Android) ----------
   const guiding = screen === 'guide' || screen === 'paused'
+  const picking = ['where', 'find', 'blocks', 'levels'].includes(screen)
   useEffect(() => {
     if (!guiding) return
     let lock: { release: () => Promise<void> } | null = null
@@ -616,7 +617,8 @@ export default function App() {
       // the arrow keys walk the rows a person can see, so a group counts as one stop; Enter on a group takes its
       // main entrance, which is the row named first when it opens
       const flat = rows.map(r => 'place' in r ? r.place : [...r.members].sort((x, y) => Number(isEntrance(y)) - Number(isEntrance(x)))[0])
-      tall = true; map = { ...browseMap, focus: cur && cur.level === floor ? [cur.node] : undefined }
+      const blockFocus = hasBlocks && block ? placesAt(block, floor).map(q => q.node) : []
+      tall = true; map = { ...browseMap, focus: blockFocus.length ? blockFocus : cur && cur.level === floor ? [cur.node] : undefined }
       sheet = <>
         {typing
           ? <div className="sx-head sx-head-sm"><div><h2>{isFrom ? 'Where are you?' : 'Where to?'}</h2></div><button className="sx-x" onClick={back} aria-label="Close"><CloseIcon /></button></div>
@@ -845,7 +847,7 @@ export default function App() {
       </div>
       : <div className="sx-barrow">
         <button className="sx-bar sx-campus" onClick={() => go('levels')} disabled={guiding} aria-label={`${b.name}, ${L(mapFloor)}${guiding ? '' : '. Change level'}`}>
-          <span className="sx-w" aria-hidden>W</span><span><b>{b.name}</b><small>{[hasBlocks && (start?.block || block) ? blockName(start?.block || block) : '', L(mapFloor)].filter(Boolean).join(' · ')}{!guiding && <Caret />}</small></span>
+          <span className="sx-w" aria-hidden>W</span><span><b>{b.name}</b><small>{[hasBlocks && (picking ? block || start?.block : start?.block || block) ? blockName(picking ? block || start?.block || '' : start?.block || block) : '', L(mapFloor)].filter(Boolean).join(' · ')}{!guiding && <Caret />}</small></span>
         </button>
         <button className="sx-round" onClick={() => (guiding ? setAsking(true) : openPicker('find'))} aria-label={guiding ? 'Route options' : 'Search'}><SearchIcon /></button>
       </div>
