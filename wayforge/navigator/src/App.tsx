@@ -307,11 +307,11 @@ export default function App() {
     if (!b || !start) return m
     for (const q of results.slice(0, WALK_ROWS)) {
       if (q.node === start.node) { m.set(q.id, { metres: 0, minutes: 0 }); continue }
-      const r = findRoute(b, start.node, q.node, false)
+      const r = findRoute(b, start.node, q.node, choice === 'stepfree') // step-free chosen: distances without stairs
       m.set(q.id, r ? { metres: r.metres, minutes: r.minutes } : null)
     }
     return m
-  }, [b, start, results])
+  }, [b, start, results, choice])
 
   if (err || !b || !P) return (
     <div className="sx sx-loading" role="status">
@@ -478,10 +478,11 @@ export default function App() {
     const guess = (id: string) => { const n = node(id); return Math.abs(n.level - here.level) * 1000 + Math.hypot(n.pos[0] - here.pos[0], n.pos[1] - here.pos[1]) }
     const out: Near[] = []
     for (const c of cands.filter(c => P.comp.get(c.node) === P.comp.get(from.node)).sort((x, y) => guess(x.node) - guess(y.node)).slice(0, 12)) {
-      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1 } : findRoute(b, from.node, c.node, false)
+      // step-free chosen: the nearest one reachable without stairs
+      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1, cost: 0 } : findRoute(b, from.node, c.node, choice === 'stepfree')
       if (r) out.push({ kind, node: c.node, title: c.title, level: node(c.node).level, metres: r.metres, route: r, place: c.place })
     }
-    return out.sort((x, y) => x.metres - y.metres)
+    return out.sort((x, y) => x.route.cost - y.route.cost) // cheapest trip first (a lift ride counts), not just fewest metres
   }
   // every toilet / stairs / lift on the map (node ids), for the highlight
   const nodesOfKind = (kind: Kind): string[] => kind === 'toilet' ? P.visible.filter(p => p.kind === 'toilet').map(p => p.node) : b.nodes.filter(n => n.kind === kind).map(n => n.id)

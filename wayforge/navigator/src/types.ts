@@ -44,7 +44,8 @@ export type Building = {
   blockColours?: Record<string, string> // block name (E2) -> "#rrggbb", picked in the Studio. Drawing only
 }
 
-// Surroundings of the building (the .wfb "site" object) in level coordinates, metres. Used for drawing only, not for routing.
+// Surroundings of the building (the .wfb "site" object) in level coordinates, metres. Drawn here; the engine already
+// built the outdoor paths from its walkways into the published edges, so routing doesn't read it.
 export type Site = {
   source: string
   bounds: [number, number, number, number] // x0, z0, x1, z1
@@ -55,10 +56,11 @@ export type Site = {
   bridges: { room: string; colour: string }[] // room: place id of a link bridge; colour: "#rrggbb"
 }
 
-// Same shape as the prototype's Route (BuildingDefinition.cs)
+// A route found by findRoute (api.ts)
 export type Route = {
   nodes: string[] // start ... destination (node ids)
   passages: EdgeKind[] // how each leg is travelled (nodes.length - 1)
-  metres: number // total route cost in metres (includes lift wait penalty, like the prototype)
-  minutes: number // max(1, ceil(metres / 65))
+  metres: number // metres actually walked (lift and stair rides not counted)
+  minutes: number // walking time plus lift and stair time, at least 1
+  cost: number // what the search minimised, in metres of walking: walk + lift waits / floors + stairs + extra path costs
 }
