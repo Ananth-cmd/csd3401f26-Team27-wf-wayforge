@@ -188,9 +188,9 @@ namespace Wayforge.Viewer.Tests
 
             var roof = Part("L2", "Roof").gameObject;
             Assert.IsTrue(roof.activeSelf, "roofs show in the full view");
-            view.SetCutaway(true);
+            view.ApplyCutaway(true);
             Assert.IsFalse(roof.activeSelf, "and hide in cut-away");
-            view.SetCutaway(false);
+            view.ApplyCutaway(false);
             view.SetRoof(false);
             Assert.IsFalse(roof.activeSelf);
         }
@@ -224,14 +224,14 @@ namespace Wayforge.Viewer.Tests
             Assert.IsTrue(view.transform.Find("Building/Level L1").gameObject.activeSelf);
 
             Assert.AreEqual(3.5f, view.LevelHeight("L2"), 1e-4f);
-            view.SetFloorSpacing(2f);
+            view.ApplyFloorSpacing(2f);
             Assert.AreEqual(5.5f, view.LevelHeight("L2"), 1e-4f, "exploded view adds the spacing per floor");
-            view.SetFloorSpacing(0f);
+            view.ApplyFloorSpacing(0f);
 
-            view.SetCutaway(true);
+            view.ApplyCutaway(true);
             var walls = view.transform.Find("Building/Level L1/Walls").GetComponent<MeshFilter>().sharedMesh;
             Assert.AreEqual(BuildingView.CutawayHeight, walls.bounds.max.y, 1e-3f);
-            view.SetCutaway(false);
+            view.ApplyCutaway(false);
 
             var office = b.FindRoom("B1");
             Color before = view.FloorColour(office);

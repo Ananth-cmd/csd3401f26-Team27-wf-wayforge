@@ -258,7 +258,8 @@ namespace Wayforge.Viewer.EditorTools
                 $"  codeUrl: \"{Find(".wasm")}\",\n" +
                 $"  companyName: \"{PlayerSettings.companyName}\",\n" +
                 $"  productName: \"{PlayerSettings.productName}\",\n" +
-                $"  productVersion: \"{PlayerSettings.bundleVersion}\"\n" +
+                $"  productVersion: \"{PlayerSettings.bundleVersion}\",\n" +
+                $"  buildId: \"{System.DateTime.UtcNow:yyyyMMddHHmmss}\"\n" +   // new every build, see wayforge-viewer.js
                 "};\n";
             File.WriteAllText(Path.Combine(outputDir, "viewer-build.js"), js);
         }
