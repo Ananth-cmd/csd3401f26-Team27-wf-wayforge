@@ -39,6 +39,7 @@
  */
 
 import * as THREE from 'three'
+import { applyFacadeGrain } from './landmarks/renderPolish'
 
 export const PX_PER_M = 48
 export const FLOOR = 4.5 // storey height of the campus model, metres
@@ -47,7 +48,7 @@ export type Tile = { w: number; h: number; map: THREE.CanvasTexture; surface: TH
 
 // Surface values for the surface map: [roughness, metalness], 0..1.
 const ROUGH: [number, number] = [0.85, 0]
-const GLASS: [number, number] = [0.06, 0.55]
+const GLASS: [number, number] = [0.16, 0.22]
 const MATT_METAL: [number, number] = [0.45, 0.5]
 
 // A tile drawer gets two pens that draw rectangles in wall metres (x along the wall, y height above the tile's
@@ -78,6 +79,8 @@ function tile(w: number, h: number, draw: (p: Pen) => void, base: string, baseSu
     },
     glass: (y0, y1, top, bottom) => { const gr = g.createLinearGradient(0, Y(y1), 0, Y(y0)); gr.addColorStop(0, top); gr.addColorStop(1, bottom); return gr },
   })
+  // Add subtle material variation to rough surfaces.
+  applyFacadeGrain(g, s)
   const tex = (c: HTMLCanvasElement, srgb: boolean) => {
     const t = new THREE.CanvasTexture(c)
     t.wrapS = t.wrapT = THREE.RepeatWrapping

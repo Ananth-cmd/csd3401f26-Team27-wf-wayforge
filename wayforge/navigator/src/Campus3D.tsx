@@ -29,12 +29,15 @@
  *
  * \author Ananthan Elangovan (ananthan.e@digipen.edu)
  *
- * Contribution: Ananthan Elangovan 100%
+ * Original contribution: Ananthan Elangovan 100%
  *   - Campus scene: blocks, bridges, ground, water, roads, neighbours, trees
  *   - Sun, shadows, sky and campus reflections
  *   - Camera that follows the map's projection
  *
+ * Additional W1 landmark layer: see landmarks/buildingDetails.ts.
+ *
  * AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
+ * ChatGPT assisted with the W1 landmark integration.
  *
  * \date 2026-11-24
  * \copyright 2026 DigiPen Institute of Technology Singapore. All rights reserved.
@@ -48,6 +51,18 @@ import { facadeOf } from './facades'
 import { campusTextures, bridgeTexture } from './campusTextures'
 import type { Tile } from './campusTextures'
 import { treesOf } from './surroundings'
+import { addW1BuildingDetails } from './landmarks/buildingDetails'
+import { addBridgeDetails } from './landmarks/bridgeDetails'
+import { addHeartBuildingDetails } from './landmarks/heartDetails'
+import { addEastBuildingDetails } from './landmarks/eastDetails'
+import { addCourtBuildingDetails } from './landmarks/courtDetails'
+import { addVegetationDetails } from './landmarks/vegetationDetails'
+import { addMrtDetails } from './landmarks/mrtDetails'
+import { addRoadDetails } from './landmarks/roadDetails'
+import { addHeartRoofDetails } from './landmarks/roofDetails'
+import { createGroundContactMap } from './landmarks/contactShadows'
+import { createReservoirMaterial } from './landmarks/waterDetails'
+import { fitCampusShadow } from './landmarks/renderPolish'
 
 type V3 = [number, number, number]
 export type CampusView = { centre: V3; right: V3; up: V3; fwd: V3; at: Vec2; vw: number; vh: number }
@@ -65,7 +80,7 @@ type Props = {
 }
 
 const AREA: Record<string, string> = { water: '#8fc1dc', grass: '#cfe3bb', park: '#c2dcab', trees: '#b4d39f', plaza: '#ece5d5' }
-const ROAD: Record<string, string> = { road: '#f6f6f2', path: '#f1e9d7', cycle: '#e4d9bf' }
+const ROAD: Record<string, string> = { road: '#a9b1b5', path: '#eee5cf', cycle: '#d9c7aa'}
 const CANOPY = 0.9    // roof edge height above the top floor on the Campus Heart blocks, metres
 const PARAPET = 0.5   // roof edge height above the top floor on the other blocks, metres
 
@@ -148,10 +163,10 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }) } catch { cb.current.onFail(); return }
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMapping = THREE.NeutralToneMapping
     renderer.toneMappingExposure = 0.85
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.shadowMap.type = THREE.PCFShadowMap
     renderer.shadowMap.autoUpdate = false // static scene: the shadow map is rendered once
     renderer.setClearColor(0x000000, 0)
     el.appendChild(renderer.domElement)
@@ -198,7 +213,10 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
       const fc = facadeOf(m.name), isBridge = /^BR/i.test(m.name)
       const tint = building.blockColours?.[m.name] // colour picked for the block in the Studio
       const tinted = (k: string) => (tint ? `${k}|${tint}` : k)
-      let key = fc?.key ?? 'court'
+      // Use glass as the backing surface for W1's physical red slats.
+      let key = m.name.toUpperCase() === 'W1'
+          ? 'tower'
+          : (fc?.key ?? 'court')
       if (isBridge) { const c = bridgeColour.get(m.name.toUpperCase()) ?? '#c9ccc6'; key = `bridge:${c}`; if (!tiles.has(key)) tiles.set(key, bridgeTexture(c)) }
       m.levels.forEach((L, li) => {
         const top = li === m.levels.length - 1
@@ -240,6 +258,24 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     }
     scene.add(group)
 
+    // Add W1 landmark geometry before the static shadows and reflections are captured.
+    addW1BuildingDetails(scene, mass, building.blockColours?.W1, own)
+
+    // Add physical structural details to the link bridges.
+    addBridgeDetails(scene, mass, bridgeColour, building.blockColours, own)
+
+    // Add physical window hoods to W3, W5 and W6.
+    addHeartBuildingDetails(scene, mass, building.blockColours, own)
+
+    // Add architectural details to E1 and E3.
+    addEastBuildingDetails(scene, mass, building.blockColours, own)
+
+    // Add physical planter ledges and vegetation to E2, E5 and E6.
+    addCourtBuildingDetails(scene, mass, building.blockColours, own)
+
+    // Add projecting roof canopies to W3, W5 and W6.
+    addHeartRoofDetails(scene, mass, building.blockColours, own)
+
     // ---- ground, areas, roads ----
     if (site) {
       const ground = new Bucket(), colours: number[] = [], water = new Bucket()
@@ -260,44 +296,77 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
         }
       }
       const g = own(ground.geometry()); g.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3))
-      const gm = new THREE.Mesh(g, own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide })))
+      // Generate soft contact shading around building foundations.
+      const contactMap = createGroundContactMap(site, mass)
+
+      if (contactMap) own(contactMap)
+
+      const gm = new THREE.Mesh(
+          g,
+          own(new THREE.MeshStandardMaterial({
+              vertexColors: true,
+              roughness: 0.95,
+              side: THREE.DoubleSide,
+              map: contactMap
+          }))
+      )
       gm.receiveShadow = true; scene.add(gm)
-      const waterMat = own(new THREE.MeshStandardMaterial({ color: '#7fb2d0', roughness: 0.08, metalness: 0.35, side: THREE.DoubleSide }))
+      const waterMat = createReservoirMaterial(own)
       reflective.push(waterMat)
       const wm = new THREE.Mesh(own(water.geometry()), waterMat); wm.receiveShadow = true; scene.add(wm)
       box.expandByPoint(new THREE.Vector3(x0, 0, -z0)).expandByPoint(new THREE.Vector3(x1, 0, -z1))
 
       // trees: trunk and crown
-      const trees = treesOf(building)
-      if (trees.length) {
-        const crowns = new THREE.InstancedMesh(own(new THREE.IcosahedronGeometry(2.8, 1)), own(new THREE.MeshStandardMaterial({ color: '#5b9550', roughness: 0.9, flatShading: true })), trees.length)
-        const trunks = new THREE.InstancedMesh(own(new THREE.CylinderGeometry(0.25, 0.38, 3, 6)), own(new THREE.MeshStandardMaterial({ color: '#7d6047', roughness: 0.9 })), trees.length)
-        const tm = new THREE.Matrix4()
-        trees.forEach(([x, z], i) => { const s = 0.8 + ((i * 7919) % 100) / 250; crowns.setMatrixAt(i, tm.makeScale(s, s, s).setPosition(x, 4.2 * s, -z)); trunks.setMatrixAt(i, tm.makeTranslation(x, 1.5, -z)) })
-        crowns.castShadow = trunks.castShadow = true
-        scene.add(crowns, trunks)
-      }
+      // Render varied tree models using existing tree positions.
+      addVegetationDetails(scene, treesOf(building), own)
+
+      // Add physical MRT station landmark details.
+      addMrtDetails(scene, building, own)
+
+      // Add road and pavement edge details.
+      addRoadDetails(scene, site, own)
     }
 
     // ---- light: sky, sun with shadows over the whole campus ----
-    scene.add(new THREE.HemisphereLight(0xeaf3ff, 0xbab3a0, 0.55))
+    // Neutral daylight and reflected ground lighting.
+    scene.add(new THREE.HemisphereLight(0xfff6ed, 0xc9c2ad, 0.65))
     const centre = box.getCenter(new THREE.Vector3()), extent = box.getSize(new THREE.Vector3()).length() / 2
-    const sun = new THREE.DirectionalLight(0xfff2de, 2.4)
-    sun.position.copy(centre).add(new THREE.Vector3(0.55, 0.85, 0.4).normalize().multiplyScalar(extent * 1.5))
+    const sun = new THREE.DirectionalLight(0xffedd8, 2.4)
+    // Higher tropical daylight angle for shorter campus shadows.
+    sun.position.copy(centre).add(
+        new THREE.Vector3(0.55, 1.35, 0.4)
+            .normalize()
+            .multiplyScalar(extent * 1.5)
+    )
     sun.target.position.copy(centre)
     sun.castShadow = true
     sun.shadow.mapSize.set(4096, 4096)
+    sun.shadow.radius = 4.0
+    sun.shadow.intensity = 0.75
     Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: 1, far: extent * 4 })
-    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.4
+    sun.shadow.bias = -0.0004
+    sun.shadow.normalBias = 0.15
     sun.shadow.camera.updateProjectionMatrix()
     scene.add(sun, sun.target)
+
+    // Fit the static shadow camera around the campus.
+    fitCampusShadow(sun, scene)
 
     // ---- campus reflections: one capture from the middle of the campus, used by glass and water ----
     const cubeRT = own(new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType }))
     const cubeCam = new THREE.CubeCamera(1, extent * 4, cubeRT)
     cubeCam.position.set(centre.x, 25, centre.z)
     renderer.shadowMap.needsUpdate = true
-    cubeCam.update(renderer, scene)
+    // Include daylight in the campus reflection capture
+    // instead of leaving the empty background dark.
+    const previousBackground = scene.background
+
+    try {
+        scene.background = new THREE.Color('#c8d9e5')
+        cubeCam.update(renderer, scene)
+    } finally {
+        scene.background = previousBackground
+    }
     const campusEnv = own(pmrem.fromCubemap(cubeRT.texture).texture)
     for (const m of reflective) { m.envMap = campusEnv; m.envMapIntensity = 0.8; m.needsUpdate = true }
     pmrem.dispose()
@@ -311,6 +380,11 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     const basis = new THREE.Matrix4(), r3 = new THREE.Vector3(), u3 = new THREE.Vector3(), b3 = new THREE.Vector3(), p3 = new THREE.Vector3()
     let shownFloor = -1, first = true, sizeW = 0, sizeH = 0
     const outlineMat = own(new THREE.LineBasicMaterial({ color: 0x0b7a6b }))
+    const showRenderStats = new URLSearchParams(
+    window.location.search
+    ).has('renderStats')
+
+    let lastStats = -Infinity
     const draw = () => {
       const { floor: fl, view: v, width: w, height: h, visible: vis } = latest.current
       if (!vis || w < 2 || h < 2) return
@@ -335,7 +409,24 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
       camera.left = -v.vw / 2; camera.right = v.vw / 2; camera.top = v.vh / 2; camera.bottom = -v.vh / 2
       camera.near = 1; camera.far = 12000
       camera.updateProjectionMatrix(); camera.updateMatrixWorld(true)
+      const startTime = performance.now()
+
       renderer.render(scene, camera)
+
+      const endTime = performance.now()
+
+      // Display rendering statistics when debugging is enabled.
+      if (showRenderStats && endTime - lastStats >= 1000) {
+          lastStats = endTime
+
+          console.table({
+              drawCalls: renderer.info.render.calls,
+              triangles: renderer.info.render.triangles,
+              geometries: renderer.info.memory.geometries,
+              textures: renderer.info.memory.textures,
+              cpuRenderMs: (endTime - startTime).toFixed(2)
+          })
+      }
       if (first) { first = false; cb.current.onReady() }
     }
     // drawing is scheduled with requestAnimationFrame: at most one frame per display refresh
