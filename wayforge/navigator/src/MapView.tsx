@@ -61,7 +61,7 @@ const WALL_H = 1.2 // low walls: reads like a floor plan, and nearer walls hide 
 const SLAB_T = 0.45
 const ROOM_LABELS_FROM = 4.5 // px per metre at which room names start to show
 const MASS_ZOOM = 0.5 // zoomed out at least this far (1 = whole floor): the campus shows as 3D buildings
-const ICONS_FROM = 2.2 // px per metre at which toilet / lift / stairs / food icons show
+const ICONS_FROM = 4.2 // px per metre at which toilet / lift / stairs / food icons show
 // room colour by type (each room's place says what it is); classes are styled in index.css
 const roomClass = (category: string, name: string) => {
   const n = name.toLowerCase(), c = category.toLowerCase()
@@ -314,6 +314,10 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const k = vh / size.h // metres per screen pixel
   const pxPerM = 1 / k
   const massMode = !!mass && mass.filter(m => m.levels.some(l => l.elev <= 0.01)).length >= 2 && !topDown && zoom >= MASS_ZOOM // a campus (2+ blocks on the ground); one building stays a floor plan
+  // Toilet / lift / stairs / food markers and entrance diamonds are floor detail. They stay off while the campus is
+  // on screen, and only come in once you are zoomed into a floor, so they don't carpet the map before you have even
+  // picked a building. Landmarks outside the buildings (MRT, buses, shops) are orientation, so they are not gated.
+  const showIcons = !massMode && pxPerM >= ICONS_FROM
   const lift = (id: string) => (massMode ? building.levels[node.get(id)?.level ?? floor]?.elevation ?? 0 : 0) // markers sit on their floor
 
   // floor slab (top + visible edges)
@@ -625,12 +629,12 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     if (pinNode) { const [x, y] = at(pinNode.node, 0.15), X = (x - view[0]) / k, Y = (y - view[1]) / k; const w = short(pinNode.label).length * 6.6 + 24; taken.push([X + 14, Y - 16, X + 18 + w, Y + 16]) }
     // keep the toilet / lift / stairs / food icons clear
     const iconAt = new Set<string>()
-    if (rooms && pxPerM >= ICONS_FROM) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 10, Y - 10, X + 10, Y + 10]) }
+    if (rooms && showIcons) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 10, Y - 10, X + 10, Y + 10]) }
     if (highlight) for (const id of highlight.nodes) if (node.get(id)?.level === floor) { const [x, y] = at(id, 0.1 + lift(id)), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 15, Y - 15, X + 15, Y + 15]) }
     const nameOf = (id: string) => names ? names.get(id) : node.get(id)!.kind !== 'turn' ? node.get(id)!.label : undefined
     // entrances always get a label (people orient by them)
     // (only once zoomed in to a block; far out the block names come first and the diamonds mark the entrances)
-    if (pxPerM >= ICONS_FROM) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
+    if (showIcons) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
     // Landmarks: an icon with its name below. Skipped when off screen or when the icon would overlap a label
     // already placed.
     for (const m of site?.landmarks ?? []) {
@@ -793,10 +797,10 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           <polyline className="m-route-casing" points={r} strokeWidth={9 * k} />
           <polyline className="m-route" points={r} strokeWidth={6 * k} />
         </g>))}
-        {rooms && pxPerM >= ICONS_FROM && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
+        {rooms && showIcons && rooms.icons.map(({ id, icon }) => { const [x, y] = at(id, 0.1), r = 9 * k; return <g key={`ic-${id}`} className={`m-icon ${icon}`}><circle cx={x} cy={y} r={r} strokeWidth={1.5 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {highlight && highlight.nodes.filter(id => node.get(id)?.level === floor).map(id => { const [x, y] = at(id, 0.12 + lift(id)), r = 13 * k, icon = highlight.kind === 'toilet' ? 'wf-i-toilet' : highlight.kind === 'lift' ? 'wf-i-lift' : 'wf-i-stair'
           return <g key={`hi-${id}`} className={`m-hi ${highlight.kind}`}><circle className="m-hi-halo" cx={x} cy={y} r={r * 1.9} /><circle className="m-hi-dot" cx={x} cy={y} r={r} strokeWidth={2 * k} /><use href={`#${icon}`} x={x - r * 0.62} y={y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
-        {entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
+        {showIcons && entrances.map(n => { const [x, y] = at(n.id, 0.15); return <rect key={`e-${n.id}`} x={x - 6 * k} y={y - 6 * k} width={12 * k} height={12 * k} rx={3 * k} className="m-entrance" strokeWidth={2 * k} transform={`rotate(45 ${x} ${y})`} /> })}
         {marks.map((m, i) => { const r = 10 * k; return <g key={`lm-${i}`} className={`m-lm ${m.kind}`}><circle cx={m.x} cy={m.y} r={r} strokeWidth={1.6 * k} /><use href={`#${m.icon}`} x={m.x - r * 0.62} y={m.y - r * 0.62} width={r * 1.24} height={r * 1.24} /></g> })}
         {labels.map((l, i) => <text key={`l-${i}`} x={l.x} y={l.y} fontSize={l.size * k} className={l.cls}>{l.text}</text>)}
         {vts.map(v => vtMarker(v))}
