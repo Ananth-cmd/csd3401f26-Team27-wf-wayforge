@@ -35,11 +35,11 @@
 
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { Building, Node, Route } from './types'
+import type { Building, Route } from './types'
 import { findRoute, loadBuilding } from './api'
 import { toLegs, walkMetres } from './legs'
 import type { Leg } from './legs'
-import { buildPlaces, components, isCodeQuery, searchPlaces } from './places'
+import { buildPlaces, components, searchPlaces } from './places'
 import type { Place } from './places'
 import { landmarkFinder, sameRoute, verticalNames, walkSteps } from './directions'
 import type { Step } from './directions'
@@ -176,12 +176,11 @@ export default function App() {
     const cut = visible.filter(p => comp.get(p.node) !== main)
     if (cut.length) console.info(`WayForge: ${cut.length} of ${visible.length} places have no path to the rest of the map (map data).`)
     const blocks = [...new Set(visible.map(p => p.block).filter(Boolean))].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }))
-    return { places, visible, byNode, blockOfNode, byId: new Map(visible.map(p => [p.id, p])), words: [...new Set(visible.flatMap(q => q.words))].filter(w => w.length > 3), vnames, names, comp, main, blocks, landmark: landmarkFinder(places, nodeIndex) }
+    return { places, visible, byNode, byId: new Map(visible.map(p => [p.id, p])), words: [...new Set(visible.flatMap(q => q.words))].filter(w => w.length > 3), vnames, names, comp, main, blocks, landmark: landmarkFinder(places, nodeIndex) }
   }, [b, nodeIndex])
 
   // ---------- navigation mode: keep the screen on and buzz once at the start (Android) ----------
   const guiding = screen === 'guide' || screen === 'paused'
-  const picking = ['where', 'find', 'blocks', 'levels'].includes(screen)
   useEffect(() => {
     if (!guiding) return
     let lock: { release: () => Promise<void> } | null = null
@@ -296,15 +295,7 @@ export default function App() {
 
   // search results (destination and start pickers)
   const startNode = start ? nodeIndex.get(start.node) ?? null : null
-  // no start yet: rank from the middle of the floor (and building) on screen, so "toilet" lists the toilets around
-  // there first, not every toilet on campus in level order
-  const viewNode = useMemo((): Node | null => {
-    if (!P) return null
-    const on = P.visible.filter(p => p.level === floor && (!block || p.block === block)).map(p => nodeIndex.get(p.node)!.pos)
-    if (!on.length) return null
-    return { id: '', label: '', kind: 'room', level: floor, pos: [on.reduce((s, q) => s + q[0], 0) / on.length, on.reduce((s, q) => s + q[1], 0) / on.length] }
-  }, [P, floor, block, nodeIndex])
-  const results = useMemo(() => (P && dq.trim() ? searchPlaces(P.visible, dq, nodeIndex, startNode ?? viewNode) : []), [P, dq, nodeIndex, startNode, viewNode])
+  const results = useMemo(() => (P && dq.trim() ? searchPlaces(P.visible, dq, nodeIndex, startNode) : []), [P, dq, nodeIndex, startNode])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- latest-value ref / one-off sync, intentional
   useEffect(() => { setLimit(PAGE); setHi(0) }, [dq, screen, floor, block])
   // Walking distance for the result rows, measured along the route graph from the confirmed start - not a straight
@@ -410,14 +401,6 @@ export default function App() {
       return { icon: up ? <Up /> : <Down />, title: l.kind === 'lift' ? `Take lift to ${L(l.to)}` : `Go ${up ? 'up' : 'down'} to ${L(l.to)}`, sub: `${vname(l.nodes[0])} · check the floor sign before continuing` }
     }
     const m = Math.round(l.metres)
-    // a walk with turns leads with the first turn, not just where it ends: "Canteen ahead · 531 m" on its own gave
-    // nothing to follow for half a kilometre. The rest of the turns are one tap away (the banner opens the list)
-    const turns = stepsOf(l).filter(s => s.turn === 'left' || s.turn === 'right')
-    if (turns.length) {
-      const t = turns[0], end = l.final || !n ? dest?.title ?? legEnd(l) : vname(n.nodes[0])
-      const more = turns.length - 1
-      return { icon: t.turn === 'left' ? <TurnL /> : <TurnR />, title: t.text, sub: `in ${t.metres} m · ${more ? `${more} more turn${more === 1 ? '' : 's'} to ` : 'then on to '}${end} (${m} m)` }
-    }
     if (l.final || !n) {
       const last = stepsOf(l).filter(s => s.turn === 'left' || s.turn === 'right').pop()
       return { icon: last?.turn === 'left' ? <TurnL /> : last?.turn === 'right' ? <TurnR /> : <Up />, title: `${dest?.title ?? legEnd(l)} ahead`, sub: `${m} m${dest?.code ? ` · look for ${dest.code}` : ''}` }
@@ -545,7 +528,7 @@ export default function App() {
   const pauseTrip = () => { setTurnsOpen(false); setTripOpen(false); setStack(st => [...st.filter(s => s !== 'guide'), 'paused']) }
   const resumeTrip = () => setStack(st => [...st.filter(s => s !== 'paused'), 'guide'])
   const nextLeg = () => { setTurnsOpen(false); if (li + 1 >= legs.length) setStack(['explore', 'arrived']); else setLegIdx(li + 1) }
-  const finish = () => { if (dest) { setStart(dest); setFloor(dest.level); setBlock(dest.block) } setDest(null); setConfirmed(false); setStack(['explore']) }
+  const finish = () => { if (dest) setStart(dest); setDest(null); setConfirmed(false); setStack(['explore']) }
   const endRoute = () => { setAsking(false); setStack(st => st.filter(s => s !== 'guide' && s !== 'paused')) }
   const pickOption = (c: 'shortest' | 'stepfree') => { setChoice(c); pref.set('wayforge.stepFree', c === 'stepfree' ? '1' : '0') }
   const fromQr = (text: string): string | null => {
@@ -591,13 +574,11 @@ export default function App() {
 
   switch (screen) {
     case 'explore': {
-      bar = 'trip'
+      bar = 'trip'; top = chips(hiKind ?? undefined)
       if (hiKind) { const ids = nodesOfKind(hiKind); map = { ...browseMap, highlight: { kind: hiKind, nodes: ids } } }
       const hiHere = hiKind ? nodesOfKind(hiKind).filter(id => node(id).level === floor).length : 0
-      // The status line sits with the trip card it talks about, not adrift at the bottom of the map, and it only
-      // appears when it has something to add: the trip card already asks for a starting point.
-      const note = hiKind ? `${hiHere} ${KIND_NAME[hiKind].toLowerCase()} on ${L(floor)}${hiHere ? '' : ' (none here)'}` : confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : ''
-      top = <>{chips(hiKind ?? undefined)}{note && <p className="sx-note">{note}</p>}</>
+      // the bottom card is gone (handover 1); what is left is the one short line of status
+      sheet = <p className="sx-note">{hiKind ? `${hiHere} ${KIND_NAME[hiKind].toLowerCase()} on ${L(floor)}${hiHere ? '' : ' (none here)'}` : confirmed && start ? 'Starting point confirmed' : start ? `Last confirmed at ${start.title}` : 'Set a start, then choose where to go'}</p>
     } break
 
     case 'where': case 'find': {
@@ -605,16 +586,11 @@ export default function App() {
       const typing = !!query.trim()
       const mark = (p: Place) => (isFrom ? (dest && !reach(p, dest) ? `No route to ${dest.title}` : undefined) : (start && !reach(start, p) ? 'No route from your start' : undefined))
       const rank = (p: Place) => (mark(p) ? 10 : 0) + ({ entrance: 0, lift: 3, toilet: 2, stairs: 3, food: 1, library: 1, lecture: 1, room: 1 })[p.kind] + (/lobby|entrance/i.test(p.title) ? -1 : 0)
-      // Where are you: every room on the floor (their codes are on the signs by each door), with the starting points
-      // set in the Studio at the top. Only listing the starting points left most floors with just a lift lobby or two
-      const onFloor = placesAt(hasBlocks ? block : '', floor).filter(p => p.kind !== 'lift' && p.kind !== 'stairs')
+      const here = placesAt(hasBlocks ? block : '', floor).filter(p => (!isFrom || p.startingPoint) && p.kind !== 'lift' && p.kind !== 'stairs')
         .sort((x, y) => rank(x) - rank(y) || x.title.localeCompare(y.title, undefined, { numeric: true }))
-      const here = isFrom ? [...onFloor.filter(p => p.startingPoint), ...onFloor.filter(p => !p.startingPoint)] : onFloor
       const cur = isFrom ? start : dest
       const shortcuts = isFrom ? [] : recent.filter(p => p.id !== dest?.id && (p.level !== floor || (hasBlocks && p.block !== block)))
-      // typing a start finds any room: starting points come first, except for a room code (that exact room first)
-      const codeTyped = typing && isCodeQuery(dq)
-      const list = !typing ? here : isFrom && !codeTyped ? [...results.filter(p => p.startingPoint), ...results.filter(p => !p.startingPoint)] : results
+      const list = typing ? results.filter(p => !isFrom || p.startingPoint) : here
       const pick = isFrom ? setFrom : setTo
       const subOf = (p: Place) => [p.code, typing ? L(p.level) : '', walkLabel(p), mark(p) ?? (cur?.id === p.id ? (isFrom ? 'Current start' : 'Current destination') : p.type !== 'Room' ? p.type : '')].filter(Boolean).join(' · ') || L(p.level)
       // Handover 2: several places with the same name on one level read as one destination. They collapse into a
@@ -629,7 +605,7 @@ export default function App() {
       for (const q of list) {
         const k = `${baseName(q)}|${q.block}|${q.level}`
         const g = groups.get(k)!
-        if (g.length < 3 || codeTyped) { rows.push({ place: q }); continue }
+        if (g.length < 3) { rows.push({ place: q }); continue }
         if (done.has(k)) continue
         done.add(k); rows.push({ group: k, base: baseName(q), members: g })
       }
@@ -639,8 +615,7 @@ export default function App() {
       // the arrow keys walk the rows a person can see, so a group counts as one stop; Enter on a group takes its
       // main entrance, which is the row named first when it opens
       const flat = rows.map(r => 'place' in r ? r.place : [...r.members].sort((x, y) => Number(isEntrance(y)) - Number(isEntrance(x)))[0])
-      const blockFocus = hasBlocks && block ? placesAt(block, floor).map(q => q.node) : []
-      tall = true; map = { ...browseMap, focus: blockFocus.length ? blockFocus : cur && cur.level === floor ? [cur.node] : undefined }
+      tall = true; map = { ...browseMap, focus: cur && cur.level === floor ? [cur.node] : undefined }
       sheet = <>
         {typing
           ? <div className="sx-head sx-head-sm"><div><h2>{isFrom ? 'Where are you?' : 'Where to?'}</h2></div><button className="sx-x" onClick={back} aria-label="Close"><CloseIcon /></button></div>
@@ -675,7 +650,7 @@ export default function App() {
               : <p>Try a room code like W1-01-08, or a word like toilet.</p>}
             <button className="sx-link" onClick={() => setQuery('')}>Clear search</button>
           </div>}
-          {!typing && !here.length && <p className="sx-empty">No places on this level. Choose another level.</p>}
+          {!typing && !here.length && <p className="sx-empty">No {isFrom ? 'starting points' : 'places'} on this level. Choose another level.</p>}
         </div>
         <p className="sx-hint">{isFrom ? (nearKind && !dest ? `Tap a place to find the nearest ${KIND_NAME[nearKind].toLowerCase()}.` : dest ? 'Tap a place to preview your route.' : 'Tap a place to set your start.') : 'Tap a place to preview your route.'}</p>
       </>
@@ -764,7 +739,7 @@ export default function App() {
         {turnsOpen && <ul className="sx-turns">{turns.map((s, j) => <li key={j}>{stepIcon(s)}<span>{turnText(s)}</span></li>)}</ul>}
       </section>
       sheet = <div className="sx-card">
-        <div className="sx-head"><div><h2>{final && legs.length > 1 ? 'Almost there' : dest.title}</h2><p>Step {li + 1} of {legs.length} · {!routes?.same && choice === 'stepfree' ? 'Step-free' : 'Shortest route'}</p></div><button className="sx-btn grey sm" onClick={pauseTrip}>Pause trip</button></div>
+        <div className="sx-head"><div><h2>{final && legs.length > 1 ? 'Almost there' : dest.title}</h2><p>Step {li + 1} of {legs.length} · {!routes?.same && choice === 'stepfree' ? 'Step-free' : 'Shortest route'}</p></div><button className="sx-btn grey sm" onClick={pauseTrip}>Pause</button></div>
         <button className="sx-btn red" onClick={nextLeg}>{confirmLabel(li)}</button>
         <button className="sx-link" onClick={() => setAsking(true)}>End trip</button>
       </div>
@@ -836,7 +811,7 @@ export default function App() {
           <div className="sx-row">
             {near.place && <button className="sx-btn plain" onClick={() => setTo(near.place!)}>Step by step</button>}
             {/* arriving at a facility makes it the confirmed location the next lookup starts from (handover 5) */}
-            <button className="sx-btn red" onClick={() => { const p = near.place; if (p) { setStart(p); setConfirmed(true); setFloor(p.level); setBlock(p.block) } setNear(null); setNearList([]); setHiKind(null); setStack(['explore']) }}>I'm here ✓</button>
+            <button className="sx-btn red" onClick={() => { const p = near.place; if (p) { setStart(p); setConfirmed(true) } setNear(null); setNearList([]); setHiKind(null); setStack(['explore']) }}>I'm here ✓</button>
           </div>
         </div>
       }
@@ -856,9 +831,6 @@ export default function App() {
     : ''
   const show3d = !!threeD && use3d && !no3d
   const mapFloor = map.floor
-  // the block named in the top bar: the one being browsed in the pickers, else the block of your dot on the map
-  // (it used to always say the start's block, so a W3 -> E5 trip showed "W3 · Level 5" while crossing E6)
-  const barBlock = picking ? block || start?.block || '' : map.here ? P.blockOfNode(map.here) : start && start.level === mapFloor ? start.block : block
   const pad: MapProps['pad'] = desktop ? { l: padL } : { t: cover.t, b: cover.b }
   const barEl = bar === 'trip'
     ? tripCard
@@ -872,7 +844,7 @@ export default function App() {
       </div>
       : <div className="sx-barrow">
         <button className="sx-bar sx-campus" onClick={() => go('levels')} disabled={guiding} aria-label={`${b.name}, ${L(mapFloor)}${guiding ? '' : '. Change level'}`}>
-          <span className="sx-w" aria-hidden>W</span><span><b>{b.name}</b><small>{[hasBlocks && barBlock ? blockName(barBlock) : '', L(mapFloor)].filter(Boolean).join(' · ')}{!guiding && <Caret />}</small></span>
+          <span className="sx-w" aria-hidden>W</span><span><b>{b.name}</b><small>{[hasBlocks && (start?.block || block) ? blockName(start?.block || block) : '', L(mapFloor)].filter(Boolean).join(' · ')}{!guiding && <Caret />}</small></span>
         </button>
         <button className="sx-round" onClick={() => (guiding ? setAsking(true) : openPicker('find'))} aria-label={guiding ? 'Route options' : 'Search'}><SearchIcon /></button>
       </div>
@@ -900,17 +872,13 @@ export default function App() {
     <div className={`sx ${desktop ? 'sx-desk' : 'sx-phone'}${spanned ? ' spanned' : ''}${show3d ? ' is-3d' : ''}`} style={{ '--col': `${colW}px`, '--sx-ctl': `${(desktop ? 16 : cover.t + 12) + 60 + (threeD && !no3d ? 44 : 0)}px`, '--sx-bot': `${desktop ? 16 : cover.b + 12}px`, '--sx-kb': `${desktop ? 0 : kb}px` } as React.CSSProperties} onClickCapture={onClickCapture}>
       <p className="sx-sr" role="status" aria-live="polite">{liveMsg}</p>
       <div className="sx-map">{mapLayer}</div>
-      {!guiding && desktop && <div className="sx-brand" aria-hidden>
+      {!guiding && <div className="sx-brand" aria-hidden style={desktop || tall ? undefined : { bottom: cover.b + 14 }}>
         <img className="sx-brand-mark" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width="34" height="20" />
         <span><b>WayForge</b><small>{b.name}</small></span>
       </div>}
       <div className="sx-top" ref={topRef}>{barEl}{top}</div>
       {side}
       <div className={`sx-bottom${tall ? ' tall' : ''}`} ref={botRef}>
-        {!desktop && !tall && !guiding && screen === 'explore' && <div className="sx-brand in-flow" aria-hidden>
-          <img className="sx-brand-mark" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width="30" height="18" />
-          <span><b>WayForge</b><small>{b.name}</small></span>
-        </div>}
         {tall ? <section className="sx-sheet" aria-label="Picker"><i className="sx-grab" aria-hidden />{sheet}</section> : sheet}
       </div>
       {endSheet}
