@@ -216,7 +216,7 @@ export function searchPlaces(places: Place[], query: string, nodeIndex: Map<stri
   // the closest toilet could be far down the list. Code-floor suggestions (7) go in code order, typo matches (8) last.
   const tier = (s: number) => (s <= 3 ? s : s <= 6 ? 4 : s)
   const byCode = (a: Place, c: Place) => a.codeKey.localeCompare(c.codeKey, undefined, { numeric: true })
-  out.sort((a, c) => tier(a.s) - tier(c.s) || (a.s === 7 && c.s === 7 ? byCode(a.p, c.p) : 0) || (!near && a.s >= 5 ? a.p.level - c.p.level || a.p.block.localeCompare(c.p.block) : 0) || a.d - c.d || a.p.title.localeCompare(c.p.title))
+  out.sort((a, c) => tier(a.s) - tier(c.s) || (a.s === c.s && (a.s === 1 || a.s === 7) ? byCode(a.p, c.p) : 0) || (!near && a.s >= 5 ? a.p.level - c.p.level || a.p.block.localeCompare(c.p.block) : 0) || a.d - c.d || a.p.title.localeCompare(c.p.title))
   return out.map(x => x.p)
 }
 
