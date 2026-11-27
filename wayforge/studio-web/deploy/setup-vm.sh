@@ -114,6 +114,8 @@ location /api/ {
 }
 # the built files have a hash in their name, so the browser can keep them for a year
 location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files \$uri =404; }
+# the page itself is checked every time, so a new deploy shows straight away (browsers kept running the old version)
+location = /index.html { add_header Cache-Control "no-cache"; }
 CONF
   if [ -f /etc/nginx/snippets/site2-site.conf ] && ! grep -q 'site2-api.conf' /etc/nginx/snippets/site2-site.conf; then
     echo 'include snippets/site2-api.conf;   # /api -> wayforge-api (added by studio-web/deploy/setup-vm.sh)' | sudo tee -a /etc/nginx/snippets/site2-site.conf >/dev/null
@@ -177,6 +179,7 @@ auth_basic_user_file $LOGIN_FILE;
 location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files \$uri =404; }
 location /viewer/ { try_files \$uri \$uri/ =404; }    # \$uri/ so /viewer/ opens viewer/index.html
 location / { try_files \$uri \$uri/ /index.html; }
+location = /index.html { add_header Cache-Control "no-cache"; }   # checked every time, so a new deploy shows at once
 
 location /api/ {
     proxy_pass http://127.0.0.1:$PORT_API;

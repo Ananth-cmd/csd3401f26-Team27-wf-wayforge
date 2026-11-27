@@ -596,13 +596,11 @@ export default function App() {
       const typing = !!query.trim()
       const mark = (p: Place) => (isFrom ? (dest && !reach(p, dest) ? `No route to ${dest.title}` : undefined) : (start && !reach(start, p) ? 'No route from your start' : undefined))
       const rank = (p: Place) => (mark(p) ? 10 : 0) + ({ entrance: 0, lift: 3, toilet: 2, stairs: 3, food: 1, library: 1, lecture: 1, room: 1 })[p.kind] + (/lobby|entrance/i.test(p.title) ? -1 : 0)
-      // Where are you: the starting points set in the Studio. A floor with none still lists its rooms (their codes are
-      // on the signs by each door), so no floor is a dead end
+      // Where are you: every room on the floor (their codes are on the signs by each door), with the starting points
+      // set in the Studio at the top. Only listing the starting points left most floors with just a lift lobby or two
       const onFloor = placesAt(hasBlocks ? block : '', floor).filter(p => p.kind !== 'lift' && p.kind !== 'stairs')
-      const startsHere = onFloor.filter(p => p.startingPoint)
-      const noStarts = isFrom && !startsHere.length && onFloor.length > 0
-      const here = (isFrom && !noStarts ? startsHere : onFloor)
         .sort((x, y) => rank(x) - rank(y) || x.title.localeCompare(y.title, undefined, { numeric: true }))
+      const here = isFrom ? [...onFloor.filter(p => p.startingPoint), ...onFloor.filter(p => !p.startingPoint)] : onFloor
       const cur = isFrom ? start : dest
       const shortcuts = isFrom ? [] : recent.filter(p => p.id !== dest?.id && (p.level !== floor || (hasBlocks && p.block !== block)))
       // typing a start finds any room: starting points come first, except for a room code (that exact room first)
@@ -649,7 +647,7 @@ export default function App() {
         </label>
         {isFrom && qrSupported && !typing && <button className="sx-link" onClick={() => go('qr')}>Scan a QR checkpoint instead</button>}
         <div className="sx-list scroll" role={typing ? 'listbox' : undefined} id="results" aria-label={typing ? 'Results' : undefined}>
-          <span className="sx-sect" role="status" aria-live="polite">{typing ? `${list.length} result${list.length === 1 ? '' : 's'}` : `${hasBlocks && block ? `${block} · ` : ''}${L(floor)} · ${here.length} place${here.length === 1 ? '' : 's'}${noStarts ? ' · pick the room you are next to' : ''}`}</span>
+          <span className="sx-sect" role="status" aria-live="polite">{typing ? `${list.length} result${list.length === 1 ? '' : 's'}` : `${hasBlocks && block ? `${block} · ` : ''}${L(floor)} · ${here.length} place${here.length === 1 ? '' : 's'}`}</span>
           {!typing && cur && (cur.level !== floor || (hasBlocks && !!block && cur.block !== block)) && <Item title={`${cur.title} · ${L(cur.level)}`} sub={isFrom ? 'Current start' : 'Current destination'} sel onClick={() => pick(cur)} />}
           {!typing && shortcuts.map(p => <Item key={`r-${p.id}`} title={`${p.title} · ${L(p.level)}`} sub="Recent destination · skip filters" onClick={() => pick(p)} />)}
           {shown.map((r, i) => 'place' in r
