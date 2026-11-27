@@ -67,6 +67,7 @@ import path from "path";
 
 // Create the HTTP server and choose local defaults unless deployment values are provided.
 const app = express();
+app.disable("x-powered-by"); // don't tell everyone it's Express
 // PORT and HOST can be set on the team server, defaults stay the same for local testing.
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";

@@ -48,8 +48,11 @@ function kindOf(name: string, cat: string, node?: Node): PlaceKind {
   if (/\b(wc|w\.c\.|toilets?|restrooms?|washrooms?)\b/.test(s)) return 'toilet'
   if (/\b(canteen|food|caf[eé]|dining|kiosk|restaurant)\b/.test(s)) return 'food'
   if (/\blibrary\b/.test(s)) return 'library'
-  if (/\b(lift|elevator)\b/.test(s) || node?.kind === 'lift') return 'lift'
-  if (/\bstair/.test(s) || node?.kind === 'stairs') return 'stairs'
+  // a "Lift Lobby" / "Stair Lobby" is a room you wait in, not the lift or stairs themselves. It used to count as a
+  // lift, and the start list leaves lifts out, so the lift lobbies (the only starting points on most upper floors) vanished
+  const lobby = /\b(lobby|foyer|landing)\b/.test(s)
+  if ((/\b(lift|elevator)\b/.test(s) && !lobby) || node?.kind === 'lift') return 'lift'
+  if ((/\bstair/.test(s) && !lobby) || node?.kind === 'stairs') return 'stairs'
   if (/\bentrance\b/.test(s)) return 'entrance'
   if (/\blecture\b|^lt\s?\d/.test(s)) return 'lecture'
   return 'room'
@@ -139,12 +142,44 @@ export const placeSub = (p: Place, levelName: string, extra?: string) =>
   [extra, p.block && !p.code && !p.title.startsWith(p.block) ? `${p.block} block` : '', levelName, p.code].filter(Boolean).join(' · ')
 
 // ---------- search ----------
+// how many letters apart two words are (insert / delete / swap one letter = 1), giving up past max
+export function editDistance(a: string, c: string, max = 3): number {
+  if (Math.abs(a.length - c.length) > max) return max + 1
+  let before: number[] = [], prev = Array.from({ length: c.length + 1 }, (_, j) => j) // the rows for i-2 and i-1
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let best = i
+    for (let j = 1; j <= c.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === c[j - 1] ? 0 : 1))
+      if (i > 1 && j > 1 && a[i - 1] === c[j - 2] && a[i - 2] === c[j - 1]) cur[j] = Math.min(cur[j], before[j - 2] + 1) // two letters swapped
+      best = Math.min(best, cur[j])
+    }
+    if (best > max) return max + 1
+    before = prev; prev = cur
+  }
+  return prev[c.length]
+}
+// a typo'd word still finds the place: "libary" -> library, "toliet" -> toilet, "semniar" -> seminar.
+// short words need to be exact (too many 3-letter near misses); a partly typed word is checked against the start of
+// each word, so "libra" and "lbrary" both reach Library
+const fuzzyHit = (list: string[], t: string) => {
+  if (t.length < 4 || /\d/.test(t)) return false
+  const k = t.length >= 7 ? 2 : 1
+  return list.some(w => w.length >= 4 && (editDistance(t, w, k) <= k || (w.length > t.length && editDistance(t, w.slice(0, t.length), 1) <= 1)))
+}
+// "W3-02-01", "w30201", "E2 05": a room code (block + at least 3 digits). The digits only count in order then,
+// so W3-02-01 can't match W3-01-02 just because both have an 01 and an 02 in them
+export const isCodeQuery = (query: string) => /^[a-z]{1,2}\d{3,}$/.test(norm(query).replace(/ /g, '')) && !/[a-z]{3,}/.test(norm(query))
+
 export function searchPlaces(places: Place[], query: string, nodeIndex: Map<string, Node>, near?: Node | null): Place[] {
   const qn = norm(query)
   if (!qn) return []
   const compact = qn.replace(/ /g, '')
   const tokens = qn.split(' ').map(t => ABBR[t] ?? t)
   const hasDigit = /\d/.test(compact)
+  const codeQuery = isCodeQuery(query)
+  // the block + floor part of a code query ("w302" of w30201), for "no such room, here are the rooms on that floor"
+  const floorPrefix = codeQuery ? compact.replace(/^([a-z]{1,2}\d{1,2}?\d{2}).*$/, '$1') : ''
   const out: { p: Place; s: number; d: number }[] = []
   const pre = (list: string[], t: string) => list.some(w => w.startsWith(t)) || (t.length > 3 && t.endsWith('s') && list.some(w => w.startsWith(t.slice(0, -1))))
   for (const p of places) {
@@ -152,18 +187,21 @@ export function searchPlaces(places: Place[], query: string, nodeIndex: Map<stri
     let s = -1
     if (p.codeKey && compact.length >= 2 && p.codeKey === compact) s = 0
     else if (p.codeKey && hasDigit && compact.length >= 3 && p.codeKey.startsWith(compact)) s = 1
-    else if (p.codeKey && hasDigit && compact.length >= 4 && p.codeKey.includes(compact)) s = 2
+    else if (p.codeKey && hasDigit && compact.length >= 4 && !codeQuery && p.codeKey.includes(compact)) s = 2
+    else if (codeQuery) { if (p.codeKey && floorPrefix.length >= 4 && p.codeKey.startsWith(floorPrefix)) s = 7 } // same block and floor
     else {
       const t = p.title.toLowerCase()
       if (t === qn) s = 3
       else if (t.startsWith(qn)) s = 4
       else {
-        let nameHit = false, ok = true
+        let nameHit = false, fuzzy = false, ok = true
         for (const tok of tokens) {
           if (pre(p.words, tok)) nameHit = true
-          else if (!pre(p.meta, tok)) { ok = false; break }
+          else if (pre(p.meta, tok)) continue
+          else if (fuzzyHit(p.words, tok)) { nameHit = true; fuzzy = true }
+          else { ok = false; break }
         }
-        if (ok) s = nameHit ? 5 : 6
+        if (ok) s = fuzzy ? 8 : nameHit ? 5 : 6
       }
     }
     if (s < 0) continue
@@ -171,7 +209,14 @@ export function searchPlaces(places: Place[], query: string, nodeIndex: Map<stri
     if (near) { const n = nodeIndex.get(p.node)!; d = Math.hypot(n.pos[0] - near.pos[0], n.pos[1] - near.pos[1]) + Math.abs(n.level - near.level) * 60 }
     out.push({ p, s, d })
   }
-  out.sort((a, c) => a.s - c.s || (a.s >= 5 && !near ? a.p.level - c.p.level || a.p.block.localeCompare(c.p.block) : 0) || a.d - c.d || a.p.title.localeCompare(c.p.title))
+  // the rooms on the same floor are only a suggestion for a code that isn't there
+  if (out.some(x => x.s <= 1)) for (let i = out.length - 1; i >= 0; i--) if (out[i].s === 7) out.splice(i, 1)
+  // Exact codes first, then an exact name. Everything else that matched by name ("toilet", "library") is one group,
+  // nearest first: "toilet" used to list every "Toilet ..." before any "W1 Toilet ...", whatever the distance, so
+  // the closest toilet could be far down the list. Code-floor suggestions (7) go in code order, typo matches (8) last.
+  const tier = (s: number) => (s <= 3 ? s : s <= 6 ? 4 : s)
+  const byCode = (a: Place, c: Place) => a.codeKey.localeCompare(c.codeKey, undefined, { numeric: true })
+  out.sort((a, c) => tier(a.s) - tier(c.s) || (a.s === 7 && c.s === 7 ? byCode(a.p, c.p) : 0) || (!near && a.s >= 5 ? a.p.level - c.p.level || a.p.block.localeCompare(c.p.block) : 0) || a.d - c.d || a.p.title.localeCompare(c.p.title))
   return out.map(x => x.p)
 }
 
