@@ -755,7 +755,7 @@ html, body { overflow-x: hidden; }
 .sx-bottom { position: absolute; left: 16px; right: 16px; bottom: calc(12px + max(env(safe-area-inset-bottom), var(--sx-kb, 0px))); z-index: 6; display: flex; flex-direction: column; pointer-events: none; }
 .sx-bottom > * { pointer-events: auto; }
 .sx-bottom.tall { left: 16px; right: 16px; top: 33vh; bottom: calc(12px + max(env(safe-area-inset-bottom), var(--sx-kb, 0px))); }
-.sx-note { pointer-events: none !important; font-size: 11.5px; color: var(--sx-muted); padding: 0 12px 10px; }
+.sx-note { pointer-events: none !important; font-size: 11.5px; color: var(--sx-muted); padding: 0 12px; }
 .sx-card { position: relative; display: flex; flex-direction: column; gap: 16px; width: 100%; padding: 22px 20px 20px; border-radius: 20px; background: var(--sx-card); box-shadow: var(--sx-shadow); text-align: left; }
 .sx-card::before { content: ''; position: absolute; top: 9px; left: 50%; width: 44px; height: 4px; margin-left: -22px; border-radius: 2px; background: #e4e4e4; }
 .sx-loc { gap: 6px; min-height: 104px; padding: 26px 46px 26px 24px; justify-content: center; }
@@ -913,3 +913,19 @@ html, body { overflow-x: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .sx *, .mapview * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* the watermark in the bottom row on phones: laid out, so it can't land on the status line or the browser's bar */
+.sx-brand.in-flow { position: static; padding: 2px 6px 10px; gap: 8px; }
+.sx-brand.in-flow b { font-size: 16px; }
+
+/* phone test fixes (27 Nov) */
+/* the search pill draws its own red ring when focused; the input's own outline made a second, black box inside it */
+.sx .sx-search input:focus-visible { outline: none; }
+/* "Start navigation →" broke onto two lines on a 375 px phone */
+.sx-btn { white-space: nowrap; }
+.sx-row > .sx-btn { padding: 0 16px; }
+/* 3D / 2D buttons were 30 px tall; 40 px + the 3 px frame reaches the 44 px tap size */
+.view-toggle button { height: 40px; }
+/* pickers on phones: the list starts higher and the one-line hint is dropped, so ~6 rooms show instead of ~3 */
+.sx-phone .sx-bottom.tall { top: 20vh; }
+.sx-phone .sx-bottom.tall .sx-head p { display: none; }

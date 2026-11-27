@@ -112,6 +112,10 @@ location /api/ {
     proxy_pass http://127.0.0.1:$PORT_NAV_API;
     proxy_read_timeout 60s;
 }
+# the built files have a hash in their name, so the browser can keep them for a year
+location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files \$uri =404; }
+# the page itself is checked every time, so a new deploy shows straight away (browsers kept running the old version)
+location = /index.html { add_header Cache-Control "no-cache"; }
 CONF
   if [ -f /etc/nginx/snippets/site2-site.conf ] && ! grep -q 'site2-api.conf' /etc/nginx/snippets/site2-site.conf; then
     echo 'include snippets/site2-api.conf;   # /api -> wayforge-api (added by studio-web/deploy/setup-vm.sh)' | sudo tee -a /etc/nginx/snippets/site2-site.conf >/dev/null
@@ -153,6 +157,16 @@ sudo chown root:www-data "$LOGIN_FILE"
 sudo chmod 640 "$LOGIN_FILE"
 
 echo "== 7/9 nginx"
+# compress JSON / JS / CSS (the campus map is ~12 MB of JSON, about 1.2 MB gzipped) and stop sending the nginx
+# version. if the main nginx.conf already sets any of these, nginx -t fails and the file is taken out again
+sudo tee /etc/nginx/conf.d/wayforge-gzip.conf >/dev/null <<'CONF'
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_types application/json application/javascript text/javascript text/css image/svg+xml application/wasm;
+server_tokens off;
+CONF
+sudo nginx -t 2>/dev/null || { echo "  (nginx.conf already sets gzip, leaving it)"; sudo rm -f /etc/nginx/conf.d/wayforge-gzip.conf; }
 # the site itself (login, website, /api) is kept in a snippet, included by the https server.
 sudo tee /etc/nginx/snippets/studio-site.conf >/dev/null <<CONF
 root /var/www/studio;
@@ -162,9 +176,10 @@ index index.html;
 auth_basic "Wayforge Studio";
 auth_basic_user_file $LOGIN_FILE;
 
-location /assets/ { try_files \$uri =404; }
+location /assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files \$uri =404; }
 location /viewer/ { try_files \$uri \$uri/ =404; }    # \$uri/ so /viewer/ opens viewer/index.html
 location / { try_files \$uri \$uri/ /index.html; }
+location = /index.html { add_header Cache-Control "no-cache"; }   # checked every time, so a new deploy shows at once
 
 location /api/ {
     proxy_pass http://127.0.0.1:$PORT_API;
