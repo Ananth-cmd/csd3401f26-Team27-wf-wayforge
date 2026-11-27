@@ -148,11 +148,8 @@ export function campusTextures(): TextureSet {
       p.ellipse(1.0, 1.1, 0.25, 0.18, '#2c5f2a'); p.ellipse(0.2, 0.3, 0.22, 0.16, '#2c5f2a')
       p.ellipse(0.6, 1.4, 0.07, 0.07, '#d98bb0'); p.ellipse(1.5, 0.8, 0.07, 0.07, '#d98bb0'); p.ellipse(0.3, 0.8, 0.06, 0.06, '#d98bb0')
     }, '#3d7535'),
-    pv: tile(14, 10, p => { // one array of 3 x 2 panels, a walkway around it
-      p.rect(2.5, 2.5, 9, 5, p.glass(2.5, 7.5, '#9bb0c4', '#7d93a9'), [0.35, 0.15])
-      for (let x = 2.5; x <= 11.5; x += 3) p.rect(x - 0.05, 2.5, 0.1, 5, '#d5dbe0', ROUGH)
-      p.rect(2.5, 4.95, 9, 0.1, '#d5dbe0', ROUGH)
-    }, '#eef0f0'),
+    // Plain concrete roof without solar panel patterns.
+    pv: tile(14, 10, () => {}, '#dedbd2', ROUGH),
     office: tile(3, 3.6, p => {
       p.rect(0, 1.0, 3, 1.9, p.glass(1.0, 2.9, '#5a6b75', '#9aaab3'), GLASS)
       p.rect(1.47, 1.0, 0.06, 1.9, '#d7dad6', ROUGH)
