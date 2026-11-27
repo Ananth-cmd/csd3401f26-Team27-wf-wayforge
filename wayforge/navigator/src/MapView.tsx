@@ -81,6 +81,7 @@ const ICON_OF: Record<string, string> = { 'r-toilet': 'wf-i-toilet', 'r-lift': '
 const LANDMARK_ICON: Record<string, string> = { mrt: 'wf-i-mrt', bus: 'wf-i-bus', food: 'wf-i-food', shop: 'wf-i-shop', park: 'wf-i-park' }
 const GROUND_Y = -0.45 // height of the ground around the building, metres: the underside of the floor slab
 const DOOR_OPEN = (65 * Math.PI) / 180 // opening angle of the door leaves, radians
+const DOOR_NEAR = 5 // metres: a door this close to the route, to you, or to the destination is drawn open
 // 3D campus buildings, worked out once per building in a background worker (massing.ts)
 const massCache = new WeakMap<Building, Promise<MassBlock[]>>()
 function loadMassing(b: Building, node: Map<string, { level: number; pos: Vec2 }>): Promise<MassBlock[]> {
@@ -349,12 +350,22 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // middle drew long walls over the short walls they cross (angled blocks looked like floors stacked on each other).
   // The number of pieces is capped (MAX_PIECES) so big floors stay quick to draw, and while you're turning the map
   // whole walls are used (as fast as before); the pieces come back when you let go.
+  // Doors a person is not going to walk through stay shut. A door is drawn open when the route passes close to it,
+  // or when it belongs to where they are standing or heading - so an open door means "this one is yours", instead of
+  // every room on the floor hanging open at once.
+  const openNear = useMemo(() => {
+    const pts: Vec2[] = []
+    for (const ids of [...lines, ...done]) for (const id of ids) { const n = node.get(id); if (n && n.level === floor) pts.push(n.pos) }
+    for (const id of [here, pin?.node]) { const n = id ? node.get(id) : null; if (n && n.level === floor) pts.push(n.pos) }
+    return pts
+  }, [lines, done, here, pin, node, floor])
   const [turning, setTurning] = useState(false)
   const walls = useMemo(() => {
     const out: { depth: number; x?: [string, string]; polys: { pts: V3[]; shade: number; cls?: string }[] }[] = []
     let total = 0
     for (const wl of lvl.walls) total += Math.hypot(wl.b[0] - wl.a[0], wl.b[1] - wl.a[1])
-    const piece = topDown || turning ? Infinity : Math.max(PIECE_M, total / MAX_PIECES)
+    const cap = size.w * size.h > 480000 ? MAX_PIECES : Math.round(MAX_PIECES * 0.36)
+    const piece = topDown || turning ? Infinity : Math.max(PIECE_M, total / cap)
     const finish = wallFacades(building, floor) // exterior wall colours [side, top] per wall, from its block
     for (const [wi, wl] of lvl.walls.entries()) {
       const dx = wl.b[0] - wl.a[0], dz = wl.b[1] - wl.a[1], len = Math.hypot(dx, dz) || 1
@@ -383,16 +394,20 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     for (const dr of lvl.doors ?? []) {
       const dx = dr.b[0] - dr.a[0], dz = dr.b[1] - dr.a[1], len = Math.hypot(dx, dz)
       if (len < 0.5) continue
-      const ux = dx / len, uz = dz / len, ca = Math.cos(DOOR_OPEN), sa = Math.sin(DOOR_OPEN)
+      // closed is the default, and costs nothing to decide when there is no route on this floor
+      const mx = (dr.a[0] + dr.b[0]) / 2, mz = (dr.a[1] + dr.b[1]) / 2
+      const open = openNear.some(q => Math.abs(q[0] - mx) < DOOR_NEAR && Math.abs(q[1] - mz) < DOOR_NEAR && Math.hypot(q[0] - mx, q[1] - mz) < DOOR_NEAR)
+      const swing = open ? DOOR_OPEN : 0 // a shut leaf lies along its own doorway
+      const ux = dx / len, uz = dz / len, ca = Math.cos(swing), sa = Math.sin(swing)
       const leaves: [Vec2, number, number][] = len > 1.5 ? [[dr.a, 1, len / 2], [dr.b, -1, len / 2]] : [[dr.a, 1, len]]
       for (const [h, dir, w] of leaves) {
         const ex = h[0] + (ux * dir * ca - uz * sa) * w, ez = h[1] + (uz * dir * ca + ux * sa) * w
         const pts: V3[] = topDown ? [[h[0], 0.05, h[1]], [ex, 0.05, ez]] : [[h[0], 0, h[1]], [ex, 0, ez], [ex, WALL_H * 0.95, ez], [h[0], WALL_H * 0.95, h[1]]]
-        out.push({ depth: dot([(h[0] + ex) / 2, 0, (h[1] + ez) / 2], fwd) - 0.2, polys: [{ pts, shade: 0, cls: 'm-door' }] })
+        out.push({ depth: dot([(h[0] + ex) / 2, 0, (h[1] + ez) / 2], fwd) - 0.2, polys: [{ pts, shade: 0, cls: `m-door${open ? ' open' : ''}` }] })
       }
     }
     return out.sort((a, b) => b.depth - a.depth)
-  }, [lvl, topDown, yaw, turning, building, floor]) // eslint-disable-line
+  }, [lvl, topDown, yaw, turning, building, floor, openNear, size.w, size.h]) // eslint-disable-line
 
   const zone = (id: string, half: number, cls: string) => {
     const n = node.get(id)!, [x, z] = n.pos
@@ -581,12 +596,18 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const hereNode = here && node.get(here)?.level === floor ? here : null
   // the route line on this floor: each unbroken stretch drawn down the middle of the corridors, through doorways and
   // round the corners (routeline.ts; the route itself is findRoute's, unchanged)
+  const runCache = new Map<string, Vec2[][]>()
   const runsOf = (ids: string[]) => {
+    const key = ids.join('|')
+    const hit = runCache.get(key)
+    if (hit) return hit
     const runs: string[][] = []
     let cur: string[] = []
     for (const id of ids) { if (node.get(id)?.level === floor) cur.push(id); else if (cur.length) { runs.push(cur); cur = [] } }
     if (cur.length) runs.push(cur)
-    return runs.filter(r => r.length > 1).map(r => drawnRoute(building, floor, r.map(id => node.get(id)!.pos), r.map(id => node.get(id)!.kind !== 'turn')))
+    const out = runs.filter(r => r.length > 1).map(r => drawnRoute(building, floor, r.map(id => node.get(id)!.pos), r.map(id => node.get(id)!.kind !== 'turn')))
+    runCache.set(key, out)
+    return out
   }
   const onFloor = (ids: string[]) => { const y = 0.15 + (ids[0] ? lift(ids.find(id => node.get(id)?.level === floor) ?? ids[0]) : 0); return runsOf(ids).map(r => r.map(p => proj([p[0], y, p[1]]).join(',')).join(' ')) }
   // lifts / stairs on the route: the room lit up, and a lift / stairs sign over it saying where it takes you
@@ -620,50 +641,76 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   }
 
   // ---- labels: never overlapping; block names when far, room names when close ----
+  // Choosing which labels fit is by far the most expensive thing the map does: it walks every named point on the
+  // floor, sorts them and collision-tests each one. It used to run on every pointer event, which is what made
+  // panning feel heavy on a big floor. It does not need to: every label is placed in world coordinates, so while
+  // you drag, the labels ride the viewBox and stay on their rooms. Only the choice of which ones fit depends on
+  // where the camera is, and that can wait until you let go. So the pass runs off a settled copy of the camera,
+  // a moment after it stops moving. Rotation is different - turning the map changes where everything projects to -
+  // so yaw stays a live input and the pass re-runs with it.
+  const [settled, setSettled] = useState({ t: cam.t, zoom: cam.zoom })
+  useEffect(() => {
+    const id = setTimeout(() => setSettled({ t: cam.t, zoom: cam.zoom }), 120)
+    return () => clearTimeout(id)
+  }, [cam.t, cam.zoom])
+
   type Lab = { x: number; y: number; text: string; cls: string; size: number }
-  const labels: Lab[] = []
-  const marks: { x: number; y: number; icon: string; kind: string }[] = [] // landmark signs to draw: position, icon and kind
-  {
+  const { labels, marks } = useMemo(() => {
+    const labels: Lab[] = []
+    const marks: { x: number; y: number; icon: string; kind: string }[] = [] // landmark signs to draw
+    const sView = projAt(settled.t, centre)
+    const sK = (baseVh * settled.zoom) / size.h
+    const sPxPerM = 1 / sK
+    const sShowIcons = !massMode && sPxPerM >= ICONS_FROM
     const taken: [number, number, number, number][] = [] // boxes in px around the centre
     const free = (cx: number, cy: number, w: number, h: number) => {
       for (const [x0, y0, x1, y1] of taken) if (cx - w / 2 < x1 && cx + w / 2 > x0 && cy - h / 2 < y1 && cy + h / 2 > y0) return false
       return true
     }
+    const size_w2 = size.w / 2, size_h2 = size.h / 2
     const tryAdd = (sx: number, sy: number, text: string, cls: string, size: number) => {
-      const px = (sx - view[0]) / k, py = (sy - view[1]) / k, w = text.length * size * 0.56 + 8, h = size + 6
+      const px = (sx - sView[0]) / sK, py = (sy - sView[1]) / sK, w = text.length * size * 0.56 + 8, h = size + 6
       if (Math.abs(px) > size_w2 + w || Math.abs(py) > size_h2 + h) return // off screen
       if (!free(px, py, w, h)) return
       taken.push([px - w / 2, py - h / 2, px + w / 2, py + h / 2])
       labels.push({ x: sx, y: sy, text, cls, size })
     }
-    const size_w2 = size.w / 2, size_h2 = size.h / 2
+    const keep = (sx: number, sy: number, r: number) => { const X = (sx - sView[0]) / sK, Y = (sy - sView[1]) / sK; taken.push([X - r, Y - r, X + r, Y + r]) }
     // keep the space around the pin / you markers clear
-    for (const id of [pinNode?.node, hereNode]) if (id) { const [x, y] = at(id, 0.15), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 16, Y - 16, X + 16, Y + 16]) }
-    if (pinNode) { const [x, y] = at(pinNode.node, 0.15), X = (x - view[0]) / k, Y = (y - view[1]) / k; const w = short(pinNode.label).length * 6.6 + 24; taken.push([X + 14, Y - 16, X + 18 + w, Y + 16]) }
+    for (const id of [pinNode?.node, hereNode]) if (id) { const [x, y] = at(id, 0.15); keep(x, y, 16) }
+    if (pinNode) { const [x, y] = at(pinNode.node, 0.15), X = (x - sView[0]) / sK, Y = (y - sView[1]) / sK; const w = short(pinNode.label).length * 6.6 + 24; taken.push([X + 14, Y - 16, X + 18 + w, Y + 16]) }
     // keep the toilet / lift / stairs / food icons clear
     const iconAt = new Set<string>()
-    if (rooms && showIcons) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 10, Y - 10, X + 10, Y + 10]) }
-    if (highlight) for (const id of highlight.nodes) if (node.get(id)?.level === floor) { const [x, y] = at(id, 0.1 + lift(id)), X = (x - view[0]) / k, Y = (y - view[1]) / k; taken.push([X - 15, Y - 15, X + 15, Y + 15]) }
+    if (rooms && sShowIcons) for (const { id } of rooms.icons) { iconAt.add(id); const [x, y] = at(id, 0.1); keep(x, y, 10) }
+    if (highlight) for (const id of highlight.nodes) if (node.get(id)?.level === floor) { const [x, y] = at(id, 0.1 + lift(id)); keep(x, y, 15) }
     const nameOf = (id: string) => names ? names.get(id) : node.get(id)!.kind !== 'turn' ? node.get(id)!.label : undefined
     // entrances always get a label (people orient by them)
     // (only once zoomed in to a block; far out the block names come first and the diamonds mark the entrances)
-    if (showIcons) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * k, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
+    if (sShowIcons) for (const n of entrances) { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); tryAdd(sx, sy + 16 * sK, short(nameOf(n.id) ?? 'Entrance'), 'm-label ent', 11) }
     // Landmarks: an icon with its name below. Skipped when off screen or when the icon would overlap a label
     // already placed.
-    for (const m of site?.landmarks ?? []) {
-      const [sx, sy] = proj([m.pos[0], GROUND_Y, m.pos[1]]), X = (sx - view[0]) / k, Y = (sy - view[1]) / k
+    if (sShowIcons) for (const m of site?.landmarks ?? []) {
+      const [sx, sy] = proj([m.pos[0], GROUND_Y, m.pos[1]]), X = (sx - sView[0]) / sK, Y = (sy - sView[1]) / sK
       if (Math.abs(X) > size_w2 + 20 || Math.abs(Y) > size_h2 + 20 || !free(X, Y, 24, 24)) continue
       taken.push([X - 12, Y - 12, X + 12, Y + 12])
       marks.push({ x: sx, y: sy, icon: LANDMARK_ICON[m.kind] ?? 'wf-i-park', kind: m.kind })
-      tryAdd(sx, sy + 22 * k, m.name, 'm-label lm', 10.5)
+      tryAdd(sx, sy + 22 * sK, m.name, 'm-label lm', 10.5)
     }
     // blocks without this floor: their name and the floors they have, so it's clear why there's no floor plan there
     for (const s of shorter) { const [sx, sy] = proj([s.centre[0], 0, s.centre[1]]); tryAdd(sx, sy, `${s.name} · ${s.note}`, 'm-label other', 12) }
-    if (pxPerM >= ROOM_LABELS_FROM) {
-      const named = floorNodes.filter(n => nameOf(n.id) && !entrances.includes(n))
+    if (sPxPerM >= ROOM_LABELS_FROM) {
+      // Only the points that can carry a label, prepared once: the entrance test used to run down the whole
+      // entrance list for every node on the floor.
+      const isEntrance = new Set(entrances.map(n => n.id))
+      const named: { n: typeof floorNodes[number]; sx: number; sy: number; d: number }[] = []
+      for (const n of floorNodes) {
+        if (isEntrance.has(n.id) || !nameOf(n.id)) continue
+        const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]])
+        named.push({ n, sx, sy, d: (sx - sView[0]) ** 2 + (sy - sView[1]) ** 2 })
+      }
       // nearest to the middle of the view first, so the labels you're looking at win
-      const scored = named.map(n => { const [sx, sy] = proj([n.pos[0], 0.1, n.pos[1]]); return { n, sx, sy, d: (sx - view[0]) ** 2 + (sy - view[1]) ** 2 } }).sort((a, b) => a.d - b.d)
-      for (const { n, sx, sy } of scored.slice(0, 400)) tryAdd(sx, sy + (iconAt.has(n.id) ? 19 : 12) * k, short(nameOf(n.id)!), n.kind === 'room' ? 'm-label' : 'm-label vert', 10.5)
+      named.sort((a, b) => a.d - b.d)
+      for (const { n, sx, sy } of named.slice(0, 400)) tryAdd(sx, sy + (iconAt.has(n.id) ? 19 : 12) * sK, short(nameOf(n.id)!), n.kind === 'room' ? 'm-label' : 'm-label vert', 10.5)
     } else if (massMode) {
       // 3D campus: block names on the roofs (raised link bridges stay unlabelled)
       for (const m of mass!) if (!(m.levels.length === 1 && m.levels[0].elev > 0)) { const [sx, sy] = proj([m.centre[0], m.top + 1, m.centre[1]]); tryAdd(sx, sy, m.name, 'm-block', 15) }
@@ -673,7 +720,8 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       for (const n of floorNodes) { const bl = blocks.get(n.id); if (!bl) continue; const g = groups.get(bl) ?? [0, 0, 0]; g[0] += n.pos[0]; g[1] += n.pos[1]; g[2]++; groups.set(bl, g) }
       for (const [bl, [x, z, c]] of groups) { const [sx, sy] = proj([x / c, WALL_H, z / c]); tryAdd(sx, sy, bl, 'm-block', 15) }
     }
-  }
+    return { labels, marks }
+  }, [settled, yaw, centre, baseVh, size.w, size.h, floor, floorNodes, entrances, names, node, rooms, highlight, massMode, mass, site, shorter, blocks, pinNode, hereNode, lift]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- gestures ----
   const svgRef = useRef<SVGSVGElement>(null)
@@ -681,18 +729,30 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const live = useRef({ k, sinp, right, fwdH, zoomFit, clampView })
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   live.current = { k, sinp, right, fwdH, zoomFit, clampView }
-  const clampZoom = (z: number) => Math.min(live.current.zoomFit, Math.max(0.02, z))
-  const panBy = (dx: number, dy: number) => setCam(c => {
-    const { k, sinp, right, fwdH } = live.current
-    const a = -dx * k, b = (dy * k) / sinp
-    return { ...c, t: live.current.clampView([c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b], c.zoom) }
-  })
-  const zoomAt = (factor: number, px = 0, py = 0) => setCam(c => {
-    const { k, sinp, right, fwdH } = live.current
-    const z = clampZoom(c.zoom * factor), r = z / c.zoom
-    const a = px * k * (1 - r), b = (py * k * (r - 1)) / sinp
-    return { yaw: c.yaw, zoom: z, t: live.current.clampView([c.t[0] + right[0] * a + fwdH[0] * b, 0, c.t[2] + right[2] * a + fwdH[2] * b], z) }
-  })
+  // Pointer and wheel events arrive faster than the screen redraws - on a 120 Hz phone, twice per frame - and each
+  // one used to be its own camera update and its own render. They are now added up and applied once per frame.
+  const queue = useRef({ dx: 0, dy: 0, f: 1, px: 0, py: 0, raf: 0 })
+  useEffect(() => () => { if (queue.current.raf) cancelAnimationFrame(queue.current.raf) }, [])
+  const flush = () => {
+    const q = queue.current
+    const dx = q.dx, dy = q.dy, f = q.f, px = q.px, py = q.py
+    q.dx = 0; q.dy = 0; q.f = 1
+    setCam(c => {
+      const { k, sinp, right, fwdH, clampView, zoomFit } = live.current
+      const move = (t: V3, a: number, b: number): V3 => [t[0] + right[0] * a + fwdH[0] * b, 0, t[2] + right[2] * a + fwdH[2] * b]
+      let t = c.t, zoom = c.zoom
+      if (dx || dy) t = move(t, -dx * k, (dy * k) / sinp)
+      if (f !== 1) {
+        const z = Math.min(zoomFit, Math.max(0.02, zoom * f)), r = z / zoom
+        t = move(t, px * k * (1 - r), (py * k * (r - 1)) / sinp)
+        zoom = z
+      }
+      return { yaw: c.yaw, zoom, t: clampView(t, zoom) }
+    })
+  }
+  const schedule = () => { if (!queue.current.raf) queue.current.raf = requestAnimationFrame(() => { queue.current.raf = 0; flush() }) }
+  const panBy = (dx: number, dy: number) => { queue.current.dx += dx; queue.current.dy += dy; schedule() }
+  const zoomAt = (factor: number, px = 0, py = 0) => { queue.current.f *= factor; queue.current.px = px; queue.current.py = py; schedule() }
   const fromCentre = (x: number, y: number) => {
     const r = svgRef.current!.getBoundingClientRect()
     return [x - r.left - r.width / 2, y - r.top - r.height / 2] as Vec2
