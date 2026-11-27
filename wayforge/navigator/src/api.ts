@@ -1,7 +1,7 @@
 // The ONLY place the site gets data from.
 // Loads the published building from the backend (/api/published) and finds routes itself
 // (A*, same costs as the prototype's RoutePlanner.Find).
-import type { Building, EdgeKind, Route } from './types'
+import type { Building, Edge, EdgeKind, Node, Route } from './types'
 
 
 // Address of the Wayforge backend.
@@ -107,14 +107,23 @@ export async function getRoute(b: Building, start: string, end: string, stepFree
 const LIFT_WAIT = 40 // about 40 s waiting for a lift, as metres of walking
 const LIFT_FLOOR = 4 // riding one floor
 const STAIR_FLOOR = 15 // climbing one floor of stairs
-export function findRoute(b: Building, start: string, end: string, stepFree: boolean): Route | null {
-  const node = new Map(b.nodes.map(n => [n.id, n]))
-  const goal = node.get(end)
-  if (!node.has(start) || !goal) return null
-  const edges = [...b.edges, ...b.links]
-  // legs leaving each point, worked out once (a two-way edge is a leg from both ends). A walk edge that changes floor
-  // (a ramp or a stair drawn as a path) counts as stairs
-  const legs = new Map<string, { next: string; len: number; floors: number; kind: EdgeKind }[]>(b.nodes.map(n => [n.id, []]))
+// the paths leaving each point, built once per building (and once more for step-free). Building them took longer
+// than the search itself, and search results, nearby toilets and both route options each ask for routes
+type Leg = { next: string; len: number; floors: number; kind: EdgeKind }
+const graphs = new WeakMap<Building, { node: Map<string, Node>; edges: Edge[]; all: Map<string, Leg[]>; sf: Map<string, Leg[]> }>()
+function graphOf(b: Building) {
+  let g = graphs.get(b)
+  if (!g) {
+    const node = new Map(b.nodes.map(n => [n.id, n]))
+    const edges = [...b.edges, ...b.links]
+    g = { node, edges, all: buildLegs(node, edges, false), sf: buildLegs(node, edges, true) }
+    graphs.set(b, g)
+  }
+  return g
+}
+// a two-way edge is a leg from both ends. A walk edge that changes floor (a ramp or a stair drawn as a path) counts as stairs
+function buildLegs(node: Map<string, Node>, edges: Edge[], stepFree: boolean) {
+  const legs = new Map<string, Leg[]>([...node.keys()].map(id => [id, []]))
   const addLeg = (from: string, to: string, extraCost: number, kind: EdgeKind) => {
     const a = node.get(from), c = node.get(to)
     if (!a || !c) return
@@ -129,6 +138,13 @@ export function findRoute(b: Building, start: string, end: string, stepFree: boo
     addLeg(e.from, e.to, e.extraCost, e.kind)
     if (e.bidirectional) addLeg(e.to, e.from, e.extraCost, e.kind)
   }
+  return legs
+}
+export function findRoute(b: Building, start: string, end: string, stepFree: boolean): Route | null {
+  const { node, edges, all, sf } = graphOf(b)
+  const legs = stepFree ? sf : all
+  const goal = node.get(end)
+  if (!node.has(start) || !goal) return null
   // guess of what's left: flat distance + the cheapest way to change floors. Never more than the real cost, so the
   // route stays the cheapest one (a negative extraCost would break that, then it's plain Dijkstra with guess 0)
   const guess = edges.some(e => e.extraCost < 0) ? () => 0 : (id: string) => {

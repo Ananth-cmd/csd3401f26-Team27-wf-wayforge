@@ -64,6 +64,11 @@ import { toNavigatorBuilding, UnsupportedWfbError } from "./services/navigatorBu
 import { mkdtemp, writeFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
+import { createHash } from "crypto";
+
+// converting the campus .wfb takes ~3 s, so keep the last result per building and only redo it when the
+// published file changes (same text = same map)
+const converted = new Map<string, { hash: string; json: string }>();
 
 // Create the HTTP server and choose local defaults unless deployment values are provided.
 const app = express();
@@ -298,8 +303,12 @@ app.get("/api/navigator/:id/building", async (req, res) => {
         }
         // The adapter handles levels, walls, nodes, edges, rooms and inter-floor links.
         // It can reject unsupported .wfb structures instead of guessing the geometry.
-        const published: unknown = await response.json();
-        res.json(toNavigatorBuilding(published));
+        const publishedText = await response.text();
+        const published: unknown = JSON.parse(publishedText);
+        const hash = createHash("md5").update(publishedText).digest("hex");
+        let hit = converted.get(buildingId);
+        if (!hit || hit.hash !== hash) { hit = { hash, json: JSON.stringify(toNavigatorBuilding(published)) }; converted.set(buildingId, hit); }
+        res.type("application/json").send(hit.json);
     } catch (error) {
         // 501 means the published building uses a conversion not supported yet.
         if (error instanceof UnsupportedWfbError) {
