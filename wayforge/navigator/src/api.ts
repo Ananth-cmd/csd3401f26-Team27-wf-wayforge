@@ -1,6 +1,6 @@
 // The ONLY place the site gets data from.
 // Loads the published building from the backend (/api/published) and finds routes itself
-// (A*, same costs as the prototype's RoutePlanner.Find).
+// (A* in findRoute below: walking, lift waits and stairs weighed in metres of walking; step-free leaves out stairs).
 import type { Building, Edge, EdgeKind, Node, Route } from './types'
 
 
@@ -97,40 +97,48 @@ export async function getRoute(b: Building, start: string, end: string, stepFree
   return findRoute(b, start, end, stepFree)
 }*/
 
-// A* search over the published paths. Costs are in "metres of walking":
-// - walking: the straight-line metres of each path (+ its extraCost from the map)
+// ---------- route finding (A*) ----------
+// A* search over the published paths. Costs are in "metres of walking", so walking, lifts and stairs can be weighed
+// against each other:
+// - walking: the straight-line metres of each path, plus its extraCost from the map (the engine puts the cost of
+//   passing through a room or of walking off the walkways outside there)
 // - stairs: STAIR_FLOOR per floor climbed
 // - a lift: LIFT_WAIT once per ride (waiting for it to come) + LIFT_FLOOR per floor
 // So a trip of 1-3 floors takes the stairs and a longer climb takes the lift. Before, a stair and a lift cost the same
 // per floor with no wait, so every trip took whichever was a few metres closer (nearly always a lift), and the
 // "Shortest" and "Step-free" routes came out the same - there was never a stairs option to pick.
+// stepFree leaves out every stairs connection, so the route only uses lifts, however much longer that is; when there is
+// no such route the result is null and the app says so (it never falls back to stairs on its own).
 const LIFT_WAIT = 40 // about 40 s waiting for a lift, as metres of walking
 const LIFT_FLOOR = 4 // riding one floor
 const STAIR_FLOOR = 15 // climbing one floor of stairs
+const WALK_PER_MIN = 65 // walking speed, for the trip time
 // the paths leaving each point, built once per building (and once more for step-free). Building them took longer
 // than the search itself, and search results, nearby toilets and both route options each ask for routes
 type Leg = { next: string; len: number; floors: number; kind: EdgeKind }
-const graphs = new WeakMap<Building, { node: Map<string, Node>; edges: Edge[]; all: Map<string, Leg[]>; sf: Map<string, Leg[]> }>()
+const graphs = new WeakMap<Building, { node: Map<string, Node>; all: Map<string, Leg[]>; sf: Map<string, Leg[]> }>()
 function graphOf(b: Building) {
   let g = graphs.get(b)
   if (!g) {
     const node = new Map(b.nodes.map(n => [n.id, n]))
     const edges = [...b.edges, ...b.links]
-    g = { node, edges, all: buildLegs(node, edges, false), sf: buildLegs(node, edges, true) }
+    g = { node, all: buildLegs(node, edges, false), sf: buildLegs(node, edges, true) }
     graphs.set(b, g)
   }
   return g
 }
-// a two-way edge is a leg from both ends. A walk edge that changes floor (a ramp or a stair drawn as a path) counts as stairs
+// a two-way edge is a leg from both ends. A walk edge that changes floor (a ramp or a stair drawn as a path) counts as
+// stairs, so step-free never uses it
 function buildLegs(node: Map<string, Node>, edges: Edge[], stepFree: boolean) {
-  const legs = new Map<string, Leg[]>([...node.keys()].map(id => [id, []]))
+  const legs = new Map<string, Leg[]>(Array.from(node.keys(), id => [id, []]))
   const addLeg = (from: string, to: string, extraCost: number, kind: EdgeKind) => {
     const a = node.get(from), c = node.get(to)
     if (!a || !c) return
     const floors = Math.abs(a.level - c.level)
     const k: EdgeKind = floors && kind === 'walk' ? 'stairs' : kind
     if (stepFree && k === 'stairs') return
-    const len = Math.hypot(a.pos[0] - c.pos[0], a.pos[1] - c.pos[1]) + (k === 'walk' ? extraCost : 0)
+    // extraCost is never below 0 here, so the guess in findRoute stays below the real cost
+    const len = Math.hypot(a.pos[0] - c.pos[0], a.pos[1] - c.pos[1]) + (k === 'walk' ? Math.max(0, extraCost) : 0)
     legs.get(from)!.push({ next: to, len: Math.max(0.01, len), floors, kind: k })
   }
   for (const e of edges) {
@@ -141,17 +149,17 @@ function buildLegs(node: Map<string, Node>, edges: Edge[], stepFree: boolean) {
   return legs
 }
 export function findRoute(b: Building, start: string, end: string, stepFree: boolean): Route | null {
-  const { node, edges, all, sf } = graphOf(b)
+  const { node, all, sf } = graphOf(b)
   const legs = stepFree ? sf : all
   const goal = node.get(end)
   if (!node.has(start) || !goal) return null
   // guess of what's left: flat distance + the cheapest way to change floors. Never more than the real cost, so the
-  // route stays the cheapest one (a negative extraCost would break that, then it's plain Dijkstra with guess 0)
-  const guess = edges.some(e => e.extraCost < 0) ? () => 0 : (id: string) => {
+  // first time the destination comes off the heap is the cheapest route
+  const guess = (id: string) => {
     const n = node.get(id)!
     return Math.hypot(n.pos[0] - goal.pos[0], n.pos[1] - goal.pos[1]) + Math.abs(n.level - goal.level) * LIFT_FLOOR
   }
-  // a point is visited "on foot" or "in a lift": staying in the lift for more floors doesn't wait again
+  // a point is visited "on foot" or "in a lift" ("id|L"): staying in the lift for more floors doesn't wait again
   const key = (id: string, inLift: boolean) => (inLift ? `${id}|L` : id)
   const costs = new Map<string, number>([[start, 0]]), previous = new Map<string, string>(), modes = new Map<string, EdgeKind>()
   const done = new Set<string>(), open = new MinHeap()
@@ -175,7 +183,6 @@ export function findRoute(b: Building, start: string, end: string, stepFree: boo
     }
   }
   if (!endKey) return null
-  const metres = costs.get(endKey)!
   const nodes: string[] = [], passages: EdgeKind[] = []
   for (let cur = endKey; ;) {
     nodes.unshift(cur.split('|')[0])
@@ -183,7 +190,16 @@ export function findRoute(b: Building, start: string, end: string, stepFree: boo
     if (prev === undefined) break
     passages.unshift(modes.get(cur)!); cur = prev
   }
-  return { nodes, passages, metres, minutes: Math.max(1, Math.ceil(metres / 65)) }
+  // Walked metres and trip time from the route itself (the cost above includes waits and penalties, not distance).
+  let walk = 0, lifts = 0, liftFloors = 0, stairFloors = 0
+  for (let i = 0; i < passages.length; i++) {
+    const a = node.get(nodes[i])!, z = node.get(nodes[i + 1])!, f = Math.abs(a.level - z.level)
+    if (passages[i] === 'walk') walk += Math.hypot(a.pos[0] - z.pos[0], a.pos[1] - z.pos[1])
+    else if (passages[i] === 'lift') { liftFloors += f; if (passages[i - 1] !== 'lift') lifts++ }
+    else stairFloors += f
+  }
+  const minutes = Math.max(1, Math.ceil(walk / WALK_PER_MIN + lifts * 0.75 + liftFloors * 0.08 + stairFloors * 0.3))
+  return { nodes, passages, metres: walk, minutes, cost: costs.get(endKey)! }
 }
 
 // Binary heap of point ids, smallest score first.

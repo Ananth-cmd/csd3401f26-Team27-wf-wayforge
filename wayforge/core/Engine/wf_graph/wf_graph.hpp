@@ -60,6 +60,9 @@ struct GraphParams {
     float roadFactor         = 1.2f;  // walking along a road costs length x this (footpaths and cycle paths: x1)
     float walkwayReach       = 30.f;  // exit steps and block corners join walkways within this many metres
     float walkwayJoin        = 3.f;   // a walkway's end this close to another walkway joins it there
+    bool  linkCutOffBlocks   = false; // prepareNavigation: give a block with no way in one link through its walls (off:
+                                      // a route must never tell someone to walk through a wall; such a block shows as
+                                      // not joined until its doors are drawn)
     float cutOffReach        = 12.f;  // joinCutOffBlocks: longest link allowed for a block with no way in
 };
 
@@ -83,7 +86,7 @@ int linkFloors(Building& building, float maxOffset = 3.f);
 // links: total after linking. outdoorEdges / cutOffLinks: added by linkOutdoors / joinCutOffBlocks.
 struct NavStats { GraphStats graph; int exits = 0; int links = 0; int outdoorEdges = 0; int cutOffLinks = 0; };
 // buildGraph() with node ids from 100000, then on the lowest level markExitDoors() and
-// linkOutdoors(), then linkFloors(), then joinCutOffBlocks().
+// linkOutdoors(), then linkFloors(), then joinCutOffBlocks() if p.linkCutOffBlocks is on (off by default).
 NavStats prepareNavigation(Building& building, const GraphParams& p = {});
 
 // --- walking outside on the ground floor (Outdoor.cpp) ------------------------------------
@@ -99,7 +102,8 @@ int linkOutdoors(Building& building, Level& ground, IdGenerator& ids, const Grap
 // A block on the ground floor that still can't be reached from the rest of the building (no exit
 // door drawn, no bridge) gets one edge to the nearest door or corridor of another part, through the
 // fewest walls and at most cutOffReach long, costing missingDoorPenalty extra. Run after
-// linkFloors() so bridges count. Returns the number of edges added.
+// linkFloors() so bridges count. Returns the number of edges added. That edge goes through a wall,
+// so prepareNavigation only calls this when GraphParams::linkCutOffBlocks is on.
 int joinCutOffBlocks(Building& building, Level& ground, const GraphParams& p = {});
 
 // True if segment a-b crosses no wall of the level (openings let it through).

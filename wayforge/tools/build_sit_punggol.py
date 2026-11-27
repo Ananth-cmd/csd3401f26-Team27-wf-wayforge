@@ -13,7 +13,8 @@ then rotates and moves the block to its place on the campus, merges the blocks
 level by level, names the rooms (code, name, kind from site.json), adds the
 Level 5 link bridges and runs  wf_cli graph  on the result for the walking paths.
 Each bridge stops at the face of the blocks it joins, with a double door in the
-block wall there. The surroundings in surroundings.json (ground, water, roads,
+block wall there. Entrances listed in site.json that the plan reader missed get
+their door the same way (see add_entrances). The surroundings in surroundings.json (ground, water, roads,
 landmarks; written by tools/sit_surroundings.py) and the bridge colours are
 added to the file as "site".
 Output defaults to studio-web/public/samples/sit-punggol.wfb (compact JSON), the
@@ -21,8 +22,9 @@ Studio sample and the file to upload and publish for the live sites.
 
 site.json per block: metresPerPixel of its images; placement (angle in degrees,
 campus centre, shift of the block grid, sheet origin of the drawing); rooms
-(level, code, name, kind, rectangle in sheet metres). Campus coordinates are
-metres east / north of the latitude / longitude in site.json.
+(level, code, name, kind, rectangle in sheet metres). Optional "entrances": doorways the
+reader missed, each {block, level, at: [x, y] campus metres in the doorway, width (optional)}.
+Campus coordinates are metres east / north of the latitude / longitude in site.json.
 
 Exit codes:
     0  campus written
@@ -35,6 +37,8 @@ Contribution: Ananthan Elangovan 100%
   - Per-block build, placement on the campus grid and level merge
   - Room naming from the drawing data, link bridges with doorways, navigation rebuild
   - Surroundings and bridge colours added to the building file
+Joel Chua
+  - Entrances from site.json for doorways the plan reader missed
 
 AI declaration: Claude Opus was used as a support tool for debugging and build infrastructure.
 
@@ -354,6 +358,65 @@ def add_bridges(site, levels):
     return colours
 
 
+def add_entrances(site, levels):
+    """Entrances in site.json the plan reader missed (a doorway gap wider than its 1.9 m door limit, or a
+    door drawn in a wall it read as solid). Each entry: block, level, at (a campus point in the doorway),
+    and optionally width. When two walls of that block run in line with a gap around the point, a short
+    wall with a door as wide as the gap is put across it; when the point is on a solid wall, a door of
+    `width` (default 1.8 m) is cut into that wall there, replacing any windows in its way. Either way the
+    graph step sees an ordinary door, and one with a room on one side only becomes the block's exit."""
+    for n, e in enumerate(site.get('entrances', []), 1):
+        L, code, at = levels.get(e['level']), e['block'], e['at']
+        label = f"{code} L{e['level']} entrance {n}"
+        if L is None:
+            print(f'{label}: no level {e["level"]}'); continue
+        walls = [w for w in L['walls'] if w['id'].startswith(code + '_') and math.dist(w['a'], w['b']) >= 0.05]
+        # 1. a gap between two walls in line, around the point (the smallest one if several)
+        best = None
+        for i, A in enumerate(walls):
+            la = math.dist(A['a'], A['b'])
+            d = [(A['b'][0] - A['a'][0]) / la, (A['b'][1] - A['a'][1]) / la]
+            across = lambda p: abs((p[0] - A['a'][0]) * d[1] - (p[1] - A['a'][1]) * d[0])   # distance from A's line
+            along = lambda p: (p[0] - A['a'][0]) * d[0] + (p[1] - A['a'][1]) * d[1]           # position along A
+            if across(at) > 1.0: continue
+            for B in walls[i + 1:]:
+                lb = math.dist(B['a'], B['b'])
+                db = [(B['b'][0] - B['a'][0]) / lb, (B['b'][1] - B['a'][1]) / lb]
+                if abs(d[0] * db[1] - d[1] * db[0]) > math.sin(math.radians(5)): continue   # not parallel
+                if max(across(B['a']), across(B['b'])) > 0.3: continue                       # not in line
+                sb = sorted((along(B['a']), along(B['b'])))
+                if sb[0] >= la: lo, hi = la, sb[0]                                          # B after A
+                elif sb[1] <= 0: lo, hi = sb[1], 0.0                                        # B before A
+                else: continue                                                               # they overlap
+                if not 0.5 <= hi - lo <= 6.0 or not lo - 0.3 <= along(at) <= hi + 0.3: continue
+                if best is None or hi - lo < best[0]:
+                    th = (A.get('thickness', 0.2) + B.get('thickness', 0.2)) / 2
+                    best = (hi - lo, [A['a'][0] + d[0] * lo, A['a'][1] + d[1] * lo], [A['a'][0] + d[0] * hi, A['a'][1] + d[1] * hi], th)
+        if best is not None:
+            gap, a, b, th = best
+            wid = f'{code}_entrance{n}'
+            L['walls'].append(dict(id=wid, a=[round(v, 3) for v in a], b=[round(v, 3) for v in b], thickness=round(th, 3), confidence=1.0))
+            L['openings'].append(dict(id=f'{wid}_d', wall=wid, type='door', offset=0.0, width=round(gap, 3),
+                                      height=2.1, sill=0.0, confidence=1.0))
+            print(f'{label}: door across a {gap:.2f} m gap in the wall')
+            continue
+        # 2. no gap there: cut a door into the nearest wall the point is on
+        width = float(e.get('width', 1.8))
+        hit = min(((segment_distance(at, w['a'], w['b']), w) for w in walls if math.dist(w['a'], w['b']) >= width + 0.2),
+                  key=lambda x: x[0], default=(None, None))
+        if hit[1] is None or hit[0] > 0.6:
+            print(f'{label}: WARNING no wall gap or wall at {at}, nothing added'); continue
+        w = hit[1]
+        ln = math.dist(w['a'], w['b'])
+        s = ((at[0] - w['a'][0]) * (w['b'][0] - w['a'][0]) + (at[1] - w['a'][1]) * (w['b'][1] - w['a'][1])) / ln
+        offset = min(max(s - width / 2, 0.1), ln - width - 0.1)
+        L['openings'] = [o for o in L['openings'] if not (o['wall'] == w['id'] and o['type'] == 'window'
+                         and o['offset'] < offset + width + 0.2 and o['offset'] + o['width'] > offset - 0.2)]
+        L['openings'].append(dict(id=f'{code}_entrance{n}_d', wall=w['id'], type='door', offset=round(offset, 3),
+                                  width=round(width, 3), height=2.1, sill=0.0, confidence=1.0))
+        print(f'{label}: {width:.2f} m door cut into wall {w["id"]}')
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -381,6 +444,7 @@ def main():
         for lv, L in levels.items():
             L['elevation'] = (lv - 1) * site['floorHeight']
         bridge_colours = add_bridges(site, levels)
+        add_entrances(site, levels)
         doc = dict(version=1, source=dict(file='data/plans/sit-punggol', pixelsPerMetre=0.0, rectified=False),
                    building=dict(id='sit-punggol', name=site['name'], latitude=site['latitude'], longitude=site['longitude'],
                                  heading=0.0, unitsPerMetre=1.0),

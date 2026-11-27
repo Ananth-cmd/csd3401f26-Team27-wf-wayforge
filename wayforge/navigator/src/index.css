@@ -404,6 +404,9 @@ html, body { overflow-x: hidden; }
 .m-slab { fill: #f7f8f6; }
 .m-slab-side { fill: #aebdb6; }
 .m-room { stroke: none; }
+/* a block with no floor at the level shown: its roof outline, greyed, so it doesn't vanish when you zoom in */
+.m-other-block { fill: #dfe4e1; fill-opacity: 0.85; stroke: #9fb0aa; stroke-dasharray: 2 1.5; stroke-linejoin: round; }
+.m-label.other { fill: #6b7c77; font-weight: 700; paint-order: stroke; stroke: rgba(255,255,255,0.85); stroke-width: 0.25; }
 .r-room { fill: #ffffff; }
 .r-corr { fill: #eef0ee; }
 .r-lobby { fill: #f2efe6; }

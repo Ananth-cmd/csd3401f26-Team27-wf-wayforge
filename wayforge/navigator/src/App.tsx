@@ -316,11 +316,11 @@ export default function App() {
     if (!b || !start) return m
     for (const q of results.slice(0, WALK_ROWS)) {
       if (q.node === start.node) { m.set(q.id, { metres: 0, minutes: 0 }); continue }
-      const r = findRoute(b, start.node, q.node, false)
+      const r = findRoute(b, start.node, q.node, choice === 'stepfree') // step-free chosen: distances without stairs
       m.set(q.id, r ? { metres: r.metres, minutes: r.minutes } : null)
     }
     return m
-  }, [b, start, results])
+  }, [b, start, results, choice])
 
   if (err || !b || !P) return (
     <div className="sx sx-loading" role="status">
@@ -341,6 +341,14 @@ export default function App() {
   const recent = (() => { try { return (JSON.parse(pref.get(recentKey) ?? '[]') as string[]).map(id => P.visible.find(p => p.id === id)).filter((p): p is Place => !!p) } catch { return [] } })()
   const addRecent = (p: Place) => pref.set(recentKey, JSON.stringify([p.id, ...recent.map(x => x.id).filter(id => id !== p.id)].slice(0, 3)))
   const levelsIn = (bl: string) => b.levels.map((_, i) => i).filter(i => !bl || P.visible.some(p => p.block === bl && p.level === i))
+  // A building tapped in the campus view: same as picking it in the block list - if it has no floor at the level
+  // being looked at (a 4-storey block seen from Level 6), show its lowest floor, or the map shows nothing there.
+  const tapBlock = (bl: string) => {
+    if (!P.blocks.includes(bl)) return
+    setBlock(bl)
+    const ls = levelsIn(bl)
+    if (ls.length && !ls.includes(floor)) setFloor(ls[0])
+  }
   const placesAt = (bl: string, f: number) => P.visible.filter(p => p.level === f && (!bl || p.block === bl))
   // Handover 2: a level row describes itself only with facilities that actually tell levels apart in this building's
   // data - a canteen or a library on this level and no other. Anything short of that shows the level number alone,
@@ -495,10 +503,11 @@ export default function App() {
     const guess = (id: string) => { const n = node(id); return Math.abs(n.level - here.level) * 1000 + Math.hypot(n.pos[0] - here.pos[0], n.pos[1] - here.pos[1]) }
     const out: Near[] = []
     for (const c of cands.filter(c => P.comp.get(c.node) === P.comp.get(from.node)).sort((x, y) => guess(x.node) - guess(y.node)).slice(0, 12)) {
-      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1 } : findRoute(b, from.node, c.node, false)
+      // step-free chosen: the nearest one reachable without stairs
+      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1, cost: 0 } : findRoute(b, from.node, c.node, choice === 'stepfree')
       if (r) out.push({ kind, node: c.node, title: c.title, level: node(c.node).level, metres: r.metres, route: r, place: c.place })
     }
-    return out.sort((x, y) => x.metres - y.metres)
+    return out.sort((x, y) => x.route.cost - y.route.cost) // cheapest trip first (a lift ride counts), not just fewest metres
   }
   // every toilet / stairs / lift on the map (node ids), for the highlight
   const nodesOfKind = (kind: Kind): string[] => kind === 'toilet' ? P.visible.filter(p => p.kind === 'toilet').map(p => p.node) : b.nodes.filter(n => n.kind === kind).map(n => n.id)
@@ -877,7 +886,8 @@ export default function App() {
       </div>
   const mapLayer = show3d
     ? <div className="sx-r3d" style={desktop ? { left: padL } : { top: cover.t, bottom: cover.b }}>{threeD}</div>
-    : <MapView {...map} pad={pad} names={P.names} topDown={map.topDown ?? flat} onTopDown={setFlat} onPick={['explore', 'where', 'find'].includes(screen) ? pickOnMap : undefined} />
+    : <MapView {...map} pad={pad} names={P.names} topDown={map.topDown ?? flat} onTopDown={setFlat} onPick={['explore', 'where', 'find'].includes(screen) ? pickOnMap : undefined}
+        onBlock={['explore', 'where', 'find'].includes(screen) ? tapBlock : undefined} />
   const fixedFloor = guiding || screen === 'routes' || screen === 'arrived' || screen === 'nearby' || screen === 'nearroute'
   const side = (
     <div className="sx-side" style={desktop ? undefined : { top: cover.t + 12 }}>
