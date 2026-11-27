@@ -17,10 +17,12 @@
  * off the walkways costs offPathFactor times more, so routes follow them and
  * only cut across where no walkway goes.
  *
- * joinCutOffBlocks() runs after the floors are linked. A block on the ground
+ * joinCutOffBlocks() can run after the floors are linked. A block on the ground
  * floor that still can't be reached from the rest of the building (no exit
  * door drawn yet, no bridge) gets one edge to the nearest door or corridor of
- * the main part, through the fewest walls, so every block stays routable.
+ * the main part, through the fewest walls. That edge goes through a wall, so
+ * prepareNavigation() only calls it when GraphParams::linkCutOffBlocks is on
+ * (off by default): such a block shows as not joined until its doors are drawn.
  *
  * Links: prepareNavigation() in Link.cpp calls both. The edges and waypoint
  * nodes added here are searched by Route.cpp like any other.

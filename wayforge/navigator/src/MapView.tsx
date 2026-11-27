@@ -124,6 +124,7 @@ export type MapProps = {
   pad?: { l?: number; t?: number; b?: number } // px of the map hidden under floating panels: what you look at is centred in the rest
   names?: Map<string, string> // node id -> name to show (only these get room labels; corridors etc. stay unlabelled)
   onPick?: (node: string) => void // tap on a named point
+  onBlock?: (block: string) => void // tap on a building in the campus view (e.g. "E3"), so the app can show a floor it has
   vertical?: Vertical[] // lifts / stairs the route uses (marked on their floor; active = the one you're heading for)
   highlight?: { kind: 'toilet' | 'stairs' | 'lift'; nodes: string[] } // Toilets / Stairs / Lifts button pressed: these places are lit up on the map at any zoom
 }
@@ -134,7 +135,7 @@ const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
 const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
-function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, pad, vertical = [], highlight }: MapProps) {
+function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, onBlock, pad, vertical = [], highlight }: MapProps) {
   const pickRef = useRef(onPick)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
@@ -331,6 +332,18 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     }
     return { top: f.map(p => [p[0], 0, p[1]] as V3), sides }
   }), [lvl, centre, yaw, topDown]) // eslint-disable-line
+
+  // Blocks with no floor at the level being looked at (E4 has 1 storey, E3 has 4): the floor plan only draws this level,
+  // so without this they vanished as soon as you zoomed in from the 3D campus. They are drawn as a grey outline of
+  // their roof on the ground, under this level's floors, and labelled with the floors they do have.
+  const shorter = useMemo(() => {
+    if (massMode || !mass) return []
+    return mass.filter(m => !/^BR/i.test(m.name) && m.levels.length && !m.levels.some(L => L.level === floor)).map(m => {
+      const top = m.levels[m.levels.length - 1], first = m.levels[0].level + 1, last = top.level + 1
+      const d = top.rings.map(r => `M${r.map(p => pt([p[0], 0, p[1]])).join('L')}Z`).join('')
+      return { name: m.name, d, centre: m.centre, note: first === last ? `Level ${first} only` : `Levels ${first}–${last}` }
+    })
+  }, [mass, massMode, floor, yaw, topDown]) // eslint-disable-line
 
   // walls as boxes, far to near. In 3D long walls are cut into short pieces first: sorting whole walls by their
   // middle drew long walls over the short walls they cross (angled blocks looked like floors stacked on each other).
@@ -644,6 +657,8 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       marks.push({ x: sx, y: sy, icon: LANDMARK_ICON[m.kind] ?? 'wf-i-park', kind: m.kind })
       tryAdd(sx, sy + 22 * k, m.name, 'm-label lm', 10.5)
     }
+    // blocks without this floor: their name and the floors they have, so it's clear why there's no floor plan there
+    for (const s of shorter) { const [sx, sy] = proj([s.centre[0], 0, s.centre[1]]); tryAdd(sx, sy, `${s.name} · ${s.note}`, 'm-label other', 12) }
     if (pxPerM >= ROOM_LABELS_FROM) {
       const named = floorNodes.filter(n => nameOf(n.id) && !entrances.includes(n))
       // nearest to the middle of the view first, so the labels you're looking at win
@@ -720,7 +735,13 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
         const reach = Math.max(m.box[1] - m.box[0], m.box[3] - m.box[2]) / 2 / k + 20
         if (d < reach * reach && d < hd) { hd = d; hit = m }
       }
-      if (hit) { const span = Math.max(hit.box[1] - hit.box[0], hit.box[3] - hit.box[2]) * 1.25; setCam(c => ({ ...c, t: [hit!.centre[0], 0, hit!.centre[1]], zoom: Math.min(MASS_ZOOM * 0.8, zoomFit, Math.max(0.02, span / aspect / baseVh)) })) }
+      if (hit) {
+        const span = Math.max(hit.box[1] - hit.box[0], hit.box[3] - hit.box[2]) * 1.25
+        setCam(c => ({ ...c, t: [hit!.centre[0], 0, hit!.centre[1]], zoom: Math.min(MASS_ZOOM * 0.8, zoomFit, Math.max(0.02, span / aspect / baseVh)) }))
+        // the floor plan only shows the floor being looked at: tell the app which block, so it can switch to a floor
+        // that block has (a 4-storey block looked at on Level 6 would otherwise show nothing at all)
+        onBlock?.(hit.name)
+      }
       return
     }
     if (!pickRef.current) return
@@ -781,6 +802,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
           <symbol id="wf-i-park" viewBox="0 0 24 24"><g fill="none" stroke="#fff" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round"><path d="M12 21v-6.5M12 14.5c-3.6 0-5.5-2.4-5.5-5.4S8.6 3 12 3s5.5 3.1 5.5 6.1-1.9 5.4-5.5 5.4z" /></g></symbol>
         </defs>
         {!(massMode && campus3d === 'ready') && ground}
+        {shorter.map(s => <path key={`sb-${s.name}`} className="m-other-block" d={s.d} fillRule="evenodd" strokeWidth={1.2 * k} />)}
         {under}
         {!massMode && roomShapes}
         {!massMode && sills}

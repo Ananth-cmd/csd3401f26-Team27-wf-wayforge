@@ -130,7 +130,7 @@ function graphOf(b: Building) {
 // a two-way edge is a leg from both ends. A walk edge that changes floor (a ramp or a stair drawn as a path) counts as
 // stairs, so step-free never uses it
 function buildLegs(node: Map<string, Node>, edges: Edge[], stepFree: boolean) {
-  const legs = new Map<string, Leg[]>([...node.keys()].map(id => [id, []]))
+  const legs = new Map<string, Leg[]>(Array.from(node.keys(), id => [id, []]))
   const addLeg = (from: string, to: string, extraCost: number, kind: EdgeKind) => {
     const a = node.get(from), c = node.get(to)
     if (!a || !c) return

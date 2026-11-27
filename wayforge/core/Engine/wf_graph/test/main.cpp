@@ -9,8 +9,8 @@
  * routing and egress to an exit. Last, two separate blocks on one level: the
  * fallback edges must not join them through their walls; with outer doors a
  * route goes outside between them through no wall, and follows a footpath when
- * the site has one; with no outer doors one last-resort link still makes the
- * second block reachable.
+ * the site has one; with no outer doors there is no route between them unless
+ * the last-resort link (through a wall) is switched on.
  *
  * Prints each failed CHECK with its file and line and returns 1, so CTest
  * (and the CI desktop job) fails if anything breaks.
@@ -250,14 +250,27 @@ int main() {
         }
     }
 
-    // --- the same blocks with no outer doors: joinCutOffBlocks gives the second one link, so every
-    //     block can still be reached.
+    // --- the same blocks with no outer doors. By default there is no way between them (no link through
+    //     a wall), but each block still routes inside. With linkCutOffBlocks on, joinCutOffBlocks gives
+    //     the second block one link and the route exists.
     {
         IdGenerator ids4;
         Building campus;
         campus.levels.push_back(makeTwoBlocks(ids4, false));
         const NavStats nav = prepareNavigation(campus);
         CHECK(nav.exits == 0);
+        CHECK(nav.cutOffLinks == 0);
+        auto [w, e] = westAndEast(campus);
+        CHECK(w && e);
+        if (w && e) CHECK(!findRoute(campus, *w, *e).ok());       // never through the walls
+    }
+    {
+        IdGenerator ids6;
+        Building campus;
+        campus.levels.push_back(makeTwoBlocks(ids6, false));
+        GraphParams withLinks;
+        withLinks.linkCutOffBlocks = true;
+        const NavStats nav = prepareNavigation(campus, withLinks);
         CHECK(nav.cutOffLinks == 1);
         auto [w, e] = westAndEast(campus);
         CHECK(w && e);

@@ -341,6 +341,14 @@ export default function App() {
   const recent = (() => { try { return (JSON.parse(pref.get(recentKey) ?? '[]') as string[]).map(id => P.visible.find(p => p.id === id)).filter((p): p is Place => !!p) } catch { return [] } })()
   const addRecent = (p: Place) => pref.set(recentKey, JSON.stringify([p.id, ...recent.map(x => x.id).filter(id => id !== p.id)].slice(0, 3)))
   const levelsIn = (bl: string) => b.levels.map((_, i) => i).filter(i => !bl || P.visible.some(p => p.block === bl && p.level === i))
+  // A building tapped in the campus view: same as picking it in the block list - if it has no floor at the level
+  // being looked at (a 4-storey block seen from Level 6), show its lowest floor, or the map shows nothing there.
+  const tapBlock = (bl: string) => {
+    if (!P.blocks.includes(bl)) return
+    setBlock(bl)
+    const ls = levelsIn(bl)
+    if (ls.length && !ls.includes(floor)) setFloor(ls[0])
+  }
   const placesAt = (bl: string, f: number) => P.visible.filter(p => p.level === f && (!bl || p.block === bl))
   // Handover 2: a level row describes itself only with facilities that actually tell levels apart in this building's
   // data - a canteen or a library on this level and no other. Anything short of that shows the level number alone,
@@ -878,7 +886,8 @@ export default function App() {
       </div>
   const mapLayer = show3d
     ? <div className="sx-r3d" style={desktop ? { left: padL } : { top: cover.t, bottom: cover.b }}>{threeD}</div>
-    : <MapView {...map} pad={pad} names={P.names} topDown={map.topDown ?? flat} onTopDown={setFlat} onPick={['explore', 'where', 'find'].includes(screen) ? pickOnMap : undefined} />
+    : <MapView {...map} pad={pad} names={P.names} topDown={map.topDown ?? flat} onTopDown={setFlat} onPick={['explore', 'where', 'find'].includes(screen) ? pickOnMap : undefined}
+        onBlock={['explore', 'where', 'find'].includes(screen) ? tapBlock : undefined} />
   const fixedFloor = guiding || screen === 'routes' || screen === 'arrived' || screen === 'nearby' || screen === 'nearroute'
   const side = (
     <div className="sx-side" style={desktop ? undefined : { top: cover.t + 12 }}>

@@ -6,7 +6,8 @@
  * into an Exit node; prepareNavigation() runs it on the ground floor only. linkFloors() links each stair / lift room to the room of
  * the same kind within maxOffset on the next floor up; lift links are
  * step-free. prepareNavigation() runs buildGraph() and both of the above, plus
- * linkOutdoors() and joinCutOffBlocks() from Outdoor.cpp on the ground floor.
+ * linkOutdoors() from Outdoor.cpp on the ground floor (and joinCutOffBlocks()
+ * only when GraphParams::linkCutOffBlocks is on).
  *
  * Links: called by wf_cli (build / graph / route) and wf_api::wf_build_graph.
  * Route.cpp follows the links when a route changes floor.
@@ -129,8 +130,9 @@ NavStats prepareNavigation(Building& b, const GraphParams& p) {
     s.outdoorEdges = linkOutdoors(b, *ground, ids, p);
     linkFloors(b);
     s.links = static_cast<int>(b.links.size());
-    // Blocks still unreachable after the outdoor edges and the stairs / lifts / bridges get one link.
-    s.cutOffLinks = joinCutOffBlocks(b, *ground, p);
+    // Blocks still unreachable after the outdoor edges and the stairs / lifts / bridges stay that way
+    // unless linkCutOffBlocks asks for one link each (that link goes through a wall, so it is off).
+    if (p.linkCutOffBlocks) s.cutOffLinks = joinCutOffBlocks(b, *ground, p);
     return s;
 }
 
