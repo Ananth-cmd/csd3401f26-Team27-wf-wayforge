@@ -410,6 +410,14 @@ export default function App() {
       return { icon: up ? <Up /> : <Down />, title: l.kind === 'lift' ? `Take lift to ${L(l.to)}` : `Go ${up ? 'up' : 'down'} to ${L(l.to)}`, sub: `${vname(l.nodes[0])} · check the floor sign before continuing` }
     }
     const m = Math.round(l.metres)
+    // a walk with turns leads with the first turn, not just where it ends: "Canteen ahead · 531 m" on its own gave
+    // nothing to follow for half a kilometre. The rest of the turns are one tap away (the banner opens the list)
+    const turns = stepsOf(l).filter(s => s.turn === 'left' || s.turn === 'right')
+    if (turns.length) {
+      const t = turns[0], end = l.final || !n ? dest?.title ?? legEnd(l) : vname(n.nodes[0])
+      const more = turns.length - 1
+      return { icon: t.turn === 'left' ? <TurnL /> : <TurnR />, title: t.text, sub: `in ${t.metres} m · ${more ? `${more} more turn${more === 1 ? '' : 's'} to ` : 'then on to '}${end} (${m} m)` }
+    }
     if (l.final || !n) {
       const last = stepsOf(l).filter(s => s.turn === 'left' || s.turn === 'right').pop()
       return { icon: last?.turn === 'left' ? <TurnL /> : last?.turn === 'right' ? <TurnR /> : <Up />, title: `${dest?.title ?? legEnd(l)} ahead`, sub: `${m} m${dest?.code ? ` · look for ${dest.code}` : ''}` }
@@ -755,7 +763,7 @@ export default function App() {
         {turnsOpen && <ul className="sx-turns">{turns.map((s, j) => <li key={j}>{stepIcon(s)}<span>{turnText(s)}</span></li>)}</ul>}
       </section>
       sheet = <div className="sx-card">
-        <div className="sx-head"><div><h2>{final && legs.length > 1 ? 'Almost there' : dest.title}</h2><p>Step {li + 1} of {legs.length} · {!routes?.same && choice === 'stepfree' ? 'Step-free' : 'Shortest route'}</p></div><button className="sx-btn grey sm" onClick={pauseTrip}>Pause</button></div>
+        <div className="sx-head"><div><h2>{final && legs.length > 1 ? 'Almost there' : dest.title}</h2><p>Step {li + 1} of {legs.length} · {!routes?.same && choice === 'stepfree' ? 'Step-free' : 'Shortest route'}</p></div><button className="sx-btn grey sm" onClick={pauseTrip}>Pause trip</button></div>
         <button className="sx-btn red" onClick={nextLeg}>{confirmLabel(li)}</button>
         <button className="sx-link" onClick={() => setAsking(true)}>End trip</button>
       </div>

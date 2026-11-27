@@ -648,7 +648,7 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       {caption && <div className="r3d-cap" aria-live="polite">{caption}</div>}
       <div className="r3d-bar" role="group" aria-label="3D view">
         {playing
-          ? <button className="r3d-play" onClick={() => api.current?.pause(!paused)} aria-pressed={!paused} aria-label={paused ? 'Resume walk-through' : 'Pause walk-through'}>{paused ? '▶ Resume' : '❚❚ Pause'}</button>
+          ? <button className="r3d-play" onClick={() => api.current?.pause(!paused)} aria-pressed={!paused} aria-label={paused ? 'Resume walk-through' : 'Pause walk-through'}>{paused ? '▶ Play' : '❚❚ Stop'}</button>
           : <button className="r3d-play" onClick={() => api.current?.play()}>{stage === undefined ? '▶ Walk me through' : '▶ Replay'}</button>}
         {playing && paused && <button className="r3d-restart" onClick={() => api.current?.play()} aria-label="Start the walk-through again">↺ Restart</button>}
         <div className="r3d-seg">
