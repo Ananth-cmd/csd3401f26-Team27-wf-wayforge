@@ -200,9 +200,18 @@ function floorMesh(b: Building, li: number): FloorMesh {
   // exterior walls take the finish of their block (facades.ts); colours are shared between walls of the same finish
   const finish = wallFacades(b, li), tone = new Map<string, THREE.Color>()
   const colour = (hex: string | undefined, fallback: THREE.Color) => { if (!hex) return fallback; let c = tone.get(hex); if (!c) { c = new THREE.Color(hex); tone.set(hex, c) } return c }
+  // The cap of an exterior wall reads as a hard outline around the whole building. At full facade saturation that
+  // outline competes with the route for attention, so it is mixed most of the way back to the interior cap colour.
+  const capTone = new Map<string, THREE.Color>()
+  const cap = (hex: string | undefined) => {
+    if (!hex) return topOut.clone().lerp(top, 0.5)
+    let c = capTone.get(hex)
+    if (!c) { c = new THREE.Color(hex).lerp(top, 0.62); capTone.set(hex, c) }
+    return c
+  }
   for (const [i, w] of lvl.walls.entries()) {
     const f = w.exterior ? finish[i] : undefined
-    W.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, WALL_H, w.exterior ? colour(f?.[0], sideOut) : side, w.exterior ? colour(f?.[1], topOut) : top)
+    W.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, WALL_H, w.exterior ? colour(f?.[0], sideOut) : side, w.exterior ? cap(f?.[1]) : top)
   }
   // Windows: a glass pane from sill to head, 0.03 m proud of both wall faces.
   const pane = new THREE.Color(0xffffff)
@@ -486,7 +495,7 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       ball.position.y = 0.6
       const ring = new THREE.Mesh(geo(new THREE.RingGeometry(0.5, 0.75, 32)), mat(new THREE.MeshBasicMaterial({ color: 0x2563eb, transparent: true, opacity: 0.35, side: THREE.DoubleSide })))
       ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05
-      const t = label(whole ? `You · ${start.title}` : 'You', '#2563eb', '#ffffff'); t.position.y = 1.2; keep.push(t)
+      const t = label(whole ? `You · ${start.title}` : 'You', '#2563eb', '#ffffff'); t.position.y = 1.2; t.userData.pri = 0; keep.push(t)
       you.add(ball, ring, t); you.position.copy(P(start.node)); scene.add(you); scaled.push(you)
     }
     const endNode = whole ? dest?.node : legs[stage!].nodes[legs[stage!].nodes.length - 1]
@@ -498,7 +507,7 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       const head = new THREE.Mesh(geo(new THREE.SphereGeometry(r, 24, 16)), pm); head.position.y = r * 3.2
       const stem = new THREE.Mesh(geo(new THREE.ConeGeometry(r * 0.8, r * 2.6, 16)), pm); stem.rotation.x = Math.PI; stem.position.y = r * 1.4
       pin.add(head, stem)
-      if (endName) { const t = label(endName, '#ffffff', '#0b5f53'); t.position.y = r * 4.6; keep.push(t); pin.add(t) }
+      if (endName) { const t = label(endName, '#ffffff', '#0b5f53'); t.position.y = r * 4.6; t.userData.pri = 1; keep.push(t); pin.add(t) }
       pin.position.copy(P(endNode)); scene.add(pin); ends.push(head); scaled.push(pin)
     }
     // lifts / stairs on the way: a lift / stairs sign (always on top, so nothing pokes through walls) saying where it
@@ -518,16 +527,23 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
           const ring = new THREE.Mesh(geo(new THREE.RingGeometry(0.9, 1.25, 40)), mat(new THREE.MeshBasicMaterial({ color: l.kind === 'lift' ? 0x3c6fb0 : 0xe0902e, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false })))
           ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; g.add(ring); rings.push(ring)
         }
-        if (side < 0) labelled.add(id)
+        labelled.add(id) // both ends: the badge names it, so no second white label next to the icon
         const t = badge(l.kind, side < 0 ? `${names.get(id) ?? (l.kind === 'lift' ? 'Lift' : 'Stairs')} · ${up ? '↑' : '↓'} ${building.levels[l.to]?.name ?? ''}` : '')
-        t.position.y = side < 0 ? 3.0 : 2.2; keep.push(t); g.add(t)
+        // anchored to the left of the point rather than centred on it, so the chip sits beside the route line
+        // instead of lying across it
+        if (side < 0) t.center.set(0, 0)
+        t.position.y = side < 0 ? 3.4 : 2.2
+        t.userData.pri = side < 0 && live ? 2 : 4
+        keep.push(t); g.add(t)
         scene.add(g); scaled.push(g)
       }
     }
     // room names near the route (only on solid floors, at most 40); the whole-route view only names the lifts / stairs used
     const roomLabels: THREE.Sprite[] = []
     const changes = new Set(legs.filter(l => l.kind !== 'walk').flatMap(l => [l.nodes[0], l.nodes[l.nodes.length - 1]]))
-    if (whole) for (const id of changes) { const title = names.get(id); if (title && node.has(id) && !labelled.has(id)) { const t = label(title, 'rgba(255,255,255,0.92)', '#3b4f4a', false, 34); t.position.copy(P(id, WALL_H + 0.3)); scene.add(t) } }
+    // these were added to the scene but never registered with the declutter pass, so they drew straight over the
+    // lift and stair badges
+    if (whole) for (const id of changes) { const title = names.get(id); if (title && node.has(id) && !labelled.has(id)) { const t = label(title, 'rgba(255,255,255,0.92)', '#3b4f4a', false, 34); t.position.copy(P(id, WALL_H + 0.3)); scene.add(t); roomLabels.push(t) } }
     if (!whole) {
       let n = 0
       const seen = new Set<string>()
@@ -604,11 +620,12 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     const resize = () => { const w = el.clientWidth || 300, h = el.clientHeight || 200; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix() }
     const ro = new ResizeObserver(resize); ro.observe(el); resize()
 
-    // Label declutter in screen space. Route signs (you, destination, level, lift and stair signs) are always drawn.
-    // A room or landmark name is hidden while its rectangle overlaps a route sign or a name placed before it;
-    // room names are placed before landmark names.
+    // Label declutter in screen space. Everything competes for room, in priority order: you, then the destination,
+    // then the lift or stairs you are heading for, then the rest of the signs, then room names, then landmarks.
+    // Signs used to be exempt and always drawn, which is why two of them could sit on top of each other.
     const signs: THREE.Sprite[] = []
     scene.traverse(o => { if (o instanceof THREE.Sprite && o.renderOrder >= 10) signs.push(o) })
+    signs.sort((a, b) => ((a.userData.pri as number) ?? 3) - ((b.userData.pri as number) ?? 3))
     const at3 = new THREE.Vector3(), size3 = new THREE.Vector3()
     // rectangle of a fixed-size sprite in normalised device coordinates [x0, y0, x1, y1]; null when outside the depth range
     const rectOf = (sp: THREE.Sprite): number[] | null => {
@@ -621,11 +638,15 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     }
     const declutter = () => {
       const used: number[][] = []
-      for (const sp of signs) { if (!sp.visible || sp.parent?.visible === false) continue; const r = rectOf(sp); if (r) used.push(r) }
-      const place = (sp: THREE.Sprite) => {
+      const place = (sp: THREE.Sprite, always = false) => {
         const r = rectOf(sp)
+        if (always) { sp.visible = !!r; if (r) used.push(r); return }
         sp.visible = !!r && !used.some(q => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])
         if (sp.visible) used.push(r!)
+      }
+      for (const sp of signs) {
+        if (sp.parent?.visible === false) continue
+        place(sp, ((sp.userData.pri as number) ?? 3) === 0) // you are never hidden
       }
       for (const sp of roomLabels) if (sp.visible) place(sp) // room names already hidden by distance stay hidden
       for (const sp of landmarkLabels) place(sp)
