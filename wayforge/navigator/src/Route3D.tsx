@@ -207,9 +207,9 @@ function floorMesh(b: Building, li: number): FloorMesh {
   // Windows: a glass pane from sill to head, 0.03 m proud of both wall faces.
   const pane = new THREE.Color(0xffffff)
   for (const wn of lvl.windows ?? []) G.add(wn.a[0], -wn.a[1], wn.b[0], -wn.b[1], Math.max(0.12, wn.thickness) / 2 + 0.03, wn.sill, Math.min(WALL_H - 0.12, wn.sill + wn.height), pane, pane)
-  // Doors: the wall continues above DOOR_H, a frame post stands at each end of the span, and each leaf is opened by
-  // 72 degrees. A span wider than 1.5 m gets two leaves.
-  const frame = new THREE.Color(0x6b4a2b), leaf = new THREE.Color(0xb07a45), open = (72 * Math.PI) / 180
+  // Doors: the wall continues above DOOR_H and a frame post stands at each end of the span. The leaves are not
+  // here - they depend on the route, so they are built separately (doorLeaves) and this mesh stays cached.
+  const frame = new THREE.Color(0x6b4a2b)
   for (const d of lvl.doors ?? []) {
     const ax = d.a[0], az = -d.a[1], bx = d.b[0], bz = -d.b[1], dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz)
     if (len < 0.5) continue
@@ -217,15 +217,36 @@ function floorMesh(b: Building, li: number): FloorMesh {
     W.add(ax, az, bx, bz, 0.09, DOOR_H, WALL_H, side, top)
     D.add(ax - ux * 0.04, az - uz * 0.04, ax + ux * 0.05, az + uz * 0.05, 0.13, 0, DOOR_H, frame, frame)
     D.add(bx - ux * 0.05, bz - uz * 0.05, bx + ux * 0.04, bz + uz * 0.04, 0.13, 0, DOOR_H, frame, frame)
-    const leaves: [number, number, number, number][] = len > 1.5 ? [[ax, az, 1, len / 2], [bx, bz, -1, len / 2]] : [[ax, az, 1, len]]
-    for (const [hx, hz, dir, w] of leaves) {
-      const lx = ux * dir * Math.cos(open) - uz * Math.sin(open), lz = uz * dir * Math.cos(open) + ux * Math.sin(open)
-      D.add(hx, hz, hx + lx * (w - 0.04), hz + lz * (w - 0.04), 0.025, 0, DOOR_H - 0.05, leaf, leaf)
-    }
   }
   const out = { floor, walls: W.geometry(), glass: G.geometry(), doors: D.geometry() }
   m.set(li, out)
   return out
+}
+
+// The door leaves for one floor. A leaf swings open only where the route actually crosses its doorway; every
+// other door on the floor stays shut, so an open door means "this one is on your way" rather than "this is a
+// door". Walking down a corridor leaves the doors along it closed, because the line runs parallel to their spans.
+// Cheap to rebuild, so it is not cached with the floor.
+function doorLeaves(b: Building, li: number, segs: [Vec2, Vec2][]): THREE.BufferGeometry {
+  const lvl = b.levels[li]
+  const D = boxes(), leaf = new THREE.Color(0xb07a45), swing = (72 * Math.PI) / 180
+  const side = (a: Vec2, c: Vec2, q: Vec2) => (c[0] - a[0]) * (q[1] - a[1]) - (c[1] - a[1]) * (q[0] - a[0])
+  const crosses = (a: Vec2, c: Vec2, q: Vec2, r: Vec2) => side(a, c, q) * side(a, c, r) < 0 && side(q, r, a) * side(q, r, c) < 0
+  for (const d of lvl.doors ?? []) {
+    const dx = d.b[0] - d.a[0], dy = d.b[1] - d.a[1], len = Math.hypot(dx, dy)
+    if (len < 0.5) continue
+    // the span reaches a little past each jamb, so a line that stops on the threshold still counts as through
+    const ex = (dx / len) * 0.15, ey = (dy / len) * 0.15
+    const spanA: Vec2 = [d.a[0] - ex, d.a[1] - ey], spanB: Vec2 = [d.b[0] + ex, d.b[1] + ey]
+    const ang = segs.some(([q, r]) => crosses(spanA, spanB, q, r)) ? swing : 0
+    const ax = d.a[0], az = -d.a[1], bx = d.b[0], bz = -d.b[1], ux = (bx - ax) / len, uz = (bz - az) / len
+    const leaves: [number, number, number, number][] = len > 1.5 ? [[ax, az, 1, len / 2], [bx, bz, -1, len / 2]] : [[ax, az, 1, len]]
+    for (const [hx, hz, dir, w] of leaves) {
+      const lx = ux * dir * Math.cos(ang) - uz * Math.sin(ang), lz = uz * dir * Math.cos(ang) + ux * Math.sin(ang)
+      D.add(hx, hz, hx + lx * (w - 0.04), hz + lz * (w - 0.04), 0.025, 0, DOOR_H - 0.05, leaf, leaf)
+    }
+  }
+  return D.geometry()
 }
 
 // a text label that stays the same size on screen
@@ -317,6 +338,15 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     const ghostWall = mat(new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.12, depthWrite: false }))
     const glassMat = mat(new THREE.MeshLambertMaterial({ color: 0x9fd4ee, emissive: 0x4a90b8, emissiveIntensity: 0.35, transparent: true, opacity: 0.82 }))
     const doorMat = mat(new THREE.MeshLambertMaterial({ vertexColors: true }))
+    // the walked line on each floor, as segments, so each door can ask whether the route goes through it
+    const walkSegs = new Map<number, [Vec2, Vec2][]>()
+    for (const l of use) {
+      if (l.kind !== 'walk' || l.nodes.length < 2) continue
+      const ps = drawnRoute(building, l.level, l.nodes.map(id => node.get(id)!.pos), l.nodes.map(id => node.get(id)!.kind !== 'turn'))
+      const arr = walkSegs.get(l.level) ?? []
+      for (let i = 1; i < ps.length; i++) arr.push([ps[i - 1], ps[i]])
+      walkSegs.set(l.level, arr)
+    }
     const topSolid = Math.max(...[...shown].filter(([, v]) => v).map(([k]) => k))
     const above: THREE.Object3D[] = []
     for (const [li, solid] of shown) {
@@ -326,6 +356,8 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       if (li > topSolid) above.push(f, w)
       if (!solid) continue // ghost levels show the floor and the walls only
       const d = new THREE.Mesh(g.doors, doorMat); d.position.y = y; scene.add(d)
+      const lf = new THREE.Mesh(geo(doorLeaves(building, li, walkSegs.get(li) ?? [])), doorMat); lf.position.y = y; scene.add(lf)
+      if (li > topSolid) above.push(lf)
       const gl = new THREE.Mesh(g.glass, glassMat); gl.position.y = y; gl.renderOrder = 2; scene.add(gl)
       if (li > topSolid) above.push(d, gl)
     }
