@@ -848,7 +848,8 @@ html, body { overflow-x: hidden; }
 .sx-desk .sx-bottom.tall { top: var(--sx-top-h, 168px); }
 .sx-desk:has(.sx-bottom.tall) .sx-top .sx-chips { display: none; }
 .sx-desk .sx-side { top: 16px; right: 16px; }
-.sx-desk .sx-brand { left: calc(var(--col) + 48px); bottom: 20px; }
+.sx-desk .sx-brand { left: 16px; bottom: 20px; }
+.sx-desk:has(.sx-bottom:not(:empty)) .sx-brand, .sx-desk:has(.sx-modal) .sx-brand { left: calc(var(--col) + 48px); } /* step aside when a card sits bottom-left */
 .sx-desk .sx-modal { left: 16px; right: auto; bottom: 16px; width: var(--col); }
 .sx-desk .sx-dim { background: rgba(36, 36, 36, 0.25); }
 .sx-desk .sx-r3d .r3d-bar { left: 16px; right: 80px; bottom: 16px; }
