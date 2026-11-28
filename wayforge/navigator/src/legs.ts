@@ -1,18 +1,23 @@
 // Groups a route (list of waypoints) into the stages the visitor confirms:
 // walk on a floor -> take stairs/lift -> walk on a floor ... (e.g. "1 of 3 · Level 1").
 import type { Building, Route } from './types'
+import { tidyWalk } from './routeline'
 
 export type Leg =
   | { kind: 'walk'; level: number; nodes: string[]; metres: number; final: boolean }
   | { kind: 'stairs' | 'lift'; from: number; to: number; nodes: string[] }
 
+// node lookup per building, built once (a campus has tens of thousands of points)
+const nodeMaps = new WeakMap<Building, Map<string, Building['nodes'][number]>>()
 export function toLegs(b: Building, r: Route): Leg[] {
-  const node = new Map(b.nodes.map(n => [n.id, n]))
+  let node = nodeMaps.get(b)
+  if (!node) { node = new Map(b.nodes.map(n => [n.id, n])); nodeMaps.set(b, node) }
   const legs: Leg[] = []
   if (r.nodes.length < 2) return legs
   let walk: string[] = [r.nodes[0]]
   const flushWalk = () => {
     if (walk.length > 1) {
+      walk = tidyWalk(b, node!.get(walk[0])!.level, walk, node!) // hooks and loops at graph joins taken out (routeline.ts)
       let m = 0
       for (let i = 1; i < walk.length; i++) { const a = node.get(walk[i - 1])!, c = node.get(walk[i])!; m += Math.hypot(a.pos[0] - c.pos[0], a.pos[1] - c.pos[1]) }
       legs.push({ kind: 'walk', level: node.get(walk[0])!.level, nodes: walk, metres: m, final: false })

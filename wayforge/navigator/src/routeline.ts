@@ -3,7 +3,7 @@
 // For drawing, each point in a corridor is moved to the middle between the walls on either side (and at a turn, the
 // middle of the junction); points at doors stay in the doorway; nothing is moved if the line would then cross a wall.
 // Corners are then rounded off a little. Cached per building, floor and route.
-import type { Building, Vec2 } from './types'
+import type { Building, Node, Vec2 } from './types'
 
 type Seg = { ax: number; az: number; bx: number; bz: number; t: number }
 const CELL = 8
@@ -279,6 +279,51 @@ function smooth(b: Building, li: number, pts: Vec2[]): Vec2[] {
 }
 
 const norm = (v: Vec2): Vec2 | null => { const l = Math.hypot(v[0], v[1]); return l < 1e-6 ? null : [v[0] / l, v[1] / l] }
+
+// Hooks and loops in a walk on one floor. At some joins the walking graph runs a path a few metres past a turn and
+// back, for example a long outdoor edge that ends beyond the walkway it joins. tidyWalk removes these detours from
+// the list of points: a hook (a turn of more than 150°, with one side at most SPIKE_M long) loses its tip, and a loop
+// (the walk returns within LOOP_GAP of an earlier point after at least twice that distance plus LOOP_MIN) loses the
+// points in between. Only plain path points ('turn') are removed; rooms, stairs and lifts stay, and a point stays
+// whenever the straight line that would replace it crosses a wall.
+const SPIKE_COS = Math.cos((150 * Math.PI) / 180)
+const SPIKE_M = 8
+const LOOP_GAP = 3
+const LOOP_MIN = 4
+export function tidyWalk(b: Building, li: number, ids: string[], node: Map<string, Node>): string[] {
+  if (ids.length < 3) return ids
+  const g = wallGrid(b, li)
+  const P = (id: string) => node.get(id)!.pos
+  const plain = (id: string) => node.get(id)!.kind === 'turn'
+  const D = (a: Vec2, c: Vec2) => Math.hypot(a[0] - c[0], a[1] - c[1])
+  const out = ids.slice()
+  // loops: the farthest later point the walk comes back to, when every point in between is a plain path point
+  for (let i = 0; i < out.length - 2; i++) {
+    const cand: number[] = []
+    let run = 0
+    for (let j = i + 1; j < out.length; j++) {
+      run += D(P(out[j - 1]), P(out[j]))
+      if (!plain(out[j - 1]) && j - 1 > i) break // the points removed must all be plain path points
+      if (j < i + 2) continue
+      const d = D(P(out[i]), P(out[j]))
+      if (d <= LOOP_GAP && run >= d * 2 + LOOP_MIN) cand.push(j)
+    }
+    for (let c = cand.length - 1; c >= 0; c--) {
+      const j = cand[c]
+      if (crosses(g, P(out[i]), P(out[j]))) continue
+      out.splice(i + 1, j - i - 1)
+      break
+    }
+  }
+  // hooks: drop the tip while the line from the point before it to the point after it is clear of walls
+  for (let k = 1; k < out.length - 1;) {
+    const a = P(out[k - 1]), p = P(out[k]), n = P(out[k + 1]), l1 = D(a, p), l2 = D(p, n)
+    const hook = plain(out[k]) && l1 > 0.05 && l2 > 0.05 && Math.min(l1, l2) <= SPIKE_M &&
+      ((p[0] - a[0]) * (n[0] - p[0]) + (p[1] - a[1]) * (n[1] - p[1])) / (l1 * l2) <= SPIKE_COS
+    if (hook && !crosses(g, a, n)) { out.splice(k, 1); k = Math.max(1, k - 1) } else k++
+  }
+  return out
+}
 
 // how far a line stays from the walls (for checking): average and smallest clearance along it, and wall crossings
 export function clearance(b: Building, li: number, pts: Vec2[]) {

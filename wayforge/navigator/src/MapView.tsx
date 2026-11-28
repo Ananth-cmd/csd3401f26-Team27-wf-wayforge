@@ -31,7 +31,8 @@
  *   - Kannan: map drawing, camera and controls, labels, campus view, route line
  *   - Ananthan: speed-up for large buildings (shapes projected around the floor
  *     centre, so pan and zoom only move the SVG viewBox; slabs, zones and walls
- *     are rebuilt only when the floor or the rotation changes); surroundings
+ *     are rebuilt only when the floor or the rotation changes, and the hidden
+ *     SVG campus is not built while the rendered campus is shown); surroundings
  *     (ground, water, roads, trees, neighbouring buildings, landmarks); block
  *     and bridge colours; outside walls, windows and doors on the floor plan;
  *     per-block exterior finishes in the 3D campus view; rendered 3D campus
@@ -62,6 +63,10 @@ const SLAB_T = 0.45
 const ROOM_LABELS_FROM = 4.5 // px per metre at which room names start to show
 const MASS_ZOOM = 0.5 // zoomed out at least this far (1 = whole floor): the campus shows as 3D buildings
 const ICONS_FROM = 4.2 // px per metre at which toilet / lift / stairs / food icons show
+// Empty defaults for the optional route props, shared between renders so the route and wall memos keep the same
+// inputs while the camera moves.
+const NO_LINES: string[][] = []
+const NO_VERTICAL: Vertical[] = []
 // room colour by type (each room's place says what it is); classes are styled in index.css
 const roomClass = (category: string, name: string) => {
   const n = name.toLowerCase(), c = category.toLowerCase()
@@ -135,7 +140,7 @@ const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 // block name from a room code or id: "W1-01-15" / "W1_r185" -> "W1"
 const blockOf = (s: string) => { const m = /^([A-Za-z]{1,2}\d{1,2})[-_]/.exec(s.trim())?.[1]?.toUpperCase(); return m && !/^[LBF]\d{1,2}$/.test(m) ? m : undefined } // "L1-…" is a floor, not a block
 
-function MapView({ building, floor, topDown = false, onTopDown, lines = [], done = [], here, pin, focus, names, onPick, onBlock, pad, vertical = [], highlight }: MapProps) {
+function MapView({ building, floor, topDown = false, onTopDown, lines = NO_LINES, done = NO_LINES, here, pin, focus, names, onPick, onBlock, pad, vertical = NO_VERTICAL, highlight }: MapProps) {
   const pickRef = useRef(onPick)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref / one-off sync, intentional
   pickRef.current = onPick
@@ -538,7 +543,8 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     [rooms, lvl, centre, yaw, topDown]) // eslint-disable-line
   // ---- 3D campus: blocks far to near, each floor a slab with walls, window bands and a roof ----
   const massShapes = useMemo(() => {
-    if (!massMode || !mass) return null
+    // Built only while it is drawn: the rendered campus (Campus3D) takes its place once ready.
+    if (!massMode || !mass || campus3d === 'ready') return null
     const out: React.ReactElement[] = []
     const blocks = [...mass].sort((a, b) => dot([b.centre[0], 0, b.centre[1]], fwd) - dot([a.centre[0], 0, a.centre[1]], fwd))
     for (const m of blocks) for (const L of m.levels) {
@@ -584,7 +590,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       out.push(<g key={`${m.name}-${L.level}`} className={`m-mass fam-${fam}${fc ? ` fc fc-${fc.key}` : ''}${state}${own ? ' tint' : ''}`} style={style}>{faces.map(f => f.el)}<path className={`m-roof${top ? ' top' : ''}`} d={roof} fillRule="evenodd" />{sign}</g>)
     }
     return out
-  }, [massMode, mass, yaw, centre, floor, bridgeTint, building.blockColours]) // eslint-disable-line
+  }, [massMode, mass, campus3d, yaw, centre, floor, bridgeTint, building.blockColours]) // eslint-disable-line
   // One wall of a block in the 3D campus view, from corner p along (ux, uz) for len metres, between heights y0 and
   // y1. A block with a finish gets its texture (facadePatterns.tsx), drawn in wall coordinates through a matrix that
   // maps metres along the wall and height to the screen, so windows stay on the wall and line up floor by floor; then

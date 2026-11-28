@@ -6,10 +6,10 @@
  * buildings and trees as a lit 3D scene: sunlight with shadows, sky light,
  * and reflections. Walls carry the façade textures of their block
  * (campusTextures.ts, finishes from facades.ts) with a surface map, so glass
- * is smooth and reflects; roofs carry photovoltaic panels. Reflections come
- * from two environment maps: the sky, and a capture of the campus taken once
- * from its centre, which glass and water use so they show the buildings
- * around them.
+ * is smooth and reflects. Glass and water reflect a daylight sky environment:
+ * blue overhead, a pale horizon and pale blue-grey below it, so seen from
+ * above they read as light, clear glass and water. Thin outlines run along
+ * the roof edge and corners of each campus block, as on an illustrated map.
  *
  * The camera is orthographic and follows the map exactly: MapView.tsx passes
  * its own camera (right, up and forward vectors, the point at the middle of
@@ -31,7 +31,7 @@
  *
  * Original contribution: Ananthan Elangovan 100%
  *   - Campus scene: blocks, bridges, ground, water, roads, neighbours, trees
- *   - Sun, shadows, sky and campus reflections
+ *   - Sun, shadows, sky light and sky reflections on glass and water
  *   - Camera that follows the map's projection
  *
  * Additional W1 landmark layer: see landmarks/buildingDetails.ts.
@@ -79,10 +79,13 @@ type Props = {
   onFail: () => void  // no WebGL: the map keeps its own drawing
 }
 
-const AREA: Record<string, string> = { water: '#8fc1dc', grass: '#cfe3bb', park: '#c2dcab', trees: '#b4d39f', plaza: '#ece5d5' }
-const ROAD: Record<string, string> = { road: '#a9b1b5', path: '#eee5cf', cycle: '#d9c7aa'}
+const AREA: Record<string, string> = { water: '#8fc1dc', grass: '#cbe2b4', park: '#bcdba2', trees: '#a9cf8f', plaza: '#f1ede4' }
+const ROAD: Record<string, string> = { road: '#fbfbfa', path: '#efe8d6', cycle: '#e3d6bf' }
 const CANOPY = 0.9    // roof edge height above the top floor on the Campus Heart blocks, metres
 const PARAPET = 0.5   // roof edge height above the top floor on the other blocks, metres
+const HOOD_SOFTEN = 0.7 // share of the frame colour mixed into the W3 / W5 / W6 window hoods (0 = full red)
+const RIM = '#f5f6f8'   // roof edge and its cap band
+const RIM_W = 1.1       // width of the cap band on the roof, metres
 
 const inPoly = (x: number, z: number, poly: Vec2[]) => {
   let inside = false
@@ -130,12 +133,12 @@ function outlines(rings: Vec2[][]) {
   return rings.map((r, i) => ({ r, i })).filter(x => holeOf[x.i] < 0).map(({ r, i }) => ({ outer: r, holes: rings.filter((_, j) => holeOf[j] === i) }))
 }
 
-// Sky for lighting and reflections: blue overhead fading to a pale horizon and a warm ground.
+// Sky for lighting and reflections: blue overhead fading to a pale horizon, pale blue-grey below it.
 function skyEnvironment(pmrem: THREE.PMREMGenerator) {
   const scene = new THREE.Scene()
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false,
-    uniforms: { top: { value: new THREE.Color('#5f9bd3') }, horizon: { value: new THREE.Color('#e9f1f6') }, ground: { value: new THREE.Color('#b9b8a6') } },
+    uniforms: { top: { value: new THREE.Color('#6fa6d8') }, horizon: { value: new THREE.Color('#f1f6fa') }, ground: { value: new THREE.Color('#c3d1da') } },
     vertexShader: 'varying vec3 d; void main() { d = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: 'uniform vec3 top; uniform vec3 horizon; uniform vec3 ground; varying vec3 d; void main() { float h = d.y; vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.6)) : mix(horizon, ground, pow(-h, 0.4)); gl_FragColor = vec4(c, 1.0); }',
   })
@@ -164,7 +167,7 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.NeutralToneMapping
-    renderer.toneMappingExposure = 0.85
+    renderer.toneMappingExposure = 1.0
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFShadowMap
     renderer.shadowMap.autoUpdate = false // static scene: the shadow map is rendered once
@@ -175,7 +178,7 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     const pmrem = new THREE.PMREMGenerator(renderer)
     const sky = skyEnvironment(pmrem)
     scene.environment = sky
-    scene.environmentIntensity = 0.6
+    scene.environmentIntensity = 0.75
     const owned: { dispose: () => void }[] = [sky]
     const own = <T extends { dispose: () => void }>(x: T) => { owned.push(x); return x }
 
@@ -231,8 +234,14 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
           else if (fc?.frame && len >= 6) { const w = Math.min(2.2, len * 0.12); pieces = [[0, w, `plain:${fc.frame}:0.5:0.2`], [w, len - w, key], [len - w, len, `plain:${fc.frame}:0.5:0.2`]] }
           else if (fc?.edgeStripe && len >= 4) pieces = [[0, len - 1.4, key], [len - 1.4, len - 0.6, `plain:${fc.edgeStripe}:0.6:0`], [len - 0.6, len, key]]
           for (const [s0, s1, k] of pieces) { const [w, h] = sizeOf(k); bucket(tinted(k)).wall(at(s0), at(s1), y0, y1, s0, w, h) }
-          // roof edge: CANOPY high on the Campus Heart blocks (white roof canopy), PARAPET high elsewhere
-          if (top) bucket(tinted(`plain:${fc?.rim ?? '#d6d8d3'}:0.7:0`)).wall(p, q, y1, y1 + (fc?.key === 'heart' || fc?.key === 'hub' ? CANOPY : PARAPET), 0, 1, 1)
+          // roof edge: CANOPY high on the Campus Heart blocks (white roof canopy), PARAPET high elsewhere, capped by a
+          // white band RIM_W wide on the roof side, so each roof reads with a clear white border
+          if (top) {
+            const yr = y1 + (fc?.key === 'heart' || fc?.key === 'hub' ? CANOPY : PARAPET)
+            const ix = (-(q[1] - p[1]) / len) * RIM_W, iz = ((q[0] - p[0]) / len) * RIM_W // towards the roof (filled side on the left)
+            bucket(tinted(`plain:${RIM}:0.7:0`)).wall(p, q, y1, yr, 0, 1, 1)
+            bucket(tinted(`plain:${RIM}:0.6:0`)).flat([p, q, [q[0] + ix, q[1] + iz], [p[0] + ix, p[1] + iz]], [], yr + 0.01, 1, 1)
+          }
           box.expandByPoint(new THREE.Vector3(p[0], y1, -p[1]))
         })
         for (const { outer, holes } of outlines(L.rings)) {
@@ -247,7 +256,27 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
       const h = Math.min(50, nb.levels * 3.6), ccw = nb.polygon.reduce((a, p, i) => { const q = nb.polygon[(i + 1) % nb.polygon.length]; return a + p[0] * q[1] - q[0] * p[1] }, 0) > 0
       const ring = ccw ? nb.polygon : [...nb.polygon].reverse()
       ring.forEach((p, i) => { const q = ring[(i + 1) % ring.length]; bucket('office').wall(p, q, 0, h, 0, ...sizeOf('office')) })
-      bucket('plain:#e4e7e2:0.85:0').flat(ring, [], h, 1, 1)
+      bucket('plain:#e6e8ee:0.85:0').flat(ring, [], h, 1, 1)
+    }
+
+    // ---- outlines: thin lines along the roof edge and the corners of each campus block, as on an illustrated map ----
+    const edgePts: number[] = [], corner = Math.cos((25 * Math.PI) / 180)
+    for (const m of mass) {
+      if (/^BR/i.test(m.name)) continue
+      const fc = facadeOf(m.name), rim = fc?.key === 'heart' || fc?.key === 'hub' ? CANOPY : PARAPET
+      m.levels.forEach((L, li) => {
+        const top = li === m.levels.length - 1, y0 = L.elev, y1 = L.elev + L.h + (top ? rim : 0)
+        for (const r of L.rings) r.forEach((p, i) => {
+          const q = r[(i + 1) % r.length], o = r[(i + r.length - 1) % r.length]
+          if (top) edgePts.push(p[0], y1, -p[1], q[0], y1, -q[1])
+          const ax = p[0] - o[0], az = p[1] - o[1], bx = q[0] - p[0], bz = q[1] - p[1], la = Math.hypot(ax, az), lb = Math.hypot(bx, bz)
+          if (la > 0.05 && lb > 0.05 && (ax * bx + az * bz) / (la * lb) < corner) edgePts.push(p[0], y0, -p[1], p[0], y1, -p[1])
+        })
+      })
+    }
+    if (edgePts.length) {
+      const g = own(new THREE.BufferGeometry()); g.setAttribute('position', new THREE.Float32BufferAttribute(edgePts, 3))
+      scene.add(new THREE.LineSegments(g, own(new THREE.LineBasicMaterial({ color: 0x5f6879, transparent: true, opacity: 0.6 }))))
     }
 
     const group = new THREE.Group()
@@ -258,14 +287,24 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     }
     scene.add(group)
 
-    // Add W1 landmark geometry before the static shadows and reflections are captured.
+    // Add W1 landmark geometry before the static shadow map is rendered.
     addW1BuildingDetails(scene, mass, building.blockColours?.W1, own)
 
     // Add physical structural details to the link bridges.
     addBridgeDetails(scene, mass, bridgeColour, building.blockColours, own)
 
     // Add physical window hoods to W3, W5 and W6.
+    const beforeHoods = scene.children.length
     addHeartBuildingDetails(scene, mass, building.blockColours, own)
+    // At campus scale a hood is a few pixels across: hoods cast no shadow, and their red is mixed most of the way
+    // towards the white of the frames, so each window reads as a light frame on the glass facade.
+    const hoodWall = new THREE.Color('#f4f5f6'), hoodColour = new THREE.Color()
+    for (const o of scene.children.slice(beforeHoods)) o.traverse(c => {
+      c.castShadow = false
+      if (!(c instanceof THREE.InstancedMesh) || !c.instanceColor) return
+      for (let i = 0; i < c.count; i++) { c.getColorAt(i, hoodColour); c.setColorAt(i, hoodColour.lerp(hoodWall, HOOD_SOFTEN)) }
+      c.instanceColor.needsUpdate = true
+    })
 
     // Add architectural details to E1 and E3.
     addEastBuildingDetails(scene, mass, building.blockColours, own)
@@ -277,13 +316,14 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     addHeartRoofDetails(scene, mass, building.blockColours, own)
 
     // ---- ground, areas, roads ----
+    let waterMat: THREE.MeshStandardMaterial | null = null
     if (site) {
       const ground = new Bucket(), colours: number[] = [], water = new Bucket()
       const paint = (b: Bucket, colour: string, from: number) => { const c = new THREE.Color(colour); for (let i = from; i < b.pos.length / 3; i++) colours.push(c.r, c.g, c.b) }
       const [x0, z0, x1, z1] = site.bounds
       let n = 0
       const add = (poly: Vec2[], y: number, colour: string) => { ground.flat(poly, [], y, 1, 1); paint(ground, colour, n); n = ground.pos.length / 3 }
-      add([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], -0.3, '#e2e6db')
+      add([[x0, z0], [x1, z0], [x1, z1], [x0, z1]], -0.3, '#eceeeb')
       site.areas.forEach((a, i) => { if (a.kind === 'water') water.flat(a.polygon, [], -0.22, 1, 1); else add(a.polygon, -0.26 + i * 0.002, AREA[a.kind] ?? AREA.grass) })
       for (const r of site.roads) {
         const y = r.kind === 'road' ? -0.12 : -0.15, hw = r.width / 2, colour = ROAD[r.kind] ?? ROAD.path
@@ -311,7 +351,7 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
           }))
       )
       gm.receiveShadow = true; scene.add(gm)
-      const waterMat = createReservoirMaterial(own)
+      waterMat = createReservoirMaterial(own)
       reflective.push(waterMat)
       const wm = new THREE.Mesh(own(water.geometry()), waterMat); wm.receiveShadow = true; scene.add(wm)
       box.expandByPoint(new THREE.Vector3(x0, 0, -z0)).expandByPoint(new THREE.Vector3(x1, 0, -z1))
@@ -329,7 +369,7 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
 
     // ---- light: sky, sun with shadows over the whole campus ----
     // Neutral daylight and reflected ground lighting.
-    scene.add(new THREE.HemisphereLight(0xfff6ed, 0xc9c2ad, 0.65))
+    scene.add(new THREE.HemisphereLight(0xf4f8ff, 0xd6d2c4, 0.95))
     const centre = box.getCenter(new THREE.Vector3()), extent = box.getSize(new THREE.Vector3()).length() / 2
     const sun = new THREE.DirectionalLight(0xffedd8, 2.4)
     // Higher tropical daylight angle for shorter campus shadows.
@@ -352,23 +392,9 @@ export default function Campus3D({ building, mass, floor, view, width, height, v
     // Fit the static shadow camera around the campus.
     fitCampusShadow(sun, scene)
 
-    // ---- campus reflections: one capture from the middle of the campus, used by glass and water ----
-    const cubeRT = own(new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType }))
-    const cubeCam = new THREE.CubeCamera(1, extent * 4, cubeRT)
-    cubeCam.position.set(centre.x, 25, centre.z)
+    // ---- reflections: glass and water reflect the sky, as they do in daylight seen from above ----
     renderer.shadowMap.needsUpdate = true
-    // Include daylight in the campus reflection capture
-    // instead of leaving the empty background dark.
-    const previousBackground = scene.background
-
-    try {
-        scene.background = new THREE.Color('#c8d9e5')
-        cubeCam.update(renderer, scene)
-    } finally {
-        scene.background = previousBackground
-    }
-    const campusEnv = own(pmrem.fromCubemap(cubeRT.texture).texture)
-    for (const m of reflective) { m.envMap = campusEnv; m.envMapIntensity = 0.8; m.needsUpdate = true }
+    for (const m of reflective) { m.envMap = sky; m.envMapIntensity = m === waterMat ? 1.0 : 1.15; m.needsUpdate = true }
     pmrem.dispose()
 
     // ---- outline of the current floor ----

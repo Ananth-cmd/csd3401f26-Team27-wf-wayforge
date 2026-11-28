@@ -19,13 +19,17 @@
  * directions.ts; the map from MapView.tsx and the 3D route from Route3D.tsx.
  *
  * \author Kannan Shrinivasan (k.shrinivasan@digipen.edu.sg)
+ * \author Ananthan Elangovan (ananthan.e@digipen.edu)
  *
- * Contribution: Kannan Shrinivasan 100%
+ * Contribution: Kannan Shrinivasan, Ananthan Elangovan
+ *   Kannan Shrinivasan
  *   - Screen flow, back stack and URL state
  *   - Map-first phone and desktop layouts
  *   - Start / destination picker (building, level, room), search, recent places, QR
  *   - Route preview, step-by-step guidance, arrival and nearby facilities
  *   - Accessibility: keyboard search, ARIA, Esc as Back
+ *   Ananthan Elangovan
+ *   - Search result distances and nearby facilities from one route search per start
  *
  * AI declaration: Claude was used as a support tool for writing and debugging code and for the comments.
  *
@@ -36,7 +40,7 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Building, Node, Route } from './types'
-import { findRoute, loadBuilding } from './api'
+import { findRoute, findRoutes, loadBuilding } from './api'
 import { toLegs, walkMetres } from './legs'
 import type { Leg } from './legs'
 import { buildPlaces, components, isCodeQuery, searchPlaces } from './places'
@@ -314,9 +318,12 @@ export default function App() {
   const walkTo = useMemo(() => {
     const m = new Map<string, { metres: number; minutes: number } | null>()
     if (!b || !start) return m
-    for (const q of results.slice(0, WALK_ROWS)) {
+    const rows = results.slice(0, WALK_ROWS)
+    // one search from the start for all the rows (step-free chosen: distances without stairs)
+    const found = findRoutes(b, start.node, rows.filter(q => q.node !== start.node).map(q => q.node), choice === 'stepfree')
+    for (const q of rows) {
       if (q.node === start.node) { m.set(q.id, { metres: 0, minutes: 0 }); continue }
-      const r = findRoute(b, start.node, q.node, choice === 'stepfree') // step-free chosen: distances without stairs
+      const r = found.get(q.node)
       m.set(q.id, r ? { metres: r.metres, minutes: r.minutes } : null)
     }
     return m
@@ -502,9 +509,11 @@ export default function App() {
       : b.nodes.filter(n => n.kind === kind).map(n => ({ node: n.id, title: vname(n.id), place: P.byNode.get(n.id) }))
     const guess = (id: string) => { const n = node(id); return Math.abs(n.level - here.level) * 1000 + Math.hypot(n.pos[0] - here.pos[0], n.pos[1] - here.pos[1]) }
     const out: Near[] = []
-    for (const c of cands.filter(c => P.comp.get(c.node) === P.comp.get(from.node)).sort((x, y) => guess(x.node) - guess(y.node)).slice(0, 12)) {
-      // step-free chosen: the nearest one reachable without stairs
-      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1, cost: 0 } : findRoute(b, from.node, c.node, choice === 'stepfree')
+    const picks = cands.filter(c => P.comp.get(c.node) === P.comp.get(from.node)).sort((x, y) => guess(x.node) - guess(y.node)).slice(0, 12)
+    // one search from where you are for all the candidates (step-free chosen: the nearest one reachable without stairs)
+    const found = findRoutes(b, from.node, picks.filter(c => c.node !== from.node).map(c => c.node), choice === 'stepfree')
+    for (const c of picks) {
+      const r: Route | null = c.node === from.node ? { nodes: [c.node], passages: [], metres: 0, minutes: 1, cost: 0 } : found.get(c.node) ?? null
       if (r) out.push({ kind, node: c.node, title: c.title, level: node(c.node).level, metres: r.metres, route: r, place: c.place })
     }
     return out.sort((x, y) => x.route.cost - y.route.cost) // cheapest trip first (a lift ride counts), not just fewest metres
