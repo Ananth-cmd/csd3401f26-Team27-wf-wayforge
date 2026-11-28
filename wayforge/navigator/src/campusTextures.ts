@@ -6,23 +6,22 @@
  * pixels per metre from photographs of the built campus, together with a
  * surface map of the same tile: green channel = roughness, blue channel =
  * metalness, as three.js reads them. Glass is smooth and partly metallic so
- * it reflects the sky; precast, timber and
+ * it reflects the sky and the buildings around it; precast, timber and
  * planting are rough. A tile is `w` metres along the wall by `h` metres high
  * and starts at ground level, so with uv = (metres along the wall / w,
  * height / h) the windows line up with the floors.
  *
- *   heart       W3, W5, W6: blue-grey glass between white floor slabs and
- *               mullions, staggered windows in white frames (two floors per
- *               tile); the hoods are raised geometry in landmarks/heartDetails.ts
+ *   heart       W3, W5, W6: fluted beige precast, staggered windows in white
+ *               frames, each under a red hood (two floors per tile)
  *   hub         W1 library: red slats with light soffits between them
- *   court       E2, E5, E6: white slab bands, ribbon windows with mullions;
- *               the planting is raised geometry in landmarks/courtDetails.ts
+ *   court       E2, E5, E6: white slab bands, ribbon windows with mullions,
+ *               planting along the slab edge
  *   tower       E1: blue curtain-wall panel with mullion and transom
  *   auditorium  E3: bronze fins with a light slit every 6 m
  *   sports      E4: timber battens
  *   green       green wall with pink-flowering creepers
- *   pv          plain roof, soft cool grey
- *   office      neighbouring buildings: light grey with a pale window band
+ *   pv          roof with arrays of photovoltaic panels
+ *   office      neighbouring buildings: grey bands with window strips
  *   bridge      link bridge in its colour with a glass band
  *
  * Links: used by Campus3D.tsx; the finish of each block is chosen in
@@ -92,14 +91,17 @@ function tile(w: number, h: number, draw: (p: Pen) => void, base: string, baseSu
   return { w, h, map: tex(colour, true), surface: tex(surface, false) }
 }
 
-// W3, W5, W6: window x, y (bottom left of the glass), glass 1.3 x 2.0 m in a white frame with a centre mullion. The
-// red hood around each window is raised geometry (landmarks/heartDetails.ts), placed from the same coordinates.
+// W3, W5, W6: window x, y (bottom left of the glass), glass 1.3 x 2.0 m, white frame, red hood box over the top and
+// both sides (deeper on the right)
 function hoodWindow(p: Pen, x: number, y: number) {
   const w = 1.3, h = 2.0
-  p.rect(x - 0.09, y - 0.09, w + 0.18, h + 0.18, '#f7f8f9')
-  p.rect(x, y, w, h, p.glass(y, y + h, '#26375a', '#4c6189'), GLASS)
-  p.rect(x + w / 2 - 0.03, y, 0.06, h, '#f7f8f9', ROUGH)
-  p.rect(x, y + h - 0.35, w, 0.04, '#f7f8f9', ROUGH)
+  p.rect(x - 0.09, y - 0.09, w + 0.18, h + 0.18, '#f5f3ef')
+  p.rect(x, y, w, h, p.glass(y, y + h, '#56707e', '#a9bfca'), GLASS)
+  p.rect(x + w / 2 - 0.03, y, 0.06, h, '#f5f3ef', ROUGH)
+  p.rect(x - 0.28, y + h + 0.1, w + 0.7, 0.48, '#d2412c')
+  p.rect(x + w + 0.1, y - 0.15, 0.34, h + 0.73, '#a9311f')
+  p.rect(x - 0.28, y - 0.15, 0.14, h + 0.73, '#b8382a')
+  p.rect(x - 0.28, y + h + 0.52, w + 0.7, 0.06, '#e7735d')
 }
 
 export type TextureSet = Record<string, Tile>
@@ -110,29 +112,28 @@ export function campusTextures(): TextureSet {
   if (cache) return cache
   const set: TextureSet = {
     heart: tile(6, 2 * FLOOR, p => {
-      for (const y0 of [0, FLOOR]) {
-        p.rect(0, y0 + 0.45, 6, FLOOR - 0.45, p.glass(y0 + 0.45, y0 + FLOOR, '#2c3e63', '#566b93'), GLASS)
-        for (let x = 0; x < 6; x += 1.5) p.rect(x, y0, 0.07, FLOOR, '#f2f4f6', ROUGH)
-        p.rect(0, y0, 6, 0.45, '#f4f5f6', ROUGH)
-      }
+      for (let x = 0.15; x < 6; x += 0.3) p.rect(x, 0, 0.07, 2 * FLOOR, '#e2dbcf')
+      p.rect(0, 0, 6, 0.14, '#cfc7b7'); p.rect(0, FLOOR, 6, 0.14, '#cfc7b7')
       hoodWindow(p, 0.4, 1.0); hoodWindow(p, 3.4, 1.0); hoodWindow(p, 1.9, FLOOR + 1.0); hoodWindow(p, 4.4, FLOOR + 1.0)
-    }, '#f4f5f6'),
+    }, '#f0ebe2'),
     hub: tile(4, FLOOR, p => {
       for (let x = 0; x <= 4; x += 1) p.rect(x, 0, 0.06, FLOOR, '#6b5c55')
       for (const y of [0.3, 0.75, 1.2, 1.65, 2.1, 2.55, 3.0, 3.45, 3.9]) { p.rect(0, y, 4, 0.34, '#cf4430'); p.rect(0, y + 0.28, 4, 0.06, '#ec7259') }
       p.rect(0, 0, 4, 0.2, '#9e2f20')
     }, '#d9d3cb'),
     court: tile(9, FLOOR, p => {
-      p.rect(0, 1.35, 9, 1.95, p.glass(1.35, 3.3, '#2f4268', '#61769d'), GLASS)
-      for (let x = 0; x <= 9; x += 1.5) p.rect(x - 0.05, 1.35, 0.1, 1.95, '#f7f8f6', ROUGH)
-      p.rect(0, 3.3, 9, 0.12, '#e3e5e1'); p.rect(0, 1.29, 9, 0.06, '#dfe1dc')
-    }, '#f8f8f6'),
+      p.rect(0, 1.35, 9, 1.95, p.glass(1.35, 3.3, '#55656e', '#a3b5be'), GLASS)
+      for (let x = 0; x <= 9; x += 1.5) p.rect(x - 0.05, 1.35, 0.1, 1.95, '#eef0ed', ROUGH)
+      p.rect(0, 3.3, 9, 0.14, '#d8dad5'); p.rect(0, 1.28, 9, 0.07, '#c9ccc6')
+      ;[0.6, 1.3, 2.0, 2.9, 5.4, 6.1, 6.9, 7.6].forEach((x, i) => p.ellipse(x, 0.85 - (i % 2) * 0.12, 0.42, 0.3, '#4f8b3f'))
+      ;[0.9, 1.7, 2.5, 5.8, 6.5, 7.3].forEach(x => p.ellipse(x, 0.98, 0.3, 0.2, '#6aa653'))
+    }, '#f3f3f0'),
     tower: tile(1.5, FLOOR, p => {
-      p.rect(0, 0, 1.5, FLOOR, p.glass(0, FLOOR, '#243a63', '#5875a3'), GLASS)
-      p.rect(0, 0, 1.5, 0.38, '#1f2f4f', MATT_METAL)
+      p.rect(0, 0, 1.5, FLOOR, p.glass(0, FLOOR, '#456a88', '#93b6d1'), GLASS)
+      p.rect(0, 0, 1.5, 0.38, '#3b5870', MATT_METAL)
       p.rect(0, 0, 0.07, FLOOR, '#d9e4ec', MATT_METAL)
       p.rect(0, 0.38, 1.5, 0.04, '#c4d3de', MATT_METAL)
-    }, '#34507e', GLASS),
+    }, '#6f93b0', GLASS),
     auditorium: tile(6, FLOOR, p => {
       for (let x = 0.2; x < 6; x += 0.6) { p.rect(x, 0, 0.2, FLOOR, '#715843'); p.rect(x + 0.2, 0, 0.05, FLOOR, '#3a2c21') }
       p.rect(2.87, 0.4, 0.26, FLOOR - 0.8, '#e6d7b9', ROUGH)
@@ -148,10 +149,11 @@ export function campusTextures(): TextureSet {
       p.ellipse(0.6, 1.4, 0.07, 0.07, '#d98bb0'); p.ellipse(1.5, 0.8, 0.07, 0.07, '#d98bb0'); p.ellipse(0.3, 0.8, 0.06, 0.06, '#d98bb0')
     }, '#3d7535'),
     // Plain concrete roof without solar panel patterns.
-    pv: tile(14, 10, () => {}, '#d6dae4', ROUGH),
+    pv: tile(14, 10, () => {}, '#dedbd2', ROUGH),
     office: tile(3, 3.6, p => {
-      p.rect(0, 1.3, 3, 1.4, p.glass(1.3, 2.7, '#c9d4de', '#e2e8ee'), GLASS)
-    }, '#eef0f2'),
+      p.rect(0, 1.0, 3, 1.9, p.glass(1.0, 2.9, '#5a6b75', '#9aaab3'), GLASS)
+      p.rect(1.47, 1.0, 0.06, 1.9, '#d7dad6', ROUGH)
+    }, '#d3d6d0'),
   }
   cache = set
   return set
@@ -163,7 +165,7 @@ export function bridgeTexture(colour: string): Tile {
   let t = bridgeCache.get(colour)
   if (!t) {
     t = tile(4, FLOOR, p => {
-      p.rect(0, 1.0, 4, 2.2, p.glass(1.0, 3.2, '#2c3e63', '#5d729a'), GLASS)
+      p.rect(0, 1.0, 4, 2.2, p.glass(1.0, 3.2, '#4d5d66', '#a0b2bb'), GLASS)
       for (let x = 0; x < 4; x += 1) p.rect(x, 1.0, 0.06, 2.2, colour, ROUGH)
     }, colour)
     bridgeCache.set(colour, t)

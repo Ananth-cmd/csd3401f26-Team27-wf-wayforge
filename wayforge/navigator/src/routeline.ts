@@ -149,7 +149,7 @@ function centre(b: Building, li: number, src: Vec2[], pin?: boolean[]): Vec2[] {
     raw.push(q)
     if (pin?.[i]) fixed.add(q)
   })
-  if (raw.length < 3) return square(g, viaDoors(b, li, raw, fixed, doors), doors)
+  if (raw.length < 3) { const short = square(g, viaDoors(b, li, raw, fixed, doors), doors); return unhook(g, short, fixed) }
   const pts = raw
   const out = pts.map(p => [p[0], p[1]] as Vec2)
   // distance to the wall on one side: the nearest of a few parallel rays a little ahead and behind, so a doorway
@@ -225,7 +225,11 @@ function centre(b: Building, li: number, src: Vec2[], pin?: boolean[]): Vec2[] {
     }
     if (!changed) break
   }
-  const via = square(g, viaDoors(b, li, out, fixed, doors), doors) // rooms: in and out through the doorway, not through the wall
+  const routed = square(g, viaDoors(b, li, out, fixed, doors), doors) // rooms: in and out through the doorway, not through the wall
+  // points that stay where they are: rooms, stairs and lifts (pinned) and the doorway points added above
+  const held = new Set<Vec2>(fixed)
+  out.forEach((p, i) => { if (fixed.has(pts[i])) held.add(p) })
+  const via = unhook(g, routed, held)
   // straight runs: points that are now (almost) in line add nothing
   const keep: Vec2[] = [via[0]]
   for (let i = 1; i < via.length - 1; i++) {
@@ -279,6 +283,23 @@ function smooth(b: Building, li: number, pts: Vec2[]): Vec2[] {
 }
 
 const norm = (v: Vec2): Vec2 | null => { const l = Math.hypot(v[0], v[1]); return l < 1e-6 ? null : [v[0] / l, v[1] / l] }
+
+// U-turns in a drawn line. A room the walking graph joins to the corridor straight through its wall is drawn out
+// through its real doorway (viaDoors), which can be some way along the wall from where the route meets the
+// corridor; the line then runs on to that point and turns back. Where the line reverses (a turn of more than 150°)
+// at a point that is not held (rooms, stairs, lifts, doorways), the point is dropped while the straight line around
+// it crosses no wall.
+function unhook(g: Map<string, Seg[]>, pts: Vec2[], held: Set<Vec2>): Vec2[] {
+  const out = pts.slice()
+  const D = (a: Vec2, c: Vec2) => Math.hypot(a[0] - c[0], a[1] - c[1])
+  for (let k = 1; k < out.length - 1;) {
+    const a = out[k - 1], p = out[k], n = out[k + 1], l1 = D(a, p), l2 = D(p, n)
+    const back = !held.has(p) && l1 > 0.05 && l2 > 0.05 &&
+      ((p[0] - a[0]) * (n[0] - p[0]) + (p[1] - a[1]) * (n[1] - p[1])) / (l1 * l2) <= SPIKE_COS
+    if (back && !crosses(g, a, n)) { out.splice(k, 1); k = Math.max(1, k - 1) } else k++
+  }
+  return out
+}
 
 // Hooks and loops in a walk on one floor. At some joins the walking graph runs a path a few metres past a turn and
 // back, for example a long outdoor edge that ends beyond the walkway it joins. tidyWalk removes these detours from
