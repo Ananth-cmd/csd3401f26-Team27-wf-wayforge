@@ -81,7 +81,6 @@ const ICON_OF: Record<string, string> = { 'r-toilet': 'wf-i-toilet', 'r-lift': '
 const LANDMARK_ICON: Record<string, string> = { mrt: 'wf-i-mrt', bus: 'wf-i-bus', food: 'wf-i-food', shop: 'wf-i-shop', park: 'wf-i-park' }
 const GROUND_Y = -0.45 // height of the ground around the building, metres: the underside of the floor slab
 const DOOR_OPEN = (65 * Math.PI) / 180 // opening angle of the door leaves, radians
-const DOOR_NEAR = 5 // metres: a door this close to the route, to you, or to the destination is drawn open
 // 3D campus buildings, worked out once per building in a background worker (massing.ts)
 const massCache = new WeakMap<Building, Promise<MassBlock[]>>()
 function loadMassing(b: Building, node: Map<string, { level: number; pos: Vec2 }>): Promise<MassBlock[]> {
@@ -353,12 +352,26 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   // Doors a person is not going to walk through stay shut. A door is drawn open when the route passes close to it,
   // or when it belongs to where they are standing or heading - so an open door means "this one is yours", instead of
   // every room on the floor hanging open at once.
-  const openNear = useMemo(() => {
-    const pts: Vec2[] = []
-    for (const ids of [...lines, ...done]) for (const id of ids) { const n = node.get(id); if (n && n.level === floor) pts.push(n.pos) }
-    for (const id of [here, pin?.node]) { const n = id ? node.get(id) : null; if (n && n.level === floor) pts.push(n.pos) }
-    return pts
-  }, [lines, done, here, pin, node, floor])
+  const routeRuns = useMemo(() => {
+    const cache = new Map<string, Vec2[][]>()
+    for (const ids of [...lines, ...done]) {
+      const key = ids.join('|')
+      if (cache.has(key)) continue
+      const runs: string[][] = []
+      let cur: string[] = []
+      for (const id of ids) { if (node.get(id)?.level === floor) cur.push(id); else if (cur.length) { runs.push(cur); cur = [] } }
+      if (cur.length) runs.push(cur)
+      cache.set(key, runs.filter(r => r.length > 1).map(r => drawnRoute(building, floor, r.map(id => node.get(id)!.pos), r.map(id => node.get(id)!.kind !== 'turn'))))
+    }
+    return cache
+  }, [lines, done, building, floor, node])
+  // Every stretch of route drawn on this floor, as plain segments, so a door can ask whether the route goes
+  // through it rather than merely passes nearby.
+  const routeSegs = useMemo(() => {
+    const segs: [Vec2, Vec2][] = []
+    for (const runs of routeRuns.values()) for (const r of runs) for (let i = 1; i < r.length; i++) segs.push([r[i - 1], r[i]])
+    return segs
+  }, [routeRuns])
   const [turning, setTurning] = useState(false)
   const walls = useMemo(() => {
     const out: { depth: number; x?: [string, string]; polys: { pts: V3[]; shade: number; cls?: string }[] }[] = []
@@ -391,12 +404,18 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
     }
     // Doors: one leaf per doorway, hinged at the start of the span and opened by DOOR_OPEN. A span wider than
     // 1.5 m gets two leaves, one hinged at each end.
+    // A door opens only when the route goes through it: the drawn line has to cross the doorway itself. Passing
+    // along a corridor leaves the doors down that corridor shut, because the line runs parallel to their spans
+    // instead of across them. Closed is the default and costs nothing to decide when no route is on this floor.
+    const side = (a: Vec2, c: Vec2, q: Vec2) => (c[0] - a[0]) * (q[1] - a[1]) - (c[1] - a[1]) * (q[0] - a[0])
+    const crosses = (a: Vec2, c: Vec2, q: Vec2, r: Vec2) => side(a, c, q) * side(a, c, r) < 0 && side(q, r, a) * side(q, r, c) < 0
     for (const dr of lvl.doors ?? []) {
       const dx = dr.b[0] - dr.a[0], dz = dr.b[1] - dr.a[1], len = Math.hypot(dx, dz)
       if (len < 0.5) continue
-      // closed is the default, and costs nothing to decide when there is no route on this floor
-      const mx = (dr.a[0] + dr.b[0]) / 2, mz = (dr.a[1] + dr.b[1]) / 2
-      const open = openNear.some(q => Math.abs(q[0] - mx) < DOOR_NEAR && Math.abs(q[1] - mz) < DOOR_NEAR && Math.hypot(q[0] - mx, q[1] - mz) < DOOR_NEAR)
+      // the span reaches a little past each jamb, so a line that stops on the threshold still counts as through
+      const ex2 = (dx / len) * 0.15, ez2 = (dz / len) * 0.15
+      const spanA: Vec2 = [dr.a[0] - ex2, dr.a[1] - ez2], spanB: Vec2 = [dr.b[0] + ex2, dr.b[1] + ez2]
+      const open = routeSegs.some(([q, r]) => crosses(spanA, spanB, q, r))
       const swing = open ? DOOR_OPEN : 0 // a shut leaf lies along its own doorway
       const ux = dx / len, uz = dz / len, ca = Math.cos(swing), sa = Math.sin(swing)
       const leaves: [Vec2, number, number][] = len > 1.5 ? [[dr.a, 1, len / 2], [dr.b, -1, len / 2]] : [[dr.a, 1, len]]
@@ -407,7 +426,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
       }
     }
     return out.sort((a, b) => b.depth - a.depth)
-  }, [lvl, topDown, yaw, turning, building, floor, openNear, size.w, size.h]) // eslint-disable-line
+  }, [lvl, topDown, yaw, turning, building, floor, routeSegs, size.w, size.h]) // eslint-disable-line
 
   const zone = (id: string, half: number, cls: string) => {
     const n = node.get(id)!, [x, z] = n.pos
@@ -596,19 +615,7 @@ function MapView({ building, floor, topDown = false, onTopDown, lines = [], done
   const hereNode = here && node.get(here)?.level === floor ? here : null
   // the route line on this floor: each unbroken stretch drawn down the middle of the corridors, through doorways and
   // round the corners (routeline.ts; the route itself is findRoute's, unchanged)
-  const runCache = new Map<string, Vec2[][]>()
-  const runsOf = (ids: string[]) => {
-    const key = ids.join('|')
-    const hit = runCache.get(key)
-    if (hit) return hit
-    const runs: string[][] = []
-    let cur: string[] = []
-    for (const id of ids) { if (node.get(id)?.level === floor) cur.push(id); else if (cur.length) { runs.push(cur); cur = [] } }
-    if (cur.length) runs.push(cur)
-    const out = runs.filter(r => r.length > 1).map(r => drawnRoute(building, floor, r.map(id => node.get(id)!.pos), r.map(id => node.get(id)!.kind !== 'turn')))
-    runCache.set(key, out)
-    return out
-  }
+  const runsOf = (ids: string[]) => routeRuns.get(ids.join('|')) ?? []
   const onFloor = (ids: string[]) => { const y = 0.15 + (ids[0] ? lift(ids.find(id => node.get(id)?.level === floor) ?? ids[0]) : 0); return runsOf(ids).map(r => r.map(p => proj([p[0], y, p[1]]).join(',')).join(' ')) }
   // lifts / stairs on the route: the room lit up, and a lift / stairs sign over it saying where it takes you
   // (the one you're heading for pulses). Drawn at screen size, in px around the point.
