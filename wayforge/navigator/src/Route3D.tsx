@@ -2,12 +2,16 @@
  * \file Route3D.tsx
  * \brief Real 3D view of a route (three.js / WebGL), loaded only when a route is shown
  *
- * Whole route: the floors the route uses, pulled apart so you can see between
- * them, the route as a glowing line and lift / stair shafts joining the floors;
- * drag to orbit, "Walk me through" flies along the whole route. One stage
- * (navigation mode): that floor solid with the floors above and below
- * see-through; the camera walks the stage at eye level or follows from just
- * behind. Built from the same building data as the 2D map (rooms coloured by
+ * Whole route: the floors the route uses, with the building opened up above
+ * each of them so you can see in, the route as a glowing line and lift / stair
+ * shafts joining the floors; drag to orbit, "Walk me through" flies along the
+ * whole route. One stage (navigation mode): that floor solid with the floors
+ * above and below see-through; the camera walks the stage at eye level or
+ * follows from just behind. Overview (either mode): the whole building is
+ * drawn as a see-through shell (faint floor slabs, outside walls in the finish
+ * of their block, one storey high) so it still reads as one building, and only
+ * the floors the route uses are solid, with their insides showing.
+ * Built from the same building data as the 2D map (rooms coloured by
  * type, walls, doors as gaps). Falls back to the 2D map if WebGL fails.
  * Floors and walls are textured (tiles, panels), exterior walls take the
  * finish of their block, windows are glass panes and each doorway has a
@@ -28,6 +32,7 @@
  *   - Floor, wall and shaft geometry from the building data
  *   - Route line, orbit camera and the walk-through / follow cameras
  *   - Stage view with see-through floors above and below
+ *   - Overview: whole building as a see-through shell, route floors solid and opened up
  *   Ananthan Elangovan
  *   - Floor and wall textures, outside wall and link bridge colours
  *   - Exterior walls in the finish of their block
@@ -63,7 +68,11 @@ type Props = {
 
 const WALL_H = 2.7
 const EYE = 1.6
-const SPREAD = 2.6 // whole-route view: floors pulled apart this much
+const OPEN = 7 // the building is opened this much above each floor the route uses (metres), so you can see into it
+const SHELL_FLOOR = 0.18 // overview: opacity of the see-through floor slabs below the highest route floor
+const SHELL_FLOOR_ABOVE = 0.025 // ... and above it (kept faint: you look down through all of them)
+const SHELL_WALL = 0.3 // overview: opacity of the see-through outside walls below the highest route floor
+const SHELL_WALL_ABOVE = 0.13 // ... and above it
 const DOOR_H = 2.1 // door height, metres; the wall continues above it
 const LANDMARK_REACH = 120 // landmark names are shown up to this far from the route, metres
 const LANDMARK_GAP = 40 // minimum distance between two landmarks that both get a name, metres
@@ -232,6 +241,28 @@ function floorMesh(b: Building, li: number): FloorMesh {
   return out
 }
 
+// The outside walls of one floor for the see-through building in the overview: one box per exterior wall in the
+// finish of its block, 1 m high (the mesh is stretched to the storey height), no inside walls, doors or glass.
+// Cached per building and floor like floorMesh.
+const shellCache = new WeakMap<Building, Map<number, THREE.BufferGeometry>>()
+function shellMesh(b: Building, li: number): THREE.BufferGeometry {
+  let m = shellCache.get(b)
+  if (!m) { m = new Map(); shellCache.set(b, m) }
+  const hit = m.get(li)
+  if (hit) return hit
+  const S = boxes(), finish = wallFacades(b, li), plain = new THREE.Color(0xc48f70), tone = new Map<string, THREE.Color>()
+  for (const [i, w] of b.levels[li].walls.entries()) {
+    if (!w.exterior) continue
+    const hex = finish[i]?.[0]
+    let c = plain
+    if (hex) { c = tone.get(hex) ?? new THREE.Color(hex); tone.set(hex, c) }
+    S.add(w.a[0], -w.a[1], w.b[0], -w.b[1], Math.max(0.12, w.thickness) / 2, 0, 1, c, c)
+  }
+  const out = S.geometry()
+  m.set(li, out)
+  return out
+}
+
 // The door leaves for one floor. A leaf swings open only where the route actually crosses its doorway; every
 // other door on the floor stays shut, so an open door means "this one is on your way" rather than "this is a
 // door". Walking down a corridor leaves the doors along it closed, because the line runs parallel to their spans.
@@ -328,15 +359,21 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     const node = new Map(building.nodes.map(n => [n.id, n]))
     const whole = stage === undefined
     const liftStage = !whole && legs[stage!].kind !== 'walk'
-    const spread = whole || liftStage ? SPREAD : 1
-    const elev = (li: number) => (building.levels[li]?.elevation ?? li * building.floorHeight) * spread
-    const P = (id: string, dy = 0) => { const n = node.get(id)!; return new THREE.Vector3(n.pos[0], elev(n.level) + dy, -n.pos[1]) }
-
     // which floors: the route's floors (whole route) or this stage's floor(s) plus the ones above and below
     const shown = new Map<number, boolean>() // level -> solid?
     const use = whole ? legs : [legs[stage!]]
     for (const l of use) { if (l.kind === 'walk') shown.set(l.level, true); else { shown.set(l.from, true); shown.set(l.to, true) } }
     if (!whole && !liftStage) for (const li of [...shown.keys()]) for (const d of [-1, 1]) if (building.levels[li + d] && !shown.has(li + d)) shown.set(li + d, false)
+
+    // Heights: every floor at its real height, plus OPEN metres for each solid (route) floor below it. The building
+    // stays in one piece but opens up above each floor you use, so you can see into that floor from the side and
+    // the follow camera has room above it.
+    const realElev = (li: number) => building.levels[li]?.elevation ?? li * building.floorHeight
+    const solidAt = [...shown].filter(([, v]) => v).map(([k]) => realElev(k))
+    const elev = (li: number) => { const e = realElev(li); return e + OPEN * solidAt.filter(s => s < e - 0.01).length }
+    const storey = (li: number) => Math.max(WALL_H, building.levels[li + 1] ? realElev(li + 1) - realElev(li) : building.floorHeight || WALL_H)
+    const groundY = Math.min(...building.levels.map((_, i) => elev(i))) - 0.6 // surroundings sit under the lowest floor of the building
+    const P = (id: string, dy = 0) => { const n = node.get(id)!; return new THREE.Vector3(n.pos[0], elev(n.level) + dy, -n.pos[1]) }
     const mats: THREE.Material[] = [], geos: THREE.BufferGeometry[] = [] // freed when the view closes (floors stay cached)
     const mat = <T extends THREE.Material>(m: T) => { mats.push(m); return m }
     const geo = <T extends THREE.BufferGeometry>(g: T) => { geos.push(g); return g }
@@ -357,13 +394,14 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       walkSegs.set(l.level, arr)
     }
     const topSolid = Math.max(...[...shown].filter(([, v]) => v).map(([k]) => k))
-    const above: THREE.Object3D[] = []
+    const above: THREE.Object3D[] = [] // floors above the route: hidden in Follow (they would block the view from behind you)
+    const detail: THREE.Object3D[] = [] // see-through floors next to this stage, with their inside walls: Eye level / Follow only
     for (const [li, solid] of shown) {
       const g = floorMesh(building, li), y = elev(li)
       const f = new THREE.Mesh(g.floor, solid ? solidFloor : ghostFloor); f.position.y = y; scene.add(f)
       const w = new THREE.Mesh(g.walls, solid ? solidWall : ghostWall); w.position.y = y; scene.add(w)
       if (li > topSolid) above.push(f, w)
-      if (!solid) continue // ghost levels show the floor and the walls only
+      if (!solid) { detail.push(f, w); continue } // ghost levels show the floor and the walls only
       const d = new THREE.Mesh(g.doors, doorMat); d.position.y = y; scene.add(d)
       const lf = new THREE.Mesh(geo(doorLeaves(building, li, walkSegs.get(li) ?? [])), doorMat); lf.position.y = y; scene.add(lf)
       if (li > topSolid) above.push(lf)
@@ -371,11 +409,33 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       if (li > topSolid) above.push(d, gl)
     }
 
-    // Surroundings, placed 0.6 m below the lowest level shown: ground and areas, roads, neighbouring buildings
+    // Overview: the rest of the building as a see-through shell - every floor that is not solid gets a faint slab
+    // and its outside walls stretched to the full storey height, so the building reads as one block with the route
+    // floors solid inside it. Built the first time the overview is shown (a walking stage may never need it).
+    const shell: THREE.Object3D[] = []
+    let shellBuilt = false
+    const buildShell = () => {
+      if (shellBuilt) return
+      shellBuilt = true
+      const slab = mat(new THREE.MeshLambertMaterial({ color: 0xf4f1ea, side: THREE.DoubleSide, transparent: true, opacity: SHELL_FLOOR, depthWrite: false }))
+      const slabAbove = mat(new THREE.MeshLambertMaterial({ color: 0xf4f1ea, side: THREE.DoubleSide, transparent: true, opacity: SHELL_FLOOR_ABOVE, depthWrite: false }))
+      const skin = mat(new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: SHELL_WALL, depthWrite: false }))
+      const skinAbove = mat(new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: SHELL_WALL_ABOVE, depthWrite: false }))
+      for (const li of building.levels.keys()) {
+        if (shown.get(li)) continue // route floors are solid already
+        const y = elev(li)
+        const f = new THREE.Mesh(floorMesh(building, li).floor, li > topSolid ? slabAbove : slab); f.position.y = y
+        const w = new THREE.Mesh(shellMesh(building, li), li > topSolid ? skinAbove : skin); w.position.y = y; w.scale.y = storey(li)
+        f.renderOrder = w.renderOrder = 1
+        scene.add(f, w); shell.push(f, w)
+      }
+    }
+
+    // Surroundings, placed 0.6 m below the lowest floor of the building: ground and areas, roads, neighbouring buildings
     // and trees.
     const site = building.surroundings
     if (site) {
-      const y0 = Math.min(...[...shown.keys()].map(elev)) - 0.6
+      const y0 = groundY
       const gp: number[] = [], gc: number[] = [], tone = new THREE.Color()
       const flat = (poly: Vec2[], hex: number, y: number) => {
         const contour = poly.map(([x, z]) => new THREE.Vector2(x, -z))
@@ -457,7 +517,7 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
     // LANDMARK_MAX, and none within LANDMARK_GAP of one already taken. Long names are cut to LANDMARK_CHARS.
     const landmarkLabels: THREE.Sprite[] = []
     if (site) {
-      const gy = Math.min(...[...shown.keys()].map(elev)) + 6
+      const gy = groundY + 6.6
       const near = site.landmarks.map(lm => {
         const dx = Math.max(bb.min.x - lm.pos[0], 0, lm.pos[0] - bb.max.x), dz = Math.max(bb.min.z + lm.pos[1], 0, -lm.pos[1] - bb.max.z)
         return { lm, d: Math.hypot(dx, dz) }
@@ -604,6 +664,10 @@ export default function Route3D({ building, legs, stage, start, dest, names, cap
       arrowK = big ? K : 1
       you.visible = v !== 'eye' // at eye level you are the camera
       for (const o of above) o.visible = v !== 'follow' // the floor above would block the view from behind you
+      // Overview: the see-through building replaces the ghost floors next to the stage; walking views go back to those
+      if (v === 'orbit') buildShell()
+      for (const o of shell) o.visible = v === 'orbit'
+      for (const o of detail) o.visible = v === 'eye' || (v === 'follow' && !above.includes(o))
       if (v === 'orbit') { s = 0; const p0 = at(0, tmp); you.position.set(p0.x, p0.y - 0.35, p0.z) }
       if (v === 'orbit') { flying = false; hold(false); setPlaying(false); setCaption(''); camera.fov = 45; camera.updateProjectionMatrix(); orbitHome() }
       else { camera.fov = v === 'eye' ? 72 : 60; camera.updateProjectionMatrix(); place(true) }
